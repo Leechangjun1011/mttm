@@ -897,6 +897,9 @@ config IO_MAPPING
 config SECRETMEM
 	def_bool ARCH_HAS_SET_DIRECT_MAP && !EMBEDDED
 
+config MTTM
+	bool "Multi tenants tiered memory management"
+
 source "mm/damon/Kconfig"
 
 endmenu

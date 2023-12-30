@@ -188,6 +188,10 @@ static int min_extfrag_threshold;
 static int max_extfrag_threshold = 1000;
 #endif
 
+#ifdef CONFIG_MTTM
+extern int register_pid;
+#endif
+
 #endif /* CONFIG_SYSCTL */
 
 #if defined(CONFIG_BPF_SYSCALL) && defined(CONFIG_SYSCTL)
@@ -2845,6 +2849,18 @@ static struct ctl_table vm_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
+#endif
+#ifdef CONFIG_MTTM
+	{
+		.procname	= "register_pid",
+		.data		= &register_pid,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_register_pid,
+		.extra1		= SYSCTL_ONE,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{
