@@ -189,7 +189,7 @@ static int max_extfrag_threshold = 1000;
 #endif
 
 #ifdef CONFIG_MTTM
-extern int register_pid;
+extern int enable_ksampled;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2852,13 +2852,13 @@ static struct ctl_table vm_table[] = {
 #endif
 #ifdef CONFIG_MTTM
 	{
-		.procname	= "register_pid",
-		.data		= &register_pid,
+		.procname	= "enable_ksampled",
+		.data		= &enable_ksampled,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= sysctl_register_pid,
-		.extra1		= SYSCTL_ONE,
-		.extra2		= SYSCTL_INT_MAX,
+		.proc_handler	= sysctl_enable_ksampled,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 
 #endif
