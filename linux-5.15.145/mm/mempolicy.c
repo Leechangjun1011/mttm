@@ -107,7 +107,9 @@
 #include <linux/uaccess.h>
 
 #include "internal.h"
-
+#ifdef CONFIG_MTTM
+#include <linux/mttm.h>
+#endif
 /* Internal flags */
 #define MPOL_MF_DISCONTIG_OK (MPOL_MF_INTERNAL << 0)	/* Skip checks for continuous vmas */
 #define MPOL_MF_INVERT (MPOL_MF_INTERNAL << 1)		/* Invert check for nodemask */
@@ -2095,6 +2097,35 @@ struct page *alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 		page = alloc_page_interleave(gfp, order, nid);
 		goto out;
 	}
+
+#ifdef CONFIG_MTTM
+	if (vma->vm_mm && vma->vm_mm->mttm_enabled) {
+		struct task_struct *p = current;
+		struct mem_cgroup *memcg = mem_cgroup_from_task(p);
+		unsigned long max_nr_pages;
+		int nid = pol->mode == MPOL_PREFERRED ? first_node(pol->nodes) : node;
+		int orig_nid = nid;
+		unsigned int nr_pages = 1U << order;
+		pg_data_t *pgdat = NODE_DATA(nid);
+
+		if(!memcg)
+			goto use_default_pol;
+
+		max_nr_pages = READ_ONCE(memcg->nodeinfo[nid]->max_nr_base_pages);
+		if(max_nr_pages == ULONG_MAX)
+			goto use_default_pol;
+
+		while(max_nr_pages <= (get_nr_lru_pages_node(memcg, pgdat) + nr_pages)) {
+			nid = 1;
+			break;
+		}
+
+		mpol_cond_put(pol);
+		page = __alloc_pages_node(nid, gfp | __GFP_THISNODE, order);
+		goto out;
+	}
+use_default_pol:
+#endif
 
 	if (pol->mode == MPOL_PREFERRED_MANY) {
 		page = alloc_pages_preferred_many(gfp, order, node, pol);

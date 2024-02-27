@@ -9,9 +9,16 @@
 #include <linux/memcontrol.h>
 #include <linux/mempolicy.h>
 #include <linux/syscalls.h>
+#include <linux/mm.h>
+#include <linux/kernel.h>
+#include <linux/mm_inline.h>
+#include <linux/swap.h>
+#include <linux/pid.h>
+#include <linux/sched/task.h>
+#include <asm/pgtable.h>
 
 #include "../kernel/events/internal.h"
-
+#include "internal.h"
 #include <linux/mttm.h>
 
 int enable_ksampled = 0;
@@ -19,6 +26,42 @@ int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
+
+void mttm_mm_init(struct mm_struct *mm)
+{
+	if(current->mm) {
+		if(current->mm->mttm_enabled) {
+			mm->mttm_enabled = true;
+			return;
+		}
+	}
+	mm->mttm_enabled = false;
+}
+
+void free_pginfo_pte(struct page *pte)
+{
+	if(!PageMttm(pte))
+		return;
+	BUG_ON(pte->pginfo == NULL);
+	kmem_cache_free(pginfo_cache, pte->pginfo);
+	pte->pginfo = NULL;
+	ClearPageMttm(pte);
+}
+
+unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat)
+{
+	struct lruvec *lruvec;
+	unsigned long nr_pages = 0;
+	enum lru_list lru;
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+
+	for_each_lru(lru)
+		nr_pages += lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
+
+	return nr_pages;
+}
+
 
 static bool valid_va(unsigned long addr)
 {
@@ -45,7 +88,7 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 {
 	struct perf_event_attr attr;
 	struct file *file;
-	int event_fd, __pid;
+	int event_fd;
 
 	memset(&attr, 0, sizeof(struct perf_event_attr));
 
@@ -87,9 +130,7 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 
 SYSCALL_DEFINE1(mttm_register_pid,
 		pid_t, pid)
-{
-	int cpu, event;
-		
+{		
 	spin_lock(&register_lock);
 
 	if(current_tenants == LIMIT_TENANTS) {
@@ -97,6 +138,8 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		spin_unlock(&register_lock);
 		return 0;
 	}
+
+	current->mm->mttm_enabled = true;
 
 	current_tenants++;
 	spin_unlock(&register_lock);
@@ -109,8 +152,6 @@ SYSCALL_DEFINE1(mttm_register_pid,
 SYSCALL_DEFINE1(mttm_unregister_pid,
 		pid_t, pid)
 {
-	int i;
-
 	spin_lock(&register_lock);
 
 	current_tenants--;
@@ -121,25 +162,128 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	return 0;
 }
 
-/*
- * Called at page fault handler.
- * Allocate metadata for page info.
- */
-/*int register_pginfo(
+static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
+				unsigned long address)
 {
-//TODO
+	pte_t *pte, pte_struct;
+	spinlock_t *ptl;
+	pginfo_t *pginfo;
+	struct page *page, *pte_page;
+	int ret = 0;
 
+	pte = pte_offset_map_lock(vma->vm_mm, pmd, address, &ptl);
+	pte_struct = *pte;
+	if(!pte_present(pte_struct))
+		goto pte_unlock;
+
+	page = vm_normal_page(vma, address, pte_struct);
+	if(!page || PageKsm(page))
+		goto pte_unlock;
+
+	if(page != compound_head(page))
+		goto pte_unlock;
+
+	pte_page = virt_to_page((unsigned long)pte);
+	if(!PageMttm(pte_page)) {
+		goto pte_unlock;
+	}
+
+	pginfo = get_pginfo_from_pte(pte);
+	if(!pginfo) {
+		goto pte_unlock;
+	}
+	//update_base_page(vma, page, pginfo);
+	pginfo->nr_accesses++;
+	if(pginfo->nr_accesses == 8)
+		pr_info("[%s] accesses touch 8\n",__func__);
+
+	pte_unmap_unlock(pte, ptl);
+
+	if(page_to_nid(page) == 0)
+		return 1;
+	else 
+		return 2;
+
+pte_unlock:
+	pte_unmap_unlock(pte, ptl);
+	return ret;
+}
+
+static int __update_pmd_pginfo(struct vm_area_struct *vma, pud_t *pud,
+				unsigned long address)
+{
+	pmd_t *pmd, pmdval;
+	bool ret = 0;
+
+	pmd = pmd_offset(pud, address);
+	if(!pmd || pmd_none(*pmd))
+		return ret;
+
+	if(is_swap_pmd(*pmd))
+		return ret;
+
+	if(!pmd_trans_huge(*pmd) && !pmd_devmap(*pmd) && unlikely(pmd_bad(*pmd))) {
+		pmd_clear_bad(pmd);
+		return ret;
+	}
+
+	return __update_pte_pginfo(vma, pmd, address);
 }
 
 
-static void update_pginfo(unsigned long addr)
+static int __update_pginfo(struct vm_area_struct *vma, unsigned long address)
 {
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
 
+	pgd = pgd_offset(vma->vm_mm, address);
+	if(pgd_none_or_clear_bad(pgd))
+		return 0;
 
+	p4d = p4d_offset(pgd, address);
+	if(p4d_none_or_clear_bad(p4d))
+		return 0;
 
+	pud = pud_offset(p4d, address);
+	if(pud_none_or_clear_bad(pud))
+		return 0;
 
+	return __update_pmd_pginfo(vma, pud, address);
 }
-*/
+
+static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
+{
+	struct pid *pid_struct = find_get_pid(pid);
+	struct task_struct *p = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
+	struct mm_struct *mm = p ? p->mm : NULL;
+	struct vm_area_struct *vma;
+	int ret;
+	
+	if(!mm)
+		goto put_task;
+	if(!mm->mttm_enabled) {
+		goto put_task;
+	}
+	if(!mmap_read_trylock(mm))
+		goto put_task;
+
+	vma = find_vma(mm, address);
+	if(unlikely(!vma))
+		goto mmap_unlock;
+	if(!vma->vm_mm || !vma_migratable(vma) ||
+		(vma->vm_file && (vma->vm_flags & (VM_READ | VM_WRITE)) == (VM_READ)))
+		goto mmap_unlock;
+
+	
+	ret = __update_pginfo(vma, address);
+
+mmap_unlock:
+	mmap_read_unlock(mm);
+put_task:
+	put_pid(pid_struct);
+}
+
 
 static void ksampled_do_work(void)
 {
@@ -180,14 +324,10 @@ static void ksampled_do_work(void)
 				// It does not modify the up->data_head.
 				
 				head -= up->data_tail;
-				if(head > (up->data_size * MAX_SAMPLE_RATIO / 100)) {
-					pr_info("[%s] cond : true, head : %lu, max threshold : %lu, cpu : %d, event : %d\n",
-						__func__, head, up->data_size * MAX_SAMPLE_RATIO / 100, cpu, event);
+				if(head > (up->data_size * MAX_SAMPLE_RATIO / 100)) {	
 					cond = true;
 				}
 				else if (head < (up->data_size * MIN_SAMPLE_RATIO / 100)) {
-					//pr_info("[%s] cond : false, head : %lu, min threshold : %lu, cpu : %d, event : %d\n",
-					//	__func__, head, up->data_size * MIN_SAMPLE_RATIO / 100, cpu, event);
 					cond = false;
 				}
 
@@ -207,7 +347,9 @@ static void ksampled_do_work(void)
 							break;
 						}
 						
-						//update_pginfo
+						update_pginfo(me->pid, me->addr, event);
+						if(nr_sampled && nr_sampled % 500) {
+							pr_info("[%s] nr_sampled : %d\n",__func__,nr_sampled);
 						}
 						break;
 					case PERF_RECORD_THROTTLE:
@@ -243,7 +385,7 @@ static int ksampled(void *dummy)
 
 static int ksampled_run(void)
 {
-	int ret = 0, i, cpu, event;
+	int ret = 0, cpu, event;
 	if (!ksampled_thread) {
 		pfe = kzalloc(sizeof(struct perf_event **) * CORES_PER_SOCKET, GFP_KERNEL);
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {

@@ -109,6 +109,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
 
+#include <linux/mttm.h>
+
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -1072,6 +1074,9 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	init_tlb_flush_pending(mm);
 #if defined(CONFIG_TRANSPARENT_HUGEPAGE) && !USE_SPLIT_PMD_PTLOCKS
 	mm->pmd_huge_pte = NULL;
+#endif
+#ifdef CONFIG_MTTM
+	mttm_mm_init(mm);
 #endif
 	mm_init_uprobes_state(mm);
 	hugetlb_count_init(mm);

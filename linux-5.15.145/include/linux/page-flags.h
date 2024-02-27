@@ -141,6 +141,9 @@ enum pageflags {
 #ifdef CONFIG_KASAN_HW_TAGS
 	PG_skip_kasan_poison,
 #endif
+#ifdef CONFIG_MTTM
+	PG_mttm,
+#endif
 	__NR_PAGEFLAGS,
 
 	/* Filesystems */
@@ -461,6 +464,10 @@ PAGEFLAG(Idle, idle, PF_ANY)
 PAGEFLAG(SkipKASanPoison, skip_kasan_poison, PF_HEAD)
 #else
 PAGEFLAG_FALSE(SkipKASanPoison)
+#endif
+
+#ifdef CONFIG_MTTM
+PAGEFLAG(Mttm, mttm, PF_ANY)
 #endif
 
 /*

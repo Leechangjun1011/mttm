@@ -67,6 +67,8 @@
 #include <net/ip.h>
 #include "slab.h"
 
+#include <linux/mempolicy.h>
+#include <linux/mttm.h>
 #include <linux/uaccess.h>
 
 #include <trace/events/vmscan.h>
@@ -5151,6 +5153,9 @@ static int alloc_mem_cgroup_per_node_info(struct mem_cgroup *memcg, int node)
 	pn->usage_in_excess = 0;
 	pn->on_tree = false;
 	pn->memcg = memcg;
+#ifdef CONFIG_MTTM
+	pn->max_nr_base_pages = ULONG_MAX;
+#endif
 
 	memcg->nodeinfo[node] = pn;
 	return 0;
@@ -5241,6 +5246,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	INIT_LIST_HEAD(&memcg->deferred_split_queue.split_queue);
 	memcg->deferred_split_queue.split_queue_len = 0;
 #endif
+
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
 	return memcg;
 fail:
@@ -7535,3 +7541,88 @@ static int __init mem_cgroup_swap_init(void)
 core_initcall(mem_cgroup_swap_init);
 
 #endif /* CONFIG_MEMCG_SWAP */
+
+#ifdef CONFIG_MTTM 
+static int memcg_per_node_max_show(struct seq_file *m, void *v)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+    struct cftype *cur_file = seq_cft(m);
+    int nid = cur_file->numa_node_id;
+    unsigned long max = READ_ONCE(memcg->nodeinfo[nid]->max_nr_base_pages);
+
+    if (max == ULONG_MAX)
+        seq_puts(m, "max\n");
+    else
+        seq_printf(m, "%llu\n", (u64)max * PAGE_SIZE);
+
+    return 0;
+}
+
+static ssize_t memcg_per_node_max_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+    struct cftype *cur_file = of_cft(of);
+    int nid = cur_file->numa_node_id;
+    unsigned long max, nr_dram_pages = 0;
+    int err, n;
+
+    buf = strstrip(buf);
+    err = page_counter_memparse(buf, "max", &max);
+    if (err)
+        return err;
+
+    xchg(&memcg->nodeinfo[nid]->max_nr_base_pages, max);
+
+    /*
+    for_each_node_state(n, N_MEMORY) {
+        if (node_is_toptier(n)) {
+            if (memcg->nodeinfo[n]->max_nr_base_pages != ULONG_MAX)
+                nr_dram_pages += memcg->nodeinfo[n]->max_nr_base_pages;
+        }
+    }
+    if (nr_dram_pages)
+        memcg->max_nr_dram_pages = nr_dram_pages;
+    */
+    return nbytes;
+}
+
+static int pgdat_memcg_mttm_init(struct pglist_data *pgdat)
+{
+    pgdat->memcg_mttm_file = kzalloc(sizeof(struct cftype), GFP_KERNEL);
+    if (!pgdat->memcg_mttm_file) {
+        printk("error: fails to allocate pgdat->memcg_mttm_file\n");
+        return -ENOMEM;
+    }
+#ifdef CONFIG_LOCKDEP
+    lockdep_register_key(&(pgdat->memcg_mttm_file->lockdep_key));
+#endif
+    return 0;
+}
+
+int mem_cgroup_per_node_mttm_init(void)
+{
+    int nid;
+
+    for_each_node_state(nid, N_MEMORY) {
+        struct pglist_data *pgdat = NODE_DATA(nid);
+
+        if (!pgdat || pgdat->memcg_mttm_file)
+            continue;
+        if (pgdat_memcg_mttm_init(pgdat))
+            continue;
+
+        snprintf(pgdat->memcg_mttm_file->name, MAX_CFTYPE_NAME,
+                "max_at_node%d", nid);
+        pgdat->memcg_mttm_file->flags = CFTYPE_NOT_ON_ROOT;
+        pgdat->memcg_mttm_file->seq_show = memcg_per_node_max_show;
+        pgdat->memcg_mttm_file->write = memcg_per_node_max_write;
+        pgdat->memcg_mttm_file->numa_node_id = nid;
+
+        WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    pgdat->memcg_mttm_file));
+    }
+    return 0;
+}
+subsys_initcall(mem_cgroup_per_node_mttm_init);
+#endif

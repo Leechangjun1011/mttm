@@ -42,6 +42,9 @@
 #include "internal.h"
 #include "shuffle.h"
 
+#ifdef CONFIG_MTTM
+#include <linux/memcontrol.h>
+#endif
 
 /*
  * memory_hotplug.memmap_on_memory parameter
@@ -1152,6 +1155,9 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages,
 
 	memory_notify(MEM_ONLINE, &arg);
 	mem_hotplug_done();
+#ifdef CONFIG_MTTM
+	mem_cgroup_per_node_mttm_init();
+#endif
 	return 0;
 
 failed_addition:

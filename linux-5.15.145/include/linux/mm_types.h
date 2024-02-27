@@ -162,7 +162,14 @@ struct page {
 		struct {	/* Page table pages */
 			unsigned long _pt_pad_1;	/* compound_head */
 			pgtable_t pmd_huge_pte; /* protected by page->ptl */
+#ifdef CONFIG_MTTM
+			union {
+				pginfo_t *pginfo;
+				unsigned long _pt_pad_2;
+			};
+#else
 			unsigned long _pt_pad_2;	/* mapping */
+#endif
 			union {
 				struct mm_struct *pt_mm; /* x86 pgds only */
 				atomic_t pt_frag_refcount; /* powerpc */
@@ -580,6 +587,11 @@ struct mm_struct {
 #ifdef CONFIG_IOMMU_SUPPORT
 		u32 pasid;
 #endif
+
+#ifdef CONFIG_MTTM
+		bool mttm_enabled;
+#endif
+
 	} __randomize_layout;
 
 	/*

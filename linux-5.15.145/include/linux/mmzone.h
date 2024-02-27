@@ -884,6 +884,10 @@ typedef struct pglist_data {
 	struct deferred_split deferred_split_queue;
 #endif
 
+#ifdef CONFIG_MTTM
+	struct cftype *memcg_mttm_file;
+#endif
+
 	/* Fields commonly accessed by the page reclaim scanner */
 
 	/*
@@ -959,6 +963,8 @@ static inline struct pglist_data *lruvec_pgdat(struct lruvec *lruvec)
 	return container_of(lruvec, struct pglist_data, __lruvec);
 #endif
 }
+
+extern unsigned long lruvec_lru_size(struct lruvec *lruvec, enum lru_list lru, int zone_idx);
 
 #ifdef CONFIG_HAVE_MEMORYLESS_NODES
 int local_memory_node(int node_id);

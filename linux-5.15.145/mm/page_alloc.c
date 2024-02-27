@@ -7475,6 +7475,9 @@ static void __meminit pgdat_init_internals(struct pglist_data *pgdat)
 
 	pgdat_page_ext_init(pgdat);
 	lruvec_init(&pgdat->__lruvec);
+#ifdef CONFIG_MTTM
+	pgdat->memcg_mttm_file = NULL;
+#endif
 }
 
 static void __meminit zone_init_internals(struct zone *zone, enum zone_type idx, int nid,

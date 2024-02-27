@@ -1703,3 +1703,20 @@ void __meminit vmemmap_populate_print_last(void)
 	}
 }
 #endif
+
+#ifdef CONFIG_MTTM
+struct kmem_cache *pginfo_cache;
+
+static int __init pginfo_cache_init(void)
+{
+	pginfo_cache = kmem_cache_create("pginfo",
+					sizeof(pginfo_t),
+					sizeof(pginfo_t),
+					SLAB_PANIC,
+					NULL);
+	return 0;
+}
+core_initcall(pginfo_cache_init);
+
+#endif
+

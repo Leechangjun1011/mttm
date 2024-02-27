@@ -25,4 +25,5 @@ enum eventtype {
 };
 
 
-
+extern void mttm_mm_init(struct mm_struct *mm);
+extern unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat);
