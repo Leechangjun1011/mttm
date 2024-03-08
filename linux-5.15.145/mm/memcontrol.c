@@ -5155,6 +5155,10 @@ static int alloc_mem_cgroup_per_node_info(struct mem_cgroup *memcg, int node)
 	pn->memcg = memcg;
 #ifdef CONFIG_MTTM
 	pn->max_nr_base_pages = ULONG_MAX;
+	pn->need_cooling = false;
+	pn->need_adjusting = false;
+	pn->need_adjusting_all = false;
+	pn->need_demotion = false;
 #endif
 
 	memcg->nodeinfo[node] = pn;
@@ -5246,7 +5250,21 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	INIT_LIST_HEAD(&memcg->deferred_split_queue.split_queue);
 	memcg->deferred_split_queue.split_queue_len = 0;
 #endif
-
+#ifdef CONFIG_MTTM
+	memcg->kmigrated = NULL;
+	spin_lock_init(&memcg->access_lock);
+	memcg->max_nr_dram_pages = ULONG_MAX;
+	memcg->nr_sampled = 0;
+	memcg->nr_alloc = 0;
+	memcg->cooling_clock = 0;
+	memcg->active_threshold = MTTM_INIT_THRESHOLD;
+	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+	memcg->cooling_period = MTTM_COOLING_PERIOD;
+	memcg->adjust_period = MTTM_ADJUST_PERIOD;
+	for(i = 0; i < 16; i++)
+		memcg->hotness_hg[i] = 0;
+	memcg->cooled = false;
+#endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
 	return memcg;
 fail:
@@ -7543,6 +7561,184 @@ core_initcall(mem_cgroup_swap_init);
 #endif /* CONFIG_MEMCG_SWAP */
 
 #ifdef CONFIG_MTTM 
+static int memcg_hotness_hg_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	struct seq_buf s;
+	int i;
+
+	seq_buf_init(&s, kmalloc(PAGE_SIZE, GFP_KERNEL), PAGE_SIZE);
+	if(!s.buffer)
+		return 0;
+	for(i = 0; i < 16; i++) {
+		seq_buf_printf(&s, "hotness_hg[%2d]: %10lu\n", i, memcg->hotness_hg[i]);
+	}
+
+	seq_puts(m, s.buffer);
+	kfree(s.buffer);
+	return 0;
+}
+
+static struct cftype memcg_hotness_hg_file[] = {
+	{
+		.name = "hotness_hg",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_hotness_hg_show,
+	},
+	{},
+};
+
+static int __init mem_cgroup_hotness_hg_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_hotness_hg_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_hotness_hg_init);
+
+
+static int memcg_hotness_stat_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	struct seq_buf s;
+	unsigned long hot = 0, warm = 0, cold = 0;
+	int i;
+
+	seq_buf_init(&s, kmalloc(PAGE_SIZE, GFP_KERNEL), PAGE_SIZE);
+	if(!s.buffer)
+		return 0;
+	for(i = 15; i >= 0; i--) {
+		if(i >= memcg->active_threshold)
+			hot += memcg->hotness_hg[i];
+		else if(i >= memcg->warm_threshold)
+			warm += memcg->hotness_hg[i];
+		else
+			cold += memcg->hotness_hg[i];
+	}
+
+	seq_buf_printf(&s, "hot %lu warm %lu cold %lu\n", hot, warm, cold);
+	seq_buf_printf(&s, "active_threshold %u warm_threshold %u\n",
+			memcg->active_threshold, memcg->warm_threshold);
+	seq_buf_printf(&s, "cooling_clock %u\n", memcg->cooling_clock);
+	seq_buf_printf(&s, "max_nr_dram_pages %lu\n", memcg->max_nr_dram_pages);
+
+	seq_puts(m, s.buffer);
+	kfree(s.buffer);
+	return 0;
+}
+
+static struct cftype memcg_hotness_stat_file[] = {
+	{
+		.name = "hotness_stat",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_hotness_stat_show,
+	},
+	{},
+};
+
+static int __init mem_cgroup_hotness_stat_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_hotness_stat_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_hotness_stat_init);
+
+static int memcg_cooling_period_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	unsigned long cooling_period = READ_ONCE(memcg->cooling_period);
+
+	seq_printf(m, "cooling_period %lu\n", cooling_period);
+	return 0;
+}
+
+static ssize_t memcg_cooling_period_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+    struct cftype *cur_file = of_cft(of);
+    unsigned long cooling_period;
+    int err;
+
+    buf = strstrip(buf);
+    err = kstrtoul(buf, 10, &cooling_period);
+    if (err) {
+        pr_info("[%s] parsing error\n",__func__);
+        return err;
+    }
+
+    xchg(&memcg->cooling_period, cooling_period);
+ 
+    return nbytes;
+}
+
+static struct cftype memcg_cooling_period_file[] = {
+	{
+		.name = "cooling_period",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_cooling_period_show,
+                .write = memcg_cooling_period_write,
+	},
+	{},
+};
+
+static int __init mem_cgroup_cooling_period_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_cooling_period_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_cooling_period_init);
+
+static int memcg_adjust_period_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	unsigned long adjust_period = READ_ONCE(memcg->adjust_period);
+
+	seq_printf(m, "adjust_period %lu\n", adjust_period);
+	return 0;
+}
+
+static ssize_t memcg_adjust_period_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+    unsigned long adjust_period;
+    int err;
+
+    buf = strstrip(buf);
+    err = kstrtoul(buf, 10, &adjust_period);
+    if (err) {
+        pr_info("[%s] parsing error\n",__func__);
+        return err;
+    }
+
+    xchg(&memcg->adjust_period, adjust_period);
+ 
+    return nbytes;
+}
+
+static struct cftype memcg_adjust_period_file[] = {
+	{
+		.name = "adjust_period",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_adjust_period_show,
+                .write = memcg_adjust_period_write,
+	},
+	{},
+};
+
+static int __init mem_cgroup_adjust_period_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_adjust_period_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_adjust_period_init);
+
+
+
 static int memcg_per_node_max_show(struct seq_file *m, void *v)
 {
     struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
@@ -7574,7 +7770,7 @@ static ssize_t memcg_per_node_max_write(struct kernfs_open_file *of,
 
     xchg(&memcg->nodeinfo[nid]->max_nr_base_pages, max);
 
-    /*
+    
     for_each_node_state(n, N_MEMORY) {
         if (node_is_toptier(n)) {
             if (memcg->nodeinfo[n]->max_nr_base_pages != ULONG_MAX)
@@ -7583,7 +7779,7 @@ static ssize_t memcg_per_node_max_write(struct kernfs_open_file *of,
     }
     if (nr_dram_pages)
         memcg->max_nr_dram_pages = nr_dram_pages;
-    */
+    
     return nbytes;
 }
 

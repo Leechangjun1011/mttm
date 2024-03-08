@@ -141,8 +141,12 @@ struct mem_cgroup_per_node {
 	struct lruvec_stats			lruvec_stats;
 
 	unsigned long		lru_zone_size[MAX_NR_ZONES][NR_LRU_LISTS];
-#ifdef CONFIG_MTTM
+#ifdef CONFIG_MTTM // mem_cgroup_per_node
 	unsigned long		max_nr_base_pages; /* Set by "max_at_node" param */
+	bool			need_cooling;
+	bool			need_adjusting;
+	bool			need_adjusting_all;
+	bool			need_demotion;
 #endif
 	struct mem_cgroup_reclaim_iter	iter;
 
@@ -354,7 +358,22 @@ struct mem_cgroup {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	struct deferred_split deferred_split_queue;
 #endif
-
+#ifdef CONFIG_MTTM // struct mem_cgroup
+	struct task_struct	*kmigrated;
+	spinlock_t		kmigrated_lock;
+	wait_queue_head_t	kmigrated_wait;
+	unsigned long		cooling_period;
+	unsigned long		adjust_period;
+	unsigned long		max_nr_dram_pages;
+	unsigned long		nr_alloc;
+	unsigned long		nr_sampled;
+	unsigned int		cooling_clock;
+	unsigned int		active_threshold;
+	unsigned int		warm_threshold;
+	spinlock_t		access_lock;// lock for histogram
+	unsigned long		hotness_hg[16];// page distribution
+	bool			cooled;
+#endif
 	struct mem_cgroup_per_node *nodeinfo[];
 };
 

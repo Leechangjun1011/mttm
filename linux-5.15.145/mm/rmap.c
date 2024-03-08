@@ -74,6 +74,10 @@
 #include <linux/memremap.h>
 #include <linux/userfaultfd_k.h>
 
+#ifdef CONFIG_MTTM
+#include <linux/random.h>
+#include <linux/mttm.h>
+#endif
 #include <asm/tlbflush.h>
 
 #include <trace/events/tlb.h>
@@ -901,6 +905,152 @@ int page_referenced(struct page *page,
 
 	return pra.referenced;
 }
+
+#ifdef CONFIG_MTTM
+struct mttm_cooling_arg {
+	/*
+	 * page_is_hot
+	 * 0 : already cooled.
+	 * 1 : cold after cooling
+	 * 2 : hot after cooling
+	 */
+	int page_is_hot;
+	struct mem_cgroup *memcg;
+};
+
+static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
+					unsigned long address, void *arg)
+{
+	struct mttm_cooling_arg *mca = arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+	pginfo_t *pginfo;
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pte) {
+			struct page *pte_page;
+			unsigned int memcg_cclock;
+			unsigned long cur_idx;
+			pte_t *pte = pvmw.pte;
+
+			pte_page = virt_to_page((unsigned long)pte);
+			if(!PageMttm(pte_page))
+				continue;
+
+			pginfo = get_pginfo_from_pte(pte);
+			if(!pginfo)
+				continue;	
+
+			spin_lock(&mca->memcg->access_lock);
+			memcg_cclock = READ_ONCE(mca->memcg->cooling_clock);
+			if(memcg_cclock > pginfo->cooling_clock) {
+				unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+				pginfo->nr_accesses >>= diff;
+				
+				cur_idx = get_idx(pginfo->nr_accesses);
+				mca->memcg->hotness_hg[cur_idx]++;
+				
+				if(cur_idx >= (mca->memcg->active_threshold - 1))
+					mca->page_is_hot = 2;
+				else
+					mca->page_is_hot = 1;
+				pginfo->cooling_clock = memcg_cclock;		
+			}
+			spin_unlock(&mca->memcg->access_lock);
+		}
+	}
+
+	return true;
+}
+
+int cooling_page(struct page *page, struct mem_cgroup *memcg)
+{
+	struct mttm_cooling_arg mca = {
+		.page_is_hot = 0,
+		.memcg = memcg,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = cooling_page_one,
+		.arg = (void *)&mca,
+	};
+
+	if(!memcg)
+		return false;
+	if(!PageAnon(page) || PageKsm(page))
+		return false;
+	if(!page_mapped(page))
+		return false;
+
+	rmap_walk(page, &rwc);
+	return mca.page_is_hot;
+}
+
+static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma,
+				unsigned long address, void *arg)
+{
+	struct mttm_cooling_arg *mca = arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+	pginfo_t *pginfo;
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pte) {
+			struct page *pte_page;
+			unsigned long cur_idx;
+			pte_t *pte = pvmw.pte;
+
+			pte_page = virt_to_page((unsigned long)pte);
+			if(!PageMttm(pte_page))
+				continue;
+			
+			pginfo = get_pginfo_from_pte(pte);
+			if(!pginfo)
+				continue;
+
+			cur_idx = get_idx(pginfo->nr_accesses);
+			if(cur_idx >= mca->memcg->active_threshold)
+				mca->page_is_hot = 2;
+			else
+				mca->page_is_hot = 1;
+		}
+	}
+
+	return true;
+}
+
+int page_check_hotness(struct page *page, struct mem_cgroup *memcg)
+{
+	struct mttm_cooling_arg mca = {
+		.page_is_hot = 0,
+		.memcg = memcg,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = page_check_hotness_one,
+		.arg = (void *)&mca,
+	};
+
+	if(!PageAnon(page) || PageKsm(page))
+		return -1;
+	if(!page_mapped(page))
+		return -1;
+
+	rmap_walk(page, &rwc);
+	return mca.page_is_hot;
+}
+
+#endif
 
 static bool page_mkclean_one(struct page *page, struct vm_area_struct *vma,
 			    unsigned long address, void *arg)

@@ -1,6 +1,6 @@
 /*
- * Control plane for multi tenants tiered memory.
- * It includes PEBS sampling, hot/cold identification, requesting migration.
+ * It includes ksampled and miscellaneous function.
+ * ksampled handles PEBS samples.
  */
 
 #include <linux/kthread.h>
@@ -27,6 +27,68 @@ struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
 
+bool node_is_toptier(int nid)
+{
+	return (nid == 0) ? true : false;
+}
+
+static unsigned int get_accesses_from_idx(unsigned int idx)
+{
+	unsigned int accesses = 1;
+	if(idx == 0)
+		return 0;
+
+	while(idx--) {
+		accesses <<= 1;
+	}
+
+	return accesses;
+}
+
+unsigned int get_idx(unsigned long num)
+{
+	unsigned int cnt = 0;
+
+	num++;
+	while (1) {
+		num = num >> 1;
+		if(num)
+			cnt++;
+		else
+			return cnt;
+		if(cnt == 15)
+			break;
+	}
+
+	return cnt;
+}
+
+int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
+{
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(mm);
+	struct page *pte_page;
+	pginfo_t *pginfo;
+	int initial_hotness;
+
+	if(!memcg)
+		return 0;
+
+	pte_page = virt_to_page((unsigned long)pte);
+	if(!PageMttm(pte_page))
+		return 0;
+
+	pginfo = get_pginfo_from_pte(pte);
+	if(!pginfo)
+		return 0;
+
+	initial_hotness = get_accesses_from_idx(memcg->active_threshold + 1);
+
+	pginfo->nr_accesses = initial_hotness;
+	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock) + 1;
+
+	return 0;
+}
+
 void mttm_mm_init(struct mm_struct *mm)
 {
 	if(current->mm) {
@@ -48,6 +110,31 @@ void free_pginfo_pte(struct page *pte)
 	ClearPageMttm(pte);
 }
 
+void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg)
+{
+	struct page *pte_page;
+	unsigned int idx;
+	pginfo_t *pginfo;
+
+	if(!memcg)
+		return;
+
+	pte_page = virt_to_page((unsigned long)pte);
+	if(!PageMttm(pte_page))
+		return;
+
+	pginfo = get_pginfo_from_pte(pte);
+	if(!pginfo)
+		return;
+
+	idx = get_idx(pginfo->nr_accesses);
+
+	spin_lock(&memcg->access_lock);
+	if(memcg->hotness_hg[idx] > 0)
+		memcg->hotness_hg[idx]--;
+	spin_unlock(&memcg->access_lock);
+}
+
 unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat)
 {
 	struct lruvec *lruvec;
@@ -61,7 +148,6 @@ unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat)
 
 	return nr_pages;
 }
-
 
 static bool valid_va(unsigned long addr)
 {
@@ -140,6 +226,8 @@ SYSCALL_DEFINE1(mttm_register_pid,
 	}
 
 	current->mm->mttm_enabled = true;
+	if(kmigrated_init(mem_cgroup_from_task(current)))
+		pr_info("[%s] failed to start kmigrated\n",__func__);
 
 	current_tenants++;
 	spin_unlock(&register_lock);
@@ -155,11 +243,259 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	spin_lock(&register_lock);
 
 	current_tenants--;
+	kmigrated_stop(mem_cgroup_from_task(current));
 
 	spin_unlock(&register_lock);
 	pr_info("[%s] unregistered pid : %d, current_tenants : %d\n",
 		__func__, pid, current_tenants);
 	return 0;
+}
+
+static bool need_memcg_cooling(struct mem_cgroup *memcg)
+{
+	unsigned long usage = page_counter_read(&memcg->memory);
+	if(memcg->nr_alloc + MTTM_THRES_COOLING_ALLOC <= usage) {
+		memcg->nr_alloc = usage;
+		return true;
+	}
+	return false;
+}
+
+static void set_lru_cooling(struct mem_cgroup *memcg)
+{
+	struct mem_cgroup_per_node *pn;
+	int nid;
+
+	if(!memcg)
+		return;
+
+	for_each_node_state(nid, N_MEMORY) {
+		pn = memcg->nodeinfo[nid];
+		if(!pn)
+			continue;
+		WRITE_ONCE(pn->need_cooling, true);
+	}
+}
+
+static void reset_memcg_stat(struct mem_cgroup *memcg)
+{
+	int i;
+	for(i = 0; i < 16; i++){
+		memcg->hotness_hg[i] = 0;
+	}
+}
+
+static bool set_cooling(struct mem_cgroup *memcg)
+{
+	int nid;
+	
+	for_each_node_state(nid, N_MEMORY) {
+		struct mem_cgroup_per_node *pn = memcg->nodeinfo[nid];
+		if(pn && READ_ONCE(pn->need_cooling)) { // previous cooling is not done yet.
+			spin_lock(&memcg->access_lock);
+			memcg->cooling_clock++;
+			spin_unlock(&memcg->access_lock);
+			return false;
+		}
+	}
+
+	spin_lock(&memcg->access_lock);
+	reset_memcg_stat(memcg);
+	memcg->cooling_clock++;
+	memcg->cooled = true;
+	smp_mb();
+	spin_unlock(&memcg->access_lock);
+
+	set_lru_cooling(memcg);
+	
+	return true;
+}
+
+void set_lru_adjusting(struct mem_cgroup *memcg, bool inc_thres)
+{
+	struct mem_cgroup_per_node *pn;
+	int nid;
+
+	for_each_node_state(nid, N_MEMORY) {
+		pn = memcg->nodeinfo[nid];
+		if(!pn)
+			continue;
+		WRITE_ONCE(pn->need_adjusting, true);
+		if(inc_thres)
+			WRITE_ONCE(pn->need_adjusting_all, true);
+
+	}
+
+}
+
+static void adjust_active_threshold(struct mem_cgroup *memcg)
+{
+	unsigned long nr_active = 0;
+	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
+		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+	bool need_warm = false;
+	int idx_hot;
+
+	spin_lock(&memcg->access_lock);
+
+	for(idx_hot = 15; idx_hot >= 0; idx_hot--) {
+		unsigned long nr_pages = memcg->hotness_hg[idx_hot];
+		if(nr_active + nr_pages > max_nr_pages)
+			break;
+		nr_active += nr_pages;
+	}
+	if(idx_hot != 15)
+		idx_hot++;
+
+	if(nr_active < (max_nr_pages * 75 / 100))
+		need_warm = true;
+
+	spin_unlock(&memcg->access_lock);
+
+	if(idx_hot < MTTM_INIT_THRESHOLD)
+		idx_hot = MTTM_INIT_THRESHOLD;
+
+	// some pages may not be reflected in the histogram when cooling happens
+	if(memcg->cooled) {
+		//when cooling happens, thres will be current - 1
+		if(idx_hot < memcg->active_threshold)
+			if(memcg->active_threshold > 1)
+				memcg->active_threshold--;
+
+		memcg->cooled = false;
+		set_lru_adjusting(memcg, true);
+	}
+	else {
+		memcg->active_threshold = idx_hot;
+		set_lru_adjusting(memcg, true);
+	}
+
+	if(need_warm)
+		memcg->warm_threshold = memcg->active_threshold - 1;
+	else
+		memcg->warm_threshold = memcg->active_threshold;
+
+}
+
+void move_page_to_active_lru(struct page *page)
+{
+	struct lruvec *lruvec;
+	LIST_HEAD(l_active);
+
+	lruvec = mem_cgroup_page_lruvec(page);
+
+	spin_lock_irq(&lruvec->lru_lock);
+	if(PageActive(page))
+		goto lru_unlock;
+
+	if(!PageLRU(page))
+		goto lru_unlock;	
+
+	if(unlikely(!get_page_unless_zero(page)))
+		goto lru_unlock;
+
+	if(!TestClearPageLRU(page)) {
+		put_page(page);
+		goto lru_unlock;
+	}
+
+	list_move(&page->lru, &l_active);
+	update_lru_size(lruvec, page_lru(page), page_zonenum(page),
+			-thp_nr_pages(page));
+	SetPageActive(page);
+
+	if(!list_empty(&l_active))
+		move_pages_to_lru(lruvec, &l_active);
+lru_unlock:
+	spin_unlock_irq(&lruvec->lru_lock);
+	BUG_ON(!list_empty(&l_active));
+}
+
+
+void move_page_to_inactive_lru(struct page *page)
+{
+	struct lruvec *lruvec;
+	LIST_HEAD(l_inactive);
+
+	lruvec = mem_cgroup_page_lruvec(page);
+
+	spin_lock_irq(&lruvec->lru_lock);
+	if(!PageActive(page))
+		goto lru_unlock;
+
+	if(!PageLRU(page))
+		goto lru_unlock;	
+
+	if(unlikely(!get_page_unless_zero(page)))
+		goto lru_unlock;
+
+	if(!TestClearPageLRU(page)) {
+		put_page(page);
+		goto lru_unlock;
+	}
+
+	list_move(&page->lru, &l_inactive);
+	update_lru_size(lruvec, page_lru(page), page_zonenum(page),
+			-thp_nr_pages(page));
+	ClearPageActive(page);
+
+	if(!list_empty(&l_inactive))
+		move_pages_to_lru(lruvec, &l_inactive);
+lru_unlock:
+	spin_unlock_irq(&lruvec->lru_lock);
+	BUG_ON(!list_empty(&l_inactive));
+}
+
+
+// It does not modify hotness_hg.
+// Only cool down the page if necessary.
+void check_base_cooling(pginfo_t *pginfo, struct page *page)
+{
+	struct mem_cgroup *memcg = page_memcg(page);
+	unsigned int memcg_cclock;
+
+	if(!memcg)
+		return;
+
+	spin_lock(&memcg->access_lock);
+	memcg_cclock = READ_ONCE(memcg->cooling_clock);
+	if(memcg_cclock > pginfo->cooling_clock) {
+		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+
+		pginfo->nr_accesses >>= diff;
+		pginfo->cooling_clock = memcg_cclock;
+	}
+	else
+		pginfo->cooling_clock = memcg_cclock;
+	spin_unlock(&memcg->access_lock);
+}
+
+static void update_base_page(struct vm_area_struct *vma, struct page *page,
+							pginfo_t *pginfo)
+{
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
+	bool hot;
+	unsigned long prev_idx, cur_idx;
+
+	prev_idx = get_idx(pginfo->nr_accesses);
+	check_base_cooling(pginfo, page);
+	pginfo->nr_accesses += HPAGE_PMD_NR;
+	cur_idx = get_idx(pginfo->nr_accesses);
+
+	spin_lock(&memcg->access_lock);
+	if(prev_idx != cur_idx) {
+		if(memcg->hotness_hg[prev_idx] > 0)
+			memcg->hotness_hg[prev_idx]--;
+		memcg->hotness_hg[cur_idx]++;
+	}
+	spin_unlock(&memcg->access_lock);
+
+	hot = cur_idx >= memcg->active_threshold;
+	if(hot)
+		move_page_to_active_lru(page);
+	else if(PageActive(page))
+		move_page_to_inactive_lru(page);
+
 }
 
 static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
@@ -192,10 +528,8 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 	if(!pginfo) {
 		goto pte_unlock;
 	}
-	//update_base_page(vma, page, pginfo);
-	pginfo->nr_accesses++;
-	if(pginfo->nr_accesses == 8)
-		pr_info("[%s] accesses touch 8\n",__func__);
+
+	update_base_page(vma, page, pginfo);
 
 	pte_unmap_unlock(pte, ptl);
 
@@ -258,6 +592,7 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	struct task_struct *p = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
 	struct mm_struct *mm = p ? p->mm : NULL;
 	struct vm_area_struct *vma;
+	struct mem_cgroup *memcg;
 	int ret;
 	
 	if(!mm)
@@ -275,8 +610,29 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		(vma->vm_file && (vma->vm_flags & (VM_READ | VM_WRITE)) == (VM_READ)))
 		goto mmap_unlock;
 
+	memcg = get_mem_cgroup_from_mm(mm);
+	if(!memcg)
+		goto mmap_unlock;
 	
 	ret = __update_pginfo(vma, address);
+
+	if(ret == 0) // invalid record
+		goto mmap_unlock;
+	else {
+		memcg->nr_sampled++;
+	}
+
+	// cooling
+	if(memcg->nr_sampled % memcg->cooling_period == 0 ||
+		need_memcg_cooling(memcg)) {
+		if(set_cooling(memcg)) {
+			//nothing
+		}
+	}
+
+	// adjust threshold
+	if(memcg->nr_sampled % memcg->adjust_period == 0)
+		adjust_active_threshold(memcg);
 
 mmap_unlock:
 	mmap_read_unlock(mm);
@@ -342,13 +698,11 @@ static void ksampled_do_work(void)
 					case PERF_RECORD_SAMPLE:
 						me = (struct mttm_event *)ph;
 						if(!valid_va(me->addr)) {
-							pr_info("[%s] invalid addr. cpu : %d, event : %d\n",
-								__func__, cpu, event);
 							break;
 						}
 						
 						update_pginfo(me->pid, me->addr, event);
-						if(nr_sampled && nr_sampled % 500) {
+						if(nr_sampled && (nr_sampled % 50000 == 0)) {
 							pr_info("[%s] nr_sampled : %d\n",__func__,nr_sampled);
 						}
 						break;
