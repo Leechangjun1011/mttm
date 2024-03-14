@@ -34,6 +34,9 @@
 #include <linux/oom.h>
 #include <linux/numa.h>
 #include <linux/page_owner.h>
+#ifdef CONFIG_MTTM
+#include <linux/mttm.h>
+#endif
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -779,7 +782,11 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 		count_vm_event(THP_FAULT_FALLBACK);
 		return VM_FAULT_FALLBACK;
 	}
+#ifdef CONFIG_MTTM
+	prep_transhuge_page_for_mttm(vma, page);
+#else
 	prep_transhuge_page(page);
+#endif
 	return __do_huge_pmd_anonymous_page(vmf, page, gfp);
 }
 
@@ -1610,6 +1617,9 @@ int zap_huge_pmd(struct mmu_gather *tlb, struct vm_area_struct *vma,
 
 		if (pmd_present(orig_pmd)) {
 			page = pmd_page(orig_pmd);
+#ifdef CONFIG_MTTM
+			uncharge_mttm_page(page, get_mem_cgroup_from_mm(vma->vm_mm));
+#endif
 			page_remove_rmap(page, true);
 			VM_BUG_ON_PAGE(page_mapcount(page) < 0, page);
 			VM_BUG_ON_PAGE(!PageHead(page), page);

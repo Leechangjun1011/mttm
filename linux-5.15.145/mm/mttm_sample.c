@@ -32,6 +32,12 @@ bool node_is_toptier(int nid)
 	return (nid == 0) ? true : false;
 }
 
+struct page *get_meta_page(struct page *page)
+{
+	page = compound_head(page);
+	return &page[3];
+}
+
 static unsigned int get_accesses_from_idx(unsigned int idx)
 {
 	unsigned int accesses = 1;
@@ -100,6 +106,30 @@ void mttm_mm_init(struct mm_struct *mm)
 	mm->mttm_enabled = false;
 }
 
+void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
+{
+	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
+	int initial_hotness = memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
+	
+	if(!memcg)
+		return;
+
+	page[3].nr_accesses = initial_hotness;
+	page[3].cooling_clock = memcg->cooling_clock + 1;
+	SetPageMttm(&page[3]);
+	ClearPageActive(page);
+}
+
+void prep_transhuge_page_for_mttm(struct vm_area_struct *vma,
+					struct page *page)
+{
+	prep_transhuge_page(page);
+
+	if(vma->vm_mm->mttm_enabled)
+		__prep_transhuge_page_for_mttm(vma->vm_mm, page);
+}
+
+
 void free_pginfo_pte(struct page *pte)
 {
 	if(!PageMttm(pte))
@@ -133,6 +163,28 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg)
 	if(memcg->hotness_hg[idx] > 0)
 		memcg->hotness_hg[idx]--;
 	spin_unlock(&memcg->access_lock);
+}
+
+void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
+{
+	unsigned int nr_pages = thp_nr_pages(page);
+	unsigned int idx;
+
+	if(!memcg)
+		return;
+
+	page = compound_head(page);
+	if(nr_pages != 1) {
+		struct page *meta_page = get_meta_page(page);
+		idx = get_idx(meta_page->nr_accesses);
+
+		spin_lock(&memcg->access_lock);
+		if(memcg->hotness_hg[idx] >= nr_pages)
+			memcg->hotness_hg[idx] -= nr_pages;
+		else
+			memcg->hotness_hg[idx] = 0;
+		spin_unlock(&memcg->access_lock);
+	}
 }
 
 unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat)
@@ -446,6 +498,31 @@ lru_unlock:
 	BUG_ON(!list_empty(&l_inactive));
 }
 
+void check_transhuge_cooling(void *arg, struct page *page)
+{
+	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
+	struct page *meta_page;
+	unsigned int memcg_cclock;
+
+	if(!memcg)
+		return;
+
+	meta_page = get_meta_page(page);
+
+	spin_lock(&memcg->access_lock);
+	memcg_cclock = READ_ONCE(memcg->cooling_clock);
+	if(memcg_cclock > meta_page->cooling_clock) {
+		unsigned int diff = memcg_cclock - meta_page->cooling_clock;
+		
+		meta_page->nr_accesses >>= diff;
+		meta_page->cooling_clock = memcg_cclock;
+	}
+	else {
+		meta_page->cooling_clock = memcg_cclock;
+	}
+	spin_unlock(&memcg->access_lock);
+}
+
 
 // It does not modify hotness_hg.
 // Only cool down the page if necessary.
@@ -487,6 +564,38 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 		if(memcg->hotness_hg[prev_idx] > 0)
 			memcg->hotness_hg[prev_idx]--;
 		memcg->hotness_hg[cur_idx]++;
+	}
+	spin_unlock(&memcg->access_lock);
+
+	hot = cur_idx >= memcg->active_threshold;
+	if(hot)
+		move_page_to_active_lru(page);
+	else if(PageActive(page))
+		move_page_to_inactive_lru(page);
+
+}
+
+static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
+			struct page *page, unsigned long address)
+{
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
+	struct page *meta_page;
+	bool hot;
+	unsigned long prev_idx, cur_idx;
+	
+	meta_page = get_meta_page(page);
+	prev_idx = get_idx(meta_page->nr_accesses);
+	check_transhuge_cooling((void *)memcg, page);
+
+	meta_page->nr_accesses++;
+	cur_idx = get_idx(meta_page->nr_accesses);
+	spin_lock(&memcg->access_lock);
+	if(prev_idx != cur_idx) {
+		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
+			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
+		else
+			memcg->hotness_hg[prev_idx] = 0;
+		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
 	}
 	spin_unlock(&memcg->access_lock);
 
@@ -559,6 +668,31 @@ static int __update_pmd_pginfo(struct vm_area_struct *vma, pud_t *pud,
 	if(!pmd_trans_huge(*pmd) && !pmd_devmap(*pmd) && unlikely(pmd_bad(*pmd))) {
 		pmd_clear_bad(pmd);
 		return ret;
+	}
+
+	pmdval = *pmd;
+	if(pmd_trans_huge(pmdval) || pmd_devmap(pmdval)) {
+		struct page *page;
+
+		if(is_huge_zero_pmd(pmdval))
+			return ret;
+
+		page = pmd_page(pmdval);
+		if(!page)
+			goto pmd_unlock;
+
+		if(!PageCompound(page))
+			goto pmd_unlock;
+
+		update_huge_page(vma, pmd, page, address);
+
+		if(page_to_nid(page) == 0)
+			return 1;
+		else
+			return 2;
+
+pmd_unlock:
+		return 0;
 	}
 
 	return __update_pte_pginfo(vma, pmd, address);

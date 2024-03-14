@@ -159,6 +159,13 @@ struct page {
 			/* For both global and memcg */
 			struct list_head deferred_list;
 		};
+#ifdef CONFIG_MTTM
+		struct {	/* Third tail page of compound page */
+			unsigned long __compound_pad_1;
+			uint32_t nr_accesses;
+			uint32_t cooling_clock;
+		};
+#endif
 		struct {	/* Page table pages */
 			unsigned long _pt_pad_1;	/* compound_head */
 			pgtable_t pmd_huge_pte; /* protected by page->ptl */

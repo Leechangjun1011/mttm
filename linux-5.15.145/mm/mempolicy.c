@@ -2099,7 +2099,7 @@ struct page *alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 	}
 
 #ifdef CONFIG_MTTM
-	if (vma->vm_mm && vma->vm_mm->mttm_enabled) {
+	if (vma->vm_mm) {
 		struct task_struct *p = current;
 		struct mem_cgroup *memcg = mem_cgroup_from_task(p);
 		unsigned long max_nr_pages;
@@ -2121,10 +2121,12 @@ struct page *alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 		}
 
 		/*
-		if((orig_nid != nid) ||
-			(max_nr_pages <= (get_nr_lru_pages_node(memcg, pgdat) + get_memcg_demotion_wmark(max_nr_pages)))) {
-			WRITE_ONCE(memcg->nodeinfo[orig_nid]->need_demotion, true);
-			kmigrated_wakeup(nid);
+		if(vma->vm_mm->mttm_enabled) {
+			if((orig_nid != nid) ||
+				(max_nr_pages <= (get_nr_lru_pages_node(memcg, pgdat) + get_memcg_demotion_wmark(max_nr_pages)))) {
+				WRITE_ONCE(memcg->nodeinfo[orig_nid]->need_demotion, true);
+				kmigrated_wakeup(nid);
+			}
 		}*/
 
 		mpol_cond_put(pol);

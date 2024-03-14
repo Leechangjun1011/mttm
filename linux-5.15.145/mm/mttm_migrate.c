@@ -16,6 +16,9 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/mttm.h>
+
 #include "internal.h"
 
 #define MIN_WMARK_LOWER_LIMIT	128 * 100 // 50MB
@@ -183,6 +186,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 			struct lruvec *lruvec, enum lru_list lru)
 {
 	unsigned long nr_taken;
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
 	LIST_HEAD(l_hold);
 	LIST_HEAD(l_active);
@@ -209,8 +213,20 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 
 		if(!file) {
 			int still_hot;
-			still_hot = cooling_page(page, lruvec_memcg(lruvec));
-		
+
+			if(PageTransHuge(compound_head(page))) {
+				struct page *meta_page = get_meta_page(page);
+
+				check_transhuge_cooling((void *)memcg, page);
+				if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
+					still_hot = 2;
+				else
+					still_hot = 1;
+			}
+			else {
+				still_hot = cooling_page(page, lruvec_memcg(lruvec));
+			}
+
 			if(still_hot == 2) {
 				// page is still hot after cooling
 				if(!PageActive(page))
@@ -313,7 +329,17 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 			continue;
 		}
 		
-		status = page_check_hotness(page, memcg);
+		if(PageTransHuge(compound_head(page))) {
+			struct page *meta_page = get_meta_page(page);
+
+			if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
+				status = 2;
+			else
+				status = 1;
+		}
+		else {
+			status = page_check_hotness(page, memcg);
+		}
 
 		if(status == 2) {
 			if(active) {
@@ -381,12 +407,19 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 static int kmigrated(void *p)
 {
 	//TODO : cpu affinity
-	
+	int kmigrated_cpu = 2;
+	const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
+	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
+	if(!cpumask_empty(cpumask)) {
+		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
+		pr_info("[%s] kmigrated bind to cpu%d\n",__func__, kmigrated_cpu);
+	}
+
 	for(;;) {
 		struct mem_cgroup_per_node *pn0, *pn1;
-		struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 		unsigned long nr_exceeded = 0;
-		
+		unsigned long hot0, cold0, hot1, cold1;		
+ 
 		if(kthread_should_stop())
 			break;
 		if(!memcg)
@@ -397,6 +430,7 @@ static int kmigrated(void *p)
 		if(!pn0 || !pn1) 
 			break;
 
+		
 		if(need_lru_cooling(pn0))
 			cooling_node(NODE_DATA(0), memcg);
 		else if(need_lru_adjusting(pn0)) {
@@ -412,7 +446,7 @@ static int kmigrated(void *p)
 			if(pn1->need_adjusting_all == true)
 				adjusting_node(NODE_DATA(1), memcg, false);
 		}
-
+		
 		/*
 		if(need_fmem_demotion(pgdat, memcg, &nr_exceeded)) {
 			//TODO
@@ -423,6 +457,17 @@ static int kmigrated(void *p)
 			//TODO
 			promote_node(pgdat, memcg);
 		}*/
+
+		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+		hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+
+		trace_lru_distribution(hot0, cold0, hot1, cold1);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),
