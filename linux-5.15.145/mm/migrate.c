@@ -50,6 +50,9 @@
 #include <linux/ptrace.h>
 #include <linux/oom.h>
 #include <linux/memory.h>
+#ifdef CONFIG_MTTM
+#include <linux/mttm.h>
+#endif
 
 #include <asm/tlbflush.h>
 
@@ -251,6 +254,27 @@ static bool remove_migration_pte(struct page *page, struct vm_area_struct *vma,
 			else
 				page_add_file_rmap(new, false);
 		}
+#ifdef CONFIG_MTTM //remove_migration_pte
+		do {
+			struct mem_cgroup *memcg = page_memcg(pvmw.page);
+			struct page *pte_page;
+			pginfo_t *pginfo;
+
+			if(!memcg)
+				goto out_cooling_check;
+
+			pte_page = virt_to_page((unsigned long)pvmw.pte);
+			if(!PageMttm(pte_page))
+				goto out_cooling_check;
+
+			pginfo = get_pginfo_from_pte(pvmw.pte);
+			if(!pginfo)
+				goto out_cooling_check;
+
+			check_base_cooling(pginfo, new);
+		} while (0);
+out_cooling_check:
+#endif
 		if (vma->vm_flags & VM_LOCKED && !PageTransCompound(new))
 			mlock_vma_page(new);
 
@@ -607,7 +631,10 @@ void migrate_page_states(struct page *newpage, struct page *page)
 		SetPageReadahead(newpage);
 
 	copy_page_owner(page, newpage);
-
+#ifdef CONFIG_MTTM
+	if(PageTransHuge(page))
+		copy_transhuge_pginfo(page, newpage);
+#endif
 	if (!PageHuge(page))
 		mem_cgroup_migrate(page, newpage);
 }

@@ -197,6 +197,7 @@ int page_referenced(struct page *, int is_locked,
 #ifdef CONFIG_MTTM
 int cooling_page(struct page *page, struct mem_cgroup *memcg);
 int page_check_hotness(struct page *page, struct mem_cgroup *memcg);
+int get_pginfo_idx(struct page *page);
 #endif
 
 void try_to_migrate(struct page *page, enum ttu_flags flags);
@@ -311,6 +312,10 @@ static inline int cooling_page(struct page *page, struct mem_cgroup *memcg)
 static inline int page_check_hotness(struct page *page, struct mem_cgroup *memcg)
 {
 	return false;
+}
+static int get_pginfo_idx(struct page *page)
+{
+	return -1;
 }
 #endif
 

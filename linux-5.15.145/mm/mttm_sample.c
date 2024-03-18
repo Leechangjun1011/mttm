@@ -110,13 +110,14 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 {
 	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
 	int initial_hotness = memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
+
+	page[3].nr_accesses = initial_hotness;
+	SetPageMttm(&page[3]);
 	
 	if(!memcg)
 		return;
 
-	page[3].nr_accesses = initial_hotness;
 	page[3].cooling_clock = memcg->cooling_clock + 1;
-	SetPageMttm(&page[3]);
 	ClearPageActive(page);
 }
 
@@ -129,6 +130,21 @@ void prep_transhuge_page_for_mttm(struct vm_area_struct *vma,
 		__prep_transhuge_page_for_mttm(vma->vm_mm, page);
 }
 
+void copy_transhuge_pginfo(struct page *page, struct page *newpage)
+{
+	VM_BUG_ON_PAGE(!PageCompound(page), page);
+	VM_BUG_ON_PAGE(!PageCompound(newpage), newpage);
+
+	page = compound_head(page);
+	newpage = compound_head(newpage);
+
+	if(!PageMttm(&page[3]))
+		return ;
+
+	newpage[3].nr_accesses = page[3].nr_accesses;
+	newpage[3].cooling_clock = page[3].cooling_clock;
+	SetPageMttm(&newpage[3]);
+}
 
 void free_pginfo_pte(struct page *pte)
 {
@@ -390,6 +406,20 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_lock(&memcg->access_lock);
 
+	for(idx_hot = 0; idx_hot < 8; idx_hot++)
+		nr_active += memcg->hotness_hg[idx_hot];
+	pr_info("[%s] hotness_hg 0 ~ 7 : %lu %lu %lu %lu %lu %lu %lu %lu [%lu]\n",
+		__func__, memcg->hotness_hg[0], memcg->hotness_hg[1], memcg->hotness_hg[2], memcg->hotness_hg[3],
+		memcg->hotness_hg[4], memcg->hotness_hg[5], memcg->hotness_hg[6], memcg->hotness_hg[7], nr_active);
+
+	nr_active = 0;
+	for(idx_hot = 8; idx_hot < 16; idx_hot++)
+		nr_active += memcg->hotness_hg[idx_hot];	
+	pr_info("[%s] hotness_hg 8 ~ 15 : %lu %lu %lu %lu %lu %lu %lu %lu [%lu]\n",
+		__func__, memcg->hotness_hg[8], memcg->hotness_hg[9], memcg->hotness_hg[10], memcg->hotness_hg[11],
+		memcg->hotness_hg[12], memcg->hotness_hg[13], memcg->hotness_hg[14], memcg->hotness_hg[15], nr_active);
+	nr_active = 0;
+
 	for(idx_hot = 15; idx_hot >= 0; idx_hot--) {
 		unsigned long nr_pages = memcg->hotness_hg[idx_hot];
 		if(nr_active + nr_pages > max_nr_pages)
@@ -426,6 +456,9 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 		memcg->warm_threshold = memcg->active_threshold - 1;
 	else
 		memcg->warm_threshold = memcg->active_threshold;
+
+	pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
+		__func__, memcg->active_threshold, memcg->warm_threshold, max_nr_pages, nr_active, need_warm ? "true" : "false");
 
 }
 

@@ -1050,6 +1050,65 @@ int page_check_hotness(struct page *page, struct mem_cgroup *memcg)
 	return mca.page_is_hot;
 }
 
+static bool get_pginfo_idx_one(struct page *page, struct vm_area_struct *vma,
+					unsigned long address, void *arg)
+{
+	struct mttm_cooling_arg *mca = (struct mttm_cooling_arg *)arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+	pginfo_t *pginfo;
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pte) {
+			struct page *pte_page;
+			unsigned long cur_idx;
+			pte_t *pte = pvmw.pte;
+
+			pte_page = virt_to_page((unsigned long)pte);
+			if(!PageMttm(pte_page))
+				continue;
+
+			pginfo = get_pginfo_from_pte(pte);
+			if(!pginfo)
+				continue;
+
+			cur_idx = get_idx(pginfo->nr_accesses);
+			mca->page_is_hot = cur_idx;
+		}
+		else if(pvmw.pmd)
+			mca->page_is_hot = -1;
+	}
+
+	return true;
+}
+
+int get_pginfo_idx(struct page *page)
+{
+	struct mttm_cooling_arg mca = {
+		.page_is_hot = -1,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = get_pginfo_idx_one,
+		.arg = (void *)&mca,
+	};
+
+	if(!PageAnon(page) || PageKsm(page))
+		return -1;
+
+	if(!page_mapped(page))
+		return -1;
+
+	rmap_walk(page, &rwc);
+	return mca.page_is_hot;
+
+}
+
 #endif
 
 static bool page_mkclean_one(struct page *page, struct vm_area_struct *vma,
