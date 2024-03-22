@@ -5261,6 +5261,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
 	memcg->cooling_period = MTTM_COOLING_PERIOD;
 	memcg->adjust_period = MTTM_ADJUST_PERIOD;
+	memcg->use_warm = false;
+	memcg->use_mig = true;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	memcg->cooled = false;
@@ -7643,6 +7645,95 @@ static int __init mem_cgroup_hotness_stat_init(void)
 	return 0;
 }
 subsys_initcall(mem_cgroup_hotness_stat_init);
+
+
+static int memcg_use_warm_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	if(memcg->use_warm)
+		seq_printf(m, "[enabled] disabled\n");
+	else
+		seq_printf(m, "enabled [disabled]\n");
+	return 0;
+}
+
+static ssize_t memcg_use_warm_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+
+    if(sysfs_streq(buf, "enabled"))
+	memcg->use_warm = true;
+    else if(sysfs_streq(buf, "disabled"))
+	memcg->use_warm = false;
+    else
+	return -EINVAL;
+
+    return nbytes;
+}
+
+static struct cftype memcg_use_warm_file[] = {
+	{
+		.name = "use_warm",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_use_warm_show,
+                .write = memcg_use_warm_write,
+	},
+	{},
+};
+
+static int __init mem_cgroup_use_warm_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_use_warm_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_use_warm_init);
+
+static int memcg_use_mig_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	if(memcg->use_mig)
+		seq_printf(m, "[enabled] disabled\n");
+	else
+		seq_printf(m, "enabled [disabled]\n");
+	return 0;
+}
+
+static ssize_t memcg_use_mig_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+
+    if(sysfs_streq(buf, "enabled"))
+	memcg->use_mig = true;
+    else if(sysfs_streq(buf, "disabled"))
+	memcg->use_mig = false;
+    else
+	return -EINVAL;
+
+    return nbytes;
+}
+
+static struct cftype memcg_use_mig_file[] = {
+	{
+		.name = "use_mig",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_use_mig_show,
+                .write = memcg_use_mig_write,
+	},
+	{},
+};
+
+static int __init mem_cgroup_use_mig_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_use_mig_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_use_mig_init);
+
+
 
 static int memcg_cooling_period_show(struct seq_file *m, void *v)
 {

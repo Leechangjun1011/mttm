@@ -257,7 +257,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 		if(!PageAnon(page) && nr_demotion_cand > nr_to_reclaim + MTTM_MIN_FREE_PAGES)
 			goto keep_locked;
 
-		if(PageAnon(page)) {//check page is warm
+		if(memcg->use_warm && PageAnon(page)) {//check page is warm
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
 				if(get_idx(meta_page->nr_accesses) >= memcg->warm_threshold)
@@ -398,12 +398,14 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 			break;
 		priority--;
 	} while (priority);
-
-	//TODO ?
-	nr_smem_active = nr_smem_active < nr_to_reclaim ?
-				nr_smem_active : nr_to_reclaim;
-	if(nr_smem_active && nr_reclaimed < nr_smem_active)
-		memcg->warm_threshold = memcg->active_threshold;
+	
+	//if smem active still exists, remove warm
+	if(memcg->use_warm) {
+		nr_smem_active = nr_smem_active < nr_to_reclaim ?
+					nr_smem_active : nr_to_reclaim;
+		if(nr_smem_active && nr_reclaimed < nr_smem_active)
+			memcg->warm_threshold = memcg->active_threshold;
+	}
 
 	if(get_nr_lru_pages_node(memcg, pgdat) +
 		get_memcg_demotion_wmark(max_dram) < max_dram)
@@ -559,7 +561,7 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	return false;
 }
 
-static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
+static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool *promotion_denied)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	unsigned long nr_to_promote, nr_promoted = 0, tmp;
@@ -570,6 +572,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
 	if(!promotion_available(target_nid, memcg, &nr_to_promote))
 		return 0;
 
+	*promotion_denied = false;
 	nr_to_promote = min(nr_to_promote,
 			lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
 
@@ -584,8 +587,8 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
 	return nr_promoted;
 }
 
-static unsigned long cooling_lru_list(unsigned long nr_to_scan,
-			struct lruvec *lruvec, enum lru_list lru)
+static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
+	enum lru_list lru, unsigned long *nr_active_cooled, unsigned long *nr_active_still_hot)
 {
 	unsigned long nr_taken;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
@@ -594,6 +597,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 	LIST_HEAD(l_active);
 	LIST_HEAD(l_inactive);
 	int file = is_file_lru(lru);
+	unsigned long nr_cooled = 0, nr_still_hot = 0;
 
 	lru_add_drain();
 
@@ -622,8 +626,9 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 				check_transhuge_cooling((void *)memcg, page);
 				if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
 					still_hot = 2;
-				else
+				else {
 					still_hot = 1;
+				}
 			}
 			else {
 				still_hot = cooling_page(page, lruvec_memcg(lruvec));
@@ -634,6 +639,8 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 				if(!PageActive(page))
 					SetPageActive(page);
 				list_add(&page->lru, &l_active);
+				if(lru == LRU_ACTIVE_ANON)
+					nr_still_hot += PageTransHuge(compound_head(page)) ? HPAGE_PMD_NR : 1;
 				continue;
 			}
 			else if(still_hot == 0) {
@@ -649,6 +656,8 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 		ClearPageActive(page);
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
+		if(lru == LRU_ACTIVE_ANON)
+			nr_cooled += PageTransHuge(compound_head(page)) ? HPAGE_PMD_NR : 1;
 	}
 
 	spin_lock_irq(&lruvec->lru_lock);
@@ -662,15 +671,22 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan,
 	mem_cgroup_uncharge_list(&l_active);	
 	free_unref_page_list(&l_active);
 
+	if(nr_active_cooled)
+		*nr_active_cooled = nr_cooled;
+	if(nr_active_still_hot)
+		*nr_active_still_hot = nr_still_hot;
+
 	return nr_taken;
 }
 
-static void cooling_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
+static void cooling_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
+		unsigned long *nr_cooled, unsigned long *nr_still_hot)
 {
 	unsigned long nr_to_scan, nr_scanned = 0, nr_max_scan = 12;
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
 	enum lru_list lru = LRU_ACTIVE_ANON;
+	unsigned long nr_active_cooled = 0, nr_active_still_hot = 0;
 
 re_cooling:
 	nr_to_scan = lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
@@ -678,7 +694,14 @@ re_cooling:
 		unsigned long scan = nr_to_scan >> 3; // 12.5%
 		if(!scan)
 			scan = nr_to_scan;
-		nr_scanned += cooling_lru_list(scan, lruvec, lru);
+		nr_scanned += cooling_lru_list(scan, lruvec, lru,
+					&nr_active_cooled, &nr_active_still_hot);
+		if(lru == LRU_ACTIVE_ANON) {
+			if(nr_cooled)
+				*nr_cooled += nr_active_cooled;
+			if(nr_still_hot)
+				*nr_still_hot += nr_active_still_hot;
+		}
 		nr_max_scan--;
 	} while (nr_scanned < nr_to_scan && nr_max_scan);
 
@@ -691,7 +714,7 @@ re_cooling:
 
 	// active file list
 	cooling_lru_list(lruvec_lru_size(lruvec, LRU_ACTIVE_FILE, MAX_NR_ZONES),
-			lruvec, LRU_ACTIVE_FILE);
+			lruvec, LRU_ACTIVE_FILE, NULL, NULL);
 
 	WRITE_ONCE(pn->need_cooling, false);
 }
@@ -782,7 +805,7 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 	return nr_taken;
 }
 
-static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool active)
+static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool active, unsigned long *nr_adjusted)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
@@ -803,7 +826,25 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 		WRITE_ONCE(pn->need_adjusting, false);
 	if(nr_scanned >= nr_to_scan && !active)
 		WRITE_ONCE(pn->need_adjusting_all, false);
+	
+	if(nr_adjusted)
+		*nr_adjusted = nr_scanned;
+}
 
+static bool active_lru_overflow(struct mem_cgroup *memcg)
+{
+	int fmem_nid = 0;
+	unsigned long fmem_active, smem_active;
+
+	fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+	smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		
+	if(memcg->nodeinfo[fmem_nid]->max_nr_base_pages <= fmem_active + smem_active)
+		return true;
+	else
+		return false;
 }
 
 static int kmigrated(void *p)
@@ -823,7 +864,10 @@ static int kmigrated(void *p)
 		struct mem_cgroup_per_node *pn0, *pn1;
 		unsigned long nr_exceeded = 0;
 		unsigned long hot0, cold0, hot1, cold1;		
-		unsigned long *hg = memcg->hotness_hg; 
+		unsigned long *hg = memcg->hotness_hg;
+		unsigned long tot_nr_adjusted = 0, nr_adjusted_active = 0, nr_adjusted_inactive = 0;
+		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
+		bool promotion_denied = true;
 
 		if(kthread_should_stop())
 			break;
@@ -835,30 +879,52 @@ static int kmigrated(void *p)
 		if(!pn0 || !pn1) 
 			break;
 		
-		if(need_lru_cooling(pn0))
-			cooling_node(NODE_DATA(0), memcg);
+		if(need_lru_cooling(pn0)) {
+			nr_cooled = 0;
+			nr_still_hot = 0;
+			cooling_node(NODE_DATA(0), memcg, &nr_cooled, &nr_still_hot);
+			tot_nr_cooled += nr_cooled;
+			tot_nr_cool_failed += nr_still_hot;
+		}
 		else if(need_lru_adjusting(pn0)) {
-			adjusting_node(NODE_DATA(0), memcg, true);
+			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
 			if(pn0->need_adjusting_all == true)
-				adjusting_node(NODE_DATA(0), memcg, false);
+				adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive);
 		}
+		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
-		if(need_lru_cooling(pn1))
-			cooling_node(NODE_DATA(1), memcg);
+		if(need_lru_cooling(pn1)) {
+			nr_cooled = 0;
+			nr_still_hot = 0;
+			cooling_node(NODE_DATA(1), memcg, &nr_cooled, &nr_still_hot);
+			tot_nr_cooled += nr_cooled;
+			tot_nr_cool_failed += nr_still_hot;
+		}
 		else if(need_lru_adjusting(pn1)) {
-			adjusting_node(NODE_DATA(1), memcg, true);
+			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active);
 			if(pn1->need_adjusting_all == true)
-				adjusting_node(NODE_DATA(1), memcg, false);
+				adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive);
 		}
-			
-		if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
-			tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
-		}
+		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
-		if(nr_promotion_target(NODE_DATA(1), memcg)) {
-			tot_promoted += promote_node(NODE_DATA(1), memcg);
+		#if 0
+		if(active_lru_overflow(memcg)) { 
+			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
+			tot_nr_adjusted += nr_adjusted_active;
+			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active);
+			tot_nr_adjusted += nr_adjusted_active;
 		}
+		#endif
 
+		if(memcg->use_mig) {
+			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
+				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
+			}
+
+			if(nr_promotion_target(NODE_DATA(1), memcg)) {
+				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied);
+			}
+		}
 
 		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
@@ -871,9 +937,8 @@ static int kmigrated(void *p)
 
 		trace_lru_distribution(hot0, cold0, hot1, cold1);
 		trace_migration_stats(tot_promoted, tot_demoted,
-			memcg->cooling_clock, memcg->active_threshold, memcg->warm_threshold);
-		trace_hotness_hg_1(hg[0], hg[1], hg[2], hg[3], hg[4], hg[5], hg[6], hg[7]);
-		trace_hotness_hg_2(hg[8], hg[9], hg[10], hg[11], hg[12], hg[13], hg[14], hg[15]);
+			memcg->cooling_clock, memcg->active_threshold, memcg->warm_threshold,
+			tot_nr_adjusted, promotion_denied, tot_nr_cooled, tot_nr_cool_failed, memcg->nr_sampled);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),

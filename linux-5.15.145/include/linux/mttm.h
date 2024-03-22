@@ -1,7 +1,7 @@
 #include <uapi/linux/perf_event.h>
 
 #define KSAMPLED_CPU		0
-#define PEBS_SAMPLE_PERIOD	10007
+//#define PEBS_SAMPLE_PERIOD	10007
 #define LIMIT_TENANTS		10
 #define CORES_PER_SOCKET	24
 #define MTTM_PEBS_BUFFER_SIZE	32 /* # of pages.(32 -> 128KB) */

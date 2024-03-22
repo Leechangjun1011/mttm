@@ -373,6 +373,8 @@ struct mem_cgroup {
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
 	bool			cooled;
+	bool			use_warm;
+	bool			use_mig;
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];
 };

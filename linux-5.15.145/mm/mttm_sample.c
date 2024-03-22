@@ -17,11 +17,13 @@
 #include <linux/sched/task.h>
 #include <asm/pgtable.h>
 
+#include <trace/events/mttm.h>
 #include "../kernel/events/internal.h"
 #include "internal.h"
 #include <linux/mttm.h>
 
 int enable_ksampled = 0;
+unsigned long pebs_sample_period = 10007;
 int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
@@ -87,10 +89,10 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	if(!pginfo)
 		return 0;
 
-	initial_hotness = get_accesses_from_idx(memcg->active_threshold + 1);
+	initial_hotness = 0; //get_accesses_from_idx(memcg->active_threshold + 1);
 
 	pginfo->nr_accesses = initial_hotness;
-	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock) + 1;
+	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock);//do not skip cooling
 
 	return 0;
 }
@@ -109,7 +111,7 @@ void mttm_mm_init(struct mm_struct *mm)
 void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 {
 	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
-	int initial_hotness = memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
+	int initial_hotness = 0; //memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
 
 	page[3].nr_accesses = initial_hotness;
 	SetPageMttm(&page[3]);
@@ -117,7 +119,7 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 	if(!memcg)
 		return;
 
-	page[3].cooling_clock = memcg->cooling_clock + 1;
+	page[3].cooling_clock = memcg->cooling_clock;//do not skip cooling
 	ClearPageActive(page);
 }
 
@@ -251,7 +253,7 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	attr.config = config;
 	attr.config1 = config1;
 
-	attr.sample_period = PEBS_SAMPLE_PERIOD;
+	attr.sample_period = pebs_sample_period;
 
 	attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_ADDR;
 
@@ -281,7 +283,42 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	pfe[cpu][type] = fget(event_fd)->private_data;
 	return 0;
 }
+#if 0
+pid_t test_pid;
 
+static unsigned long get_active_lru_size(void) {
+	struct pid *pid_struct = find_get_pid(test_pid);
+	struct task_struct *p = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
+	struct mm_struct *mm = p ? p->mm : NULL;
+	struct mem_cgroup *memcg;
+	struct lruvec *lruvec;
+	unsigned long ret = 0;
+	
+	if(!mm)
+		goto put_task;
+	if(!mm->mttm_enabled) {
+		goto put_task;
+	}
+	if(!mmap_read_trylock(mm))
+		goto put_task;
+
+	memcg = get_mem_cgroup_from_mm(mm);
+	if(!memcg)
+		goto mmap_unlock;
+
+	lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(0));
+	ret = lruvec_lru_size(lruvec, LRU_ACTIVE_ANON, MAX_NR_ZONES);
+	lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(1));
+	ret += lruvec_lru_size(lruvec, LRU_ACTIVE_ANON, MAX_NR_ZONES);
+
+mmap_unlock:
+	mmap_read_unlock(mm);
+put_task:
+	put_pid(pid_struct);
+
+	return ret;
+}
+#endif
 SYSCALL_DEFINE1(mttm_register_pid,
 		pid_t, pid)
 {		
@@ -298,6 +335,7 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		pr_info("[%s] failed to start kmigrated\n",__func__);
 
 	current_tenants++;
+	//test_pid = pid;
 	spin_unlock(&register_lock);
 	pr_info("[%s] registered pid : %d. current_tenants : %d, memcg id : %d\n",
 		__func__, pid, current_tenants, mem_cgroup_id(mem_cgroup_from_task(current)));
@@ -323,6 +361,8 @@ static bool need_memcg_cooling(struct mem_cgroup *memcg)
 {
 	unsigned long usage = page_counter_read(&memcg->memory);
 	if(memcg->nr_alloc + MTTM_THRES_COOLING_ALLOC <= usage) {
+		pr_info("[%s] memcg->nr_alloc: %lu, usage: %lu\n",
+			__func__, memcg->nr_alloc, usage);
 		memcg->nr_alloc = usage;
 		return true;
 	}
@@ -452,8 +492,12 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 		set_lru_adjusting(memcg, true);
 	}
 
-	if(need_warm)
-		memcg->warm_threshold = memcg->active_threshold - 1;
+	if(memcg->use_warm) {
+		if(need_warm)
+			memcg->warm_threshold = memcg->active_threshold - 1;
+		else
+			memcg->warm_threshold = memcg->active_threshold;
+		}
 	else
 		memcg->warm_threshold = memcg->active_threshold;
 
@@ -536,47 +580,62 @@ void check_transhuge_cooling(void *arg, struct page *page)
 	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
 	struct page *meta_page;
 	unsigned int memcg_cclock;
+	unsigned long prev_idx, cur_idx;
 
 	if(!memcg)
 		return;
 
+	spin_lock(&memcg->access_lock);	
 	meta_page = get_meta_page(page);
+	prev_idx = get_idx(meta_page->nr_accesses);
 
-	spin_lock(&memcg->access_lock);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	if(memcg_cclock > meta_page->cooling_clock) {
-		unsigned int diff = memcg_cclock - meta_page->cooling_clock;
-		
+		unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
 		meta_page->nr_accesses >>= diff;
-		meta_page->cooling_clock = memcg_cclock;
 	}
-	else {
-		meta_page->cooling_clock = memcg_cclock;
+	meta_page->cooling_clock = memcg_cclock;
+	cur_idx = get_idx(meta_page->nr_accesses);
+
+	if(prev_idx != cur_idx) {
+		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
+			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
+		else
+			memcg->hotness_hg[prev_idx] = 0;
+		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
 	}
+
 	spin_unlock(&memcg->access_lock);
 }
 
 
-// It does not modify hotness_hg.
-// Only cool down the page if necessary.
+// It should modify hotness_hg since it is invoked at cooling_node
 void check_base_cooling(pginfo_t *pginfo, struct page *page)
 {
 	struct mem_cgroup *memcg = page_memcg(page);
 	unsigned int memcg_cclock;
+	unsigned long prev_idx, cur_idx;
 
 	if(!memcg)
 		return;
 
 	spin_lock(&memcg->access_lock);
+	prev_idx = get_idx(pginfo->nr_accesses);
+
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	if(memcg_cclock > pginfo->cooling_clock) {
 		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
-
 		pginfo->nr_accesses >>= diff;
-		pginfo->cooling_clock = memcg_cclock;
 	}
-	else
-		pginfo->cooling_clock = memcg_cclock;
+	pginfo->cooling_clock = memcg_cclock;
+	cur_idx = get_idx(pginfo->nr_accesses);
+	
+	if(prev_idx != cur_idx) {
+		if(memcg->hotness_hg[prev_idx] > 0)
+			memcg->hotness_hg[prev_idx]--;
+		memcg->hotness_hg[cur_idx]++;
+	}
+
 	spin_unlock(&memcg->access_lock);
 }
 
@@ -587,8 +646,8 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 	bool hot;
 	unsigned long prev_idx, cur_idx;
 
-	prev_idx = get_idx(pginfo->nr_accesses);
 	check_base_cooling(pginfo, page);
+	prev_idx = get_idx(pginfo->nr_accesses);	
 	pginfo->nr_accesses += HPAGE_PMD_NR;
 	cur_idx = get_idx(pginfo->nr_accesses);
 
@@ -617,9 +676,9 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 	unsigned long prev_idx, cur_idx;
 	
 	meta_page = get_meta_page(page);
-	prev_idx = get_idx(meta_page->nr_accesses);
 	check_transhuge_cooling((void *)memcg, page);
 
+	prev_idx = get_idx(meta_page->nr_accesses);
 	meta_page->nr_accesses++;
 	cur_idx = get_idx(meta_page->nr_accesses);
 	spin_lock(&memcg->access_lock);
@@ -790,15 +849,15 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// cooling
-	if(memcg->nr_sampled % memcg->cooling_period == 0 ||
-		need_memcg_cooling(memcg)) {
+	if(memcg->nr_sampled % memcg->cooling_period == 0) /* ||
+		need_memcg_cooling(memcg)) */{
 		if(set_cooling(memcg)) {
 			//nothing
 		}
 	}
 
 	// adjust threshold
-	if(memcg->nr_sampled % memcg->adjust_period == 0)
+	else if(memcg->nr_sampled % memcg->adjust_period == 0)
 		adjust_active_threshold(memcg);
 
 mmap_unlock:
@@ -807,12 +866,13 @@ put_task:
 	put_pid(pid_struct);
 }
 
-
 static void ksampled_do_work(void)
 {
 	int cpu, event, cond = true;
 	int nr_sampled = 0, nr_skip = 0;
+	//unsigned long prev_active_lru_size = 0, cur_active_lru_size = 0;
 
+	//prev_active_lru_size = get_active_lru_size();
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 		nr_sampled = 0;
 		for(event = 0; event < NR_EVENTTYPE; event++) {
@@ -867,11 +927,7 @@ static void ksampled_do_work(void)
 						if(!valid_va(me->addr)) {
 							break;
 						}
-						
-						update_pginfo(me->pid, me->addr, event);
-						if(nr_sampled && (nr_sampled % 50000 == 0)) {
-							pr_info("[%s] nr_sampled : %d\n",__func__,nr_sampled);
-						}
+						update_pginfo(me->pid, me->addr, event);	
 						break;
 					case PERF_RECORD_THROTTLE:
 					case PERF_RECORD_UNTHROTTLE:
@@ -890,6 +946,8 @@ static void ksampled_do_work(void)
 		}
 	}
 
+	//cur_active_lru_size = get_active_lru_size();
+	//trace_lru_size(true, prev_active_lru_size, cur_active_lru_size);
 }
 
 static int ksampled(void *dummy)

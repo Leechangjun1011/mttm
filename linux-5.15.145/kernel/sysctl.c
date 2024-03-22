@@ -190,6 +190,7 @@ static int max_extfrag_threshold = 1000;
 
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
+extern unsigned long pebs_sample_period;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2860,7 +2861,13 @@ static struct ctl_table vm_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
-
+	{
+		.procname	= "pebs_sample_period",
+		.data		= &pebs_sample_period,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{

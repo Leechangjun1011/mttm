@@ -2120,8 +2120,7 @@ struct page *alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 			break;
 		}
 
-		
-		if(vma->vm_mm->mttm_enabled) {
+		if(vma->vm_mm->mttm_enabled && memcg->use_mig) {
 			if((orig_nid != nid) ||
 			(max_nr_pages <= (get_nr_lru_pages_node(memcg, pgdat) + get_memcg_demotion_wmark(max_nr_pages)))) {
 				WRITE_ONCE(memcg->nodeinfo[orig_nid]->need_demotion, true);
