@@ -52,6 +52,7 @@
 #include <linux/memory.h>
 #ifdef CONFIG_MTTM
 #include <linux/mttm.h>
+#include <trace/events/mttm.h>
 #endif
 
 #include <asm/tlbflush.h>
@@ -1489,6 +1490,8 @@ int migrate_pages(struct list_head *from, new_page_t get_new_page,
 	LIST_HEAD(ret_pages);
 	bool nosplit = (reason == MR_NUMA_MISPLACED);
 
+	unsigned long nr_enomem = 0, nr_enosys = 0, nr_eagain = 0, nr_others = 0;
+
 	trace_mm_migrate_pages_start(mode, reason);
 
 	if (!swapwrite)
@@ -1554,6 +1557,7 @@ retry:
 
 				/* Hugetlb migration is unsupported */
 				nr_failed++;
+				nr_enosys += nr_subpages;
 				break;
 			case -ENOMEM:
 				/*
@@ -1572,6 +1576,7 @@ retry:
 					goto out;
 				}
 				nr_failed++;
+				nr_enomem += nr_subpages;
 				goto out;
 			case -EAGAIN:
 				if (is_thp) {
@@ -1579,6 +1584,7 @@ retry:
 					break;
 				}
 				retry++;
+				nr_eagain += nr_subpages;
 				break;
 			case MIGRATEPAGE_SUCCESS:
 				if (is_thp) {
@@ -1601,6 +1607,7 @@ retry:
 					break;
 				}
 				nr_failed++;
+				nr_others += nr_subpages;
 				break;
 			}
 		}
@@ -1622,7 +1629,9 @@ out:
 	count_vm_events(THP_MIGRATION_SPLIT, nr_thp_split);
 	trace_mm_migrate_pages(nr_succeeded, nr_failed, nr_thp_succeeded,
 			       nr_thp_failed, nr_thp_split, mode, reason);
-
+#ifdef CONFIG_MTTM
+	trace_migrate_fail(nr_enosys, nr_enomem, nr_eagain, nr_others);
+#endif
 	if (!swapwrite)
 		current->flags &= ~PF_SWAPWRITE;
 

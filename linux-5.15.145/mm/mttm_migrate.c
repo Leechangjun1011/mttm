@@ -86,6 +86,7 @@ static bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg)
 	return READ_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion);
 }
 
+// Demote pages to get %fmem_max_wmark free pages 
 static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 				unsigned long *nr_exceeded)
 {
@@ -101,7 +102,7 @@ static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	fmem_max_wmark = get_memcg_promotion_wmark(max_nr_pages); // if free mem is larger than this wmark, promotion allowed.
 	fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages); // if free mem is less than this wmark, demotion required.
 
-	if(need_direct_demotion(pgdat, memcg)) {
+	if(need_direct_demotion(pgdat, memcg)) { // only set at mempolicy.c
 		if(nr_lru_pages + fmem_max_wmark <= max_nr_pages)
 			goto check_nr_need_promoted;
 		else if(nr_lru_pages < max_nr_pages)
@@ -235,6 +236,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 	LIST_HEAD(ret_pages);
 	unsigned long nr_reclaimed = 0;
 	unsigned long nr_demotion_cand = 0;
+	unsigned long nr_taken = 0;
 
 	cond_resched();
 
@@ -243,6 +245,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 
 		page = lru_to_page(page_list);
 		list_del(&page->lru);
+		nr_taken += compound_nr(page);
 
 		if(!trylock_page(page))
 			goto keep;
@@ -285,6 +288,7 @@ keep:
 		list_splice(&demote_pages, page_list);
 	list_splice(&ret_pages, page_list);
 
+	trace_shrink_page_list(nr_taken, nr_demotion_cand, nr_reclaimed);
 	return nr_reclaimed;
 }
 
@@ -304,8 +308,9 @@ static unsigned long demote_inactive_list(unsigned long nr_to_scan, unsigned lon
 	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
 	spin_unlock_irq(&lruvec->lru_lock);
 
-	if(nr_taken == 0)
+	if(nr_taken == 0) {	
 		return 0;
+	}
 
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, lruvec_memcg(lruvec),
 					shrink_active, nr_to_reclaim);
@@ -373,17 +378,11 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	int target_nid = 1;
 	unsigned long nr_smem_active = nr_promotion_target(NODE_DATA(target_nid), memcg);
 	unsigned long max_dram = memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages;
-
-	unsigned long nr_evictable_file_pages = 0, nr_evictable_anon_pages = 0;
 		
 	for_each_evictable_lru(lru) {
 		if(!is_file_lru(lru) && is_active_lru(lru))
 			continue;
 		nr_evictable_pages += lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
-		if(is_file_lru(lru))
-			nr_evictable_file_pages += lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
-		else
-			nr_evictable_anon_pages += lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
 	}
 
 	nr_to_reclaim = nr_exceeded;
@@ -533,7 +532,7 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	pg_data_t *pgdat;
 	unsigned long max_nr_pages, cur_nr_pages;
 	unsigned long nr_isolated;
-	unsigned long fmem_max_wmark;
+	unsigned long fmem_min_wmark;
 
 	if(target_nid == NUMA_NO_NODE)
 		return false;
@@ -547,14 +546,14 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	nr_isolated = node_page_state(pgdat, NR_ISOLATED_ANON) +
 			node_page_state(pgdat, NR_ISOLATED_FILE);
 
-	fmem_max_wmark = get_memcg_promotion_wmark(max_nr_pages);
+	fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages);
 
 	if(max_nr_pages == ULONG_MAX) {
 		*nr_to_promote = node_free_pages(pgdat);
 		return true;
 	}
-	else if(cur_nr_pages + nr_isolated < max_nr_pages - fmem_max_wmark) {
-		*nr_to_promote = max_nr_pages - fmem_max_wmark - cur_nr_pages - nr_isolated;
+	else if(cur_nr_pages + nr_isolated < max_nr_pages - fmem_min_wmark) {
+		*nr_to_promote = max_nr_pages - fmem_min_wmark - cur_nr_pages - nr_isolated;
 		return true;
 	}
 	
@@ -920,7 +919,7 @@ static int kmigrated(void *p)
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
 				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
 			}
-
+			
 			if(nr_promotion_target(NODE_DATA(1), memcg)) {
 				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied);
 			}
@@ -938,7 +937,7 @@ static int kmigrated(void *p)
 		trace_lru_distribution(hot0, cold0, hot1, cold1);
 		trace_migration_stats(tot_promoted, tot_demoted,
 			memcg->cooling_clock, memcg->active_threshold, memcg->warm_threshold,
-			tot_nr_adjusted, promotion_denied, tot_nr_cooled, tot_nr_cool_failed, memcg->nr_sampled);
+			tot_nr_adjusted, promotion_denied, nr_exceeded, memcg->nr_sampled);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),

@@ -39,10 +39,10 @@ TRACE_EVENT(migration_stats,
 
 	TP_PROTO(unsigned long promoted, unsigned long demoted,
 		unsigned int cooling_clock, unsigned int active_threshold, unsigned int warm_threshold,
-		unsigned long tot_nr_adjusted, bool promotion_denied, unsigned long tot_nr_cooled,
-		unsigned long tot_nr_cool_failed, unsigned long nr_sampled),  
+		unsigned long tot_nr_adjusted, bool promotion_denied,
+		unsigned long nr_exceeded, unsigned long nr_sampled),  
 
-	TP_ARGS(promoted, demoted, cooling_clock, active_threshold, warm_threshold, tot_nr_adjusted, promotion_denied, tot_nr_cooled, tot_nr_cool_failed, nr_sampled),
+	TP_ARGS(promoted, demoted, cooling_clock, active_threshold, warm_threshold, tot_nr_adjusted, promotion_denied, nr_exceeded, nr_sampled),
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	promoted)
@@ -52,8 +52,7 @@ TRACE_EVENT(migration_stats,
 		__field(unsigned int,	warm_threshold)
 		__field(unsigned long,	tot_nr_adjusted)
 		__field(bool,		promotion_denied)
-		__field(unsigned long,	tot_nr_cooled)
-		__field(unsigned long,	tot_nr_cool_failed)
+		__field(unsigned long,	nr_exceeded)
 		__field(unsigned long,	nr_sampled)
 	),
 
@@ -65,15 +64,14 @@ TRACE_EVENT(migration_stats,
 		__entry->warm_threshold = warm_threshold;
 		__entry->tot_nr_adjusted = tot_nr_adjusted;
 		__entry->promotion_denied = promotion_denied;
-		__entry->tot_nr_cooled = tot_nr_cooled;
-		__entry->tot_nr_cool_failed = tot_nr_cool_failed;
+		__entry->nr_exceeded = nr_exceeded;
 		__entry->nr_sampled = nr_sampled;
 	),
 
-	TP_printk("Promoted: %lu MB Demoted: %lu MB clock: %u active: %u warm: %u adjusted: %lu cooled: %lu cool_failed: %lu promotion %s nr_sampled: %lu",
+	TP_printk("Promoted: %lu MB Demoted: %lu MB clock: %u active: %u warm: %u adjusted: %lu nr_exceeded: %lu promotion [%s] nr_sampled: %lu",
 		__entry->promoted >> 8, __entry->demoted >> 8,
 		__entry->cooling_clock, __entry->active_threshold, __entry->warm_threshold, __entry->tot_nr_adjusted,
-		__entry->tot_nr_cooled, __entry->tot_nr_cool_failed, __entry->promotion_denied ? "denied" : "available",
+		__entry->nr_exceeded, __entry->promotion_denied ? "denied" : "available",
 		__entry->nr_sampled)
 );
 
@@ -144,6 +142,53 @@ TRACE_EVENT(hotness_hg_2,
 		__entry->lv8 >> 8, __entry->lv9 >> 8, __entry->lv10 >> 8, __entry->lv11 >> 8,
 		__entry->lv12 >> 8, __entry->lv13 >> 8, __entry->lv14 >> 8, __entry->lv15 >> 8)
 );
+
+TRACE_EVENT(shrink_page_list,
+
+	TP_PROTO(unsigned long nr_isolated, unsigned long nr_demotion_cand, unsigned long nr_reclaimed),
+
+	TP_ARGS(nr_isolated, nr_demotion_cand, nr_reclaimed),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	nr_isolated)
+		__field(unsigned long,	nr_demotion_cand)
+		__field(unsigned long,	nr_reclaimed)
+	),
+
+	TP_fast_assign(
+		__entry->nr_isolated = nr_isolated;
+		__entry->nr_demotion_cand = nr_demotion_cand;
+		__entry->nr_reclaimed = nr_reclaimed;
+	),
+
+	TP_printk("nr_isolated: %lu nr_demotion_cand: %lu nr_reclaimed: %lu",
+		__entry->nr_isolated, __entry->nr_demotion_cand, __entry->nr_reclaimed)
+);
+
+TRACE_EVENT(migrate_fail,
+
+	TP_PROTO(unsigned long nr_enosys, unsigned long nr_enomem, unsigned long nr_eagain, unsigned long nr_others),
+
+	TP_ARGS(nr_enosys, nr_enomem, nr_eagain, nr_others),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	nr_enosys)
+		__field(unsigned long,	nr_enomem)
+		__field(unsigned long,	nr_eagain)
+		__field(unsigned long,	nr_others)
+	),
+
+	TP_fast_assign(
+		__entry->nr_enosys = nr_enosys;
+		__entry->nr_enomem = nr_enomem;
+		__entry->nr_eagain = nr_eagain;
+		__entry->nr_others = nr_others;
+	),
+
+	TP_printk("nr_ENOSYS: %lu nr_ENOMEM: %lu nr_EAGAIN: %lu nr_OTHERS: %lu",
+		__entry->nr_enosys, __entry->nr_enomem, __entry->nr_eagain, __entry->nr_others)
+);
+
 
 TRACE_EVENT(lru_move,
 

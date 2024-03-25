@@ -446,6 +446,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_lock(&memcg->access_lock);
 
+	/*
 	for(idx_hot = 0; idx_hot < 8; idx_hot++)
 		nr_active += memcg->hotness_hg[idx_hot];
 	pr_info("[%s] hotness_hg 0 ~ 7 : %lu %lu %lu %lu %lu %lu %lu %lu [%lu]\n",
@@ -459,6 +460,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 		__func__, memcg->hotness_hg[8], memcg->hotness_hg[9], memcg->hotness_hg[10], memcg->hotness_hg[11],
 		memcg->hotness_hg[12], memcg->hotness_hg[13], memcg->hotness_hg[14], memcg->hotness_hg[15], nr_active);
 	nr_active = 0;
+	*/
 
 	for(idx_hot = 15; idx_hot >= 0; idx_hot--) {
 		unsigned long nr_pages = memcg->hotness_hg[idx_hot];
@@ -501,8 +503,9 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	else
 		memcg->warm_threshold = memcg->active_threshold;
 
-	pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
+	/*pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
 		__func__, memcg->active_threshold, memcg->warm_threshold, max_nr_pages, nr_active, need_warm ? "true" : "false");
+	*/
 
 }
 
