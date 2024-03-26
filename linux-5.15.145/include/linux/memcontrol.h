@@ -367,6 +367,8 @@ struct mem_cgroup {
 	unsigned long		max_nr_dram_pages;
 	unsigned long		nr_alloc;
 	unsigned long		nr_sampled;
+	unsigned long		promoted_pages;
+	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
 	unsigned int		active_threshold;
 	unsigned int		warm_threshold;

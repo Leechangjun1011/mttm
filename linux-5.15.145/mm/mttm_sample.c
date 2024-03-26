@@ -321,7 +321,8 @@ put_task:
 #endif
 SYSCALL_DEFINE1(mttm_register_pid,
 		pid_t, pid)
-{		
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	spin_lock(&register_lock);
 
 	if(current_tenants == LIMIT_TENANTS) {
@@ -331,14 +332,14 @@ SYSCALL_DEFINE1(mttm_register_pid,
 	}
 
 	current->mm->mttm_enabled = true;
-	if(kmigrated_init(mem_cgroup_from_task(current)))
+	if(kmigrated_init(memcg))
 		pr_info("[%s] failed to start kmigrated\n",__func__);
 
 	current_tenants++;
 	//test_pid = pid;
 	spin_unlock(&register_lock);
 	pr_info("[%s] registered pid : %d. current_tenants : %d, memcg id : %d\n",
-		__func__, pid, current_tenants, mem_cgroup_id(mem_cgroup_from_task(current)));
+		__func__, pid, current_tenants, mem_cgroup_id(memcg));
 	
 	return 0;
 }
@@ -346,14 +347,15 @@ SYSCALL_DEFINE1(mttm_register_pid,
 SYSCALL_DEFINE1(mttm_unregister_pid,
 		pid_t, pid)
 {
+	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	spin_lock(&register_lock);
 
 	current_tenants--;
-	kmigrated_stop(mem_cgroup_from_task(current));
+	kmigrated_stop(memcg);
 
 	spin_unlock(&register_lock);
-	pr_info("[%s] unregistered pid : %d, current_tenants : %d\n",
-		__func__, pid, current_tenants);
+	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d, tot_promoted: %lu MB, tot_demoted: %lu MB\n",
+		__func__, pid, current_tenants, mem_cgroup_id(memcg), memcg->promoted_pages >> 8, memcg->demoted_pages >> 8);
 	return 0;
 }
 

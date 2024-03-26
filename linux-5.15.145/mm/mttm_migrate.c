@@ -849,15 +849,16 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 static int kmigrated(void *p)
 {
 	//TODO : cpu affinity
-	int kmigrated_cpu = 2;
-	const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
+	//int kmigrated_cpu = 2;
+	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
 
+	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
 		pr_info("[%s] kmigrated bind to cpu%d\n",__func__, kmigrated_cpu);
-	}
+	}*/
 
 	for(;;) {
 		struct mem_cgroup_per_node *pn0, *pn1;
@@ -943,6 +944,9 @@ static int kmigrated(void *p)
 				need_direct_demotion(NODE_DATA(0), memcg),
 				msecs_to_jiffies(KMIGRATED_PERIOD_IN_MS));
 	}
+
+	memcg->promoted_pages = tot_promoted;
+	memcg->demoted_pages = tot_demoted;
 
 	return 0;
 }

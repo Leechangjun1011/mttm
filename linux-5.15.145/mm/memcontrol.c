@@ -5256,6 +5256,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->max_nr_dram_pages = ULONG_MAX;
 	memcg->nr_sampled = 0;
 	memcg->nr_alloc = 0;
+	memcg->promoted_pages = 0;
+	memcg->demoted_pages = 0;
 	memcg->cooling_clock = 0;
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
