@@ -38,13 +38,9 @@ done
 
 for i in "${!workload[@]}"
 do
-	if [ $i -ne $1 ]
-	then
-		./run_single_tenant.sh $i ${workload[i]} &
-	else
-		./run_single_tenant.sh $i ${workload[i]}
-	fi
+	./run_single_tenant.sh $i ${workload[i]} &	
 done
+wait
 
 echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl vm.enable_ksampled=0
