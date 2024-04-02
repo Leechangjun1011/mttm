@@ -3,6 +3,27 @@
 #include <unistd.h>
 #include <err.h>
 #include <sys/wait.h>
+#include <sys/time.h>
+
+#define tv_to_double(t) (t.tv_sec + (t.tv_usec / 1000000.0))
+
+void timeDiff(struct timeval *d, struct timeval *a, struct timeval *b)
+{
+  d->tv_sec = a->tv_sec - b->tv_sec;
+  d->tv_usec = a->tv_usec - b->tv_usec;
+  if (d->tv_usec < 0) {
+    d->tv_sec -= 1;
+    d->tv_usec += 1000000;
+  }
+}
+
+double elapsed(struct timeval *starttime, struct timeval *endtime)
+{
+  struct timeval diff;
+
+  timeDiff(&diff, endtime, starttime);
+  return tv_to_double(diff);
+}
 
 long mttm_register_pid(pid_t pid)
 {
@@ -18,12 +39,14 @@ int main(int argc, char** argv)
 {
 	pid_t pid;
 	int state;
+	struct timeval start, end;
 
 	if (argc < 2) {
 		printf("Usage: ./run_bench [BENCHMARK]\n");
 		return 0;
 	}
 
+	gettimeofday(&start, NULL);
 	mttm_register_pid(getpid());
 	printf("pid : %d registered, name : %s\n",getpid(), argv[1]);
 
@@ -36,7 +59,8 @@ int main(int argc, char** argv)
 
 	waitpid(pid, &state, 0);
 	mttm_unregister_pid(getpid());
-	printf("pid : %d unregistered, name : %s\n",getpid(), argv[1]);
+	gettimeofday(&end, NULL);
+	printf("pid : %d unregistered, name : %s, total time : %f s\n",getpid(), argv[1], elapsed(&start, &end));
 
 	return 0;
 }

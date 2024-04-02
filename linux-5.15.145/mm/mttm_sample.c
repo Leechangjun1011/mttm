@@ -444,7 +444,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
 		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
 	bool need_warm = false;
-	int idx_hot;
+	int idx_hot, i;
+	unsigned long nr_fmem_hot = 0, nr_smem_hot = 0;
 
 	spin_lock(&memcg->access_lock);
 

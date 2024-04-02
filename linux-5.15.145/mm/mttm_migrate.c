@@ -834,17 +834,21 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 {
 	int fmem_nid = 0;
 	unsigned long fmem_active, smem_active;
+	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
+		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+
 
 	fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
 	smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
 		
-	if(memcg->nodeinfo[fmem_nid]->max_nr_base_pages <= fmem_active + smem_active)
+	if(max_nr_pages < fmem_active + smem_active)
 		return true;
 	else
 		return false;
 }
+
 
 static int kmigrated(void *p)
 {
@@ -907,14 +911,31 @@ static int kmigrated(void *p)
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
-		#if 0
-		if(active_lru_overflow(memcg)) { 
+		
+		if(active_lru_overflow(memcg)) {
+			// It may not fix the active lru overflow immediately.
+			unsigned long fmem_active, smem_active, nr_active_cur;
+			unsigned long max_nr_pages = memcg->max_nr_dram_pages -
+						get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+
+			memcg->active_threshold++;
 			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
 			tot_nr_adjusted += nr_adjusted_active;
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active);
 			tot_nr_adjusted += nr_adjusted_active;
+
+			fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			nr_active_cur = fmem_active + smem_active;
+
+			if(nr_active_cur < (max_nr_pages * 75 / 100)) 
+				memcg->warm_threshold = memcg->active_threshold - 1;
+			else
+				memcg->warm_threshold = memcg->active_threshold;
 		}
-		#endif
+		
 
 		if(memcg->use_mig) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
@@ -923,6 +944,9 @@ static int kmigrated(void *p)
 			
 			if(nr_promotion_target(NODE_DATA(1), memcg)) {
 				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied);
+				if(promotion_denied) {
+					//WRITE_ONCE(memcg->need_adjusting_from_kmigrated, true);
+				}
 			}
 		}
 
