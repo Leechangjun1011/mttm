@@ -73,6 +73,11 @@
 
 #include <trace/events/vmscan.h>
 
+#ifdef CONFIG_MTTM
+extern unsigned int use_dram_determination;
+extern unsigned int strong_hot_threshold;
+#endif
+
 struct cgroup_subsys memory_cgrp_subsys __read_mostly;
 EXPORT_SYMBOL(memory_cgrp_subsys);
 
@@ -5259,15 +5264,25 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
 	memcg->cooling_clock = 0;
-	memcg->active_threshold = MTTM_INIT_THRESHOLD;
-	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
-	memcg->cooling_period = MTTM_COOLING_PERIOD;
-	memcg->adjust_period = MTTM_ADJUST_PERIOD;
+	if(use_dram_determination) {
+		memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
+		memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
+		memcg->active_threshold = strong_hot_threshold;
+		memcg->warm_threshold = strong_hot_threshold;
+	}
+	else {
+		memcg->cooling_period = MTTM_STABLE_COOLING_PERIOD;
+		memcg->adjust_period = MTTM_STABLE_ADJUST_PERIOD;
+		memcg->active_threshold = MTTM_INIT_THRESHOLD;
+		memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+	}
+	memcg->dram_determined = false;
 	memcg->use_warm = false;
 	memcg->use_mig = true;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	memcg->cooled = false;
+	memcg->workload_type = NOT_CLASSIFIED;
 #endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
 	return memcg;

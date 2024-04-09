@@ -191,6 +191,11 @@ static int max_extfrag_threshold = 1000;
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
 extern unsigned long pebs_sample_period;
+extern unsigned int strong_hot_threshold;
+extern unsigned long strong_hot_dram_threshold;
+extern unsigned int hotset_size_threshold;
+extern unsigned int use_dram_determination;
+extern unsigned int use_dma_migration;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2867,6 +2872,41 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "strong_hot_threshold",
+		.data		= &strong_hot_threshold,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "hotset_size_threshold",
+		.data		= &hotset_size_threshold,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "strong_hot_dram_threshold",
+		.data		= &strong_hot_dram_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "use_dram_determination",
+		.data		= &use_dram_determination,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_dma_migration",
+		.data		= &use_dma_migration,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
 	},
 #endif
 #ifdef CONFIG_HUGETLB_PAGE

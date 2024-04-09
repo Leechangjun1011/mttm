@@ -24,6 +24,11 @@
 
 int enable_ksampled = 0;
 unsigned long pebs_sample_period = 10007;
+unsigned int strong_hot_threshold = 3;
+unsigned int hotset_size_threshold = 2;
+unsigned int use_dram_determination = 1;
+unsigned int use_dma_migration = 1;
+unsigned long strong_hot_dram_threshold = (1UL << 29) / PAGE_SIZE;
 int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
@@ -447,6 +452,20 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	int idx_hot, i;
 	unsigned long nr_fmem_hot = 0, nr_smem_hot = 0;
 
+	if(use_dram_determination) {
+		if(READ_ONCE(memcg->workload_type) == NOT_CLASSIFIED) {
+			WRITE_ONCE(memcg->active_threshold, strong_hot_threshold);
+			WRITE_ONCE(memcg->warm_threshold, strong_hot_threshold);
+			return;
+		}
+		else if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
+			!READ_ONCE(memcg->dram_determined)) {
+			WRITE_ONCE(memcg->active_threshold, hotset_size_threshold);
+			WRITE_ONCE(memcg->warm_threshold, hotset_size_threshold);
+			return;
+		}
+	}
+
 	spin_lock(&memcg->access_lock);
 
 	/*
@@ -855,7 +874,7 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// cooling
-	if(memcg->nr_sampled % memcg->cooling_period == 0) /* ||
+	if((memcg->nr_sampled % READ_ONCE(memcg->cooling_period)) == 0) /* ||
 		need_memcg_cooling(memcg)) */{
 		if(set_cooling(memcg)) {
 			//nothing
@@ -863,7 +882,7 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// adjust threshold
-	else if(memcg->nr_sampled % memcg->adjust_period == 0)
+	else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0)
 		adjust_active_threshold(memcg);
 
 mmap_unlock:
