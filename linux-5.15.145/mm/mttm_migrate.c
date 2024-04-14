@@ -43,6 +43,7 @@
 extern unsigned int use_dram_determination;
 extern unsigned long strong_hot_dram_threshold;
 extern unsigned int hotset_size_threshold;
+extern unsigned int dram_size_tolerance;
 
 static bool need_lru_cooling(struct mem_cgroup_per_node *pn)
 {
@@ -560,7 +561,7 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 		*nr_to_promote = max_nr_pages - fmem_min_wmark - cur_nr_pages - nr_isolated;
 		return true;
 	}
-	
+
 	return false;
 }
 
@@ -874,7 +875,6 @@ static int kmigrated(void *p)
 		struct mem_cgroup_per_node *pn0, *pn1;
 		unsigned long nr_exceeded = 0;
 		unsigned long hot0, cold0, hot1, cold1;		
-		unsigned long *hg = memcg->hotness_hg;
 		unsigned long tot_nr_adjusted = 0, nr_adjusted_active = 0, nr_adjusted_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
 		bool promotion_denied = true;
@@ -945,12 +945,12 @@ static int kmigrated(void *p)
 				if(strong_hot_checked >= WORKLOAD_DRAM_DETERMINATION_COOLING) {
 					strong_hot_size = strong_hot_size / strong_hot_checked;
 					pr_info("[%s] average strong_hot_size : %lu MB, final : %lu MB\n",
-						__func__, strong_hot_size >> 8, (strong_hot_size * (100 + MTTM_DRAM_TOLERANCE) / 100)>>8);
+						__func__, strong_hot_size >> 8, (strong_hot_size * (100 + dram_size_tolerance) / 100)>>8);
 					
 					WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 					WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, strong_hot_size * (100 + MTTM_DRAM_TOLERANCE) / 100);
-					WRITE_ONCE(memcg->max_nr_dram_pages, strong_hot_size * (100 + MTTM_DRAM_TOLERANCE) / 100);
+					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, strong_hot_size * (100 + dram_size_tolerance) / 100);
+					WRITE_ONCE(memcg->max_nr_dram_pages, strong_hot_size * (100 + dram_size_tolerance) / 100);
 					WRITE_ONCE(memcg->dram_determined, true);
 				}
 			}
@@ -994,6 +994,8 @@ static int kmigrated(void *p)
 				unsigned long max_nr_pages = memcg->max_nr_dram_pages -
 							get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
 
+				WRITE_ONCE(memcg->hg_mismatch, true);
+			
 				memcg->active_threshold++;
 				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
 				tot_nr_adjusted += nr_adjusted_active;
@@ -1014,7 +1016,7 @@ static int kmigrated(void *p)
 		}
 
 		// Migration
-		if(memcg->use_mig) {
+		if(memcg->use_mig && !active_lru_overflow(memcg)) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
 				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
 			}
@@ -1038,7 +1040,8 @@ static int kmigrated(void *p)
 
 		trace_lru_distribution(hot0, cold0, hot1, cold1);
 		trace_migration_stats(tot_promoted, tot_demoted,
-			memcg->cooling_clock, memcg->active_threshold, memcg->warm_threshold,
+			memcg->cooling_clock, memcg->cooling_period,
+			memcg->active_threshold, memcg->warm_threshold,
 			tot_nr_adjusted, promotion_denied, nr_exceeded, memcg->nr_sampled);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,

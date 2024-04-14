@@ -29,6 +29,7 @@ unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
 unsigned int use_dma_migration = 1;
 unsigned long strong_hot_dram_threshold = (1UL << 29) / PAGE_SIZE;
+unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
@@ -398,6 +399,7 @@ static void reset_memcg_stat(struct mem_cgroup *memcg)
 	for(i = 0; i < 16; i++){
 		memcg->hotness_hg[i] = 0;
 	}
+	WRITE_ONCE(memcg->hg_mismatch, false);
 }
 
 static bool set_cooling(struct mem_cgroup *memcg)
@@ -459,11 +461,15 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 			return;
 		}
 		else if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
-			!READ_ONCE(memcg->dram_determined)) {
+			(!READ_ONCE(memcg->dram_determined))) {
 			WRITE_ONCE(memcg->active_threshold, hotset_size_threshold);
 			WRITE_ONCE(memcg->warm_threshold, hotset_size_threshold);
 			return;
 		}
+	}
+
+	if(READ_ONCE(memcg->hg_mismatch)) {
+		return;
 	}
 
 	spin_lock(&memcg->access_lock);
@@ -509,12 +515,16 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 				memcg->active_threshold--;
 
 		memcg->cooled = false;
-		set_lru_adjusting(memcg, true);
 	}
 	else {
 		memcg->active_threshold = idx_hot;
-		set_lru_adjusting(memcg, true);
 	}
+
+	/*if(memcg->workload_type == WEAK_HOT) {
+		if(memcg->active_threshold < 15)
+			memcg->active_threshold++;
+	}*/
+	set_lru_adjusting(memcg, true);
 
 	if(memcg->use_warm) {
 		if(need_warm)

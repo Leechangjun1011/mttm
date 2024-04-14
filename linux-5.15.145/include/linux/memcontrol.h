@@ -378,6 +378,7 @@ struct mem_cgroup {
 	bool			use_warm;
 	bool			use_mig;
 	bool			dram_determined;
+	bool			hg_mismatch;
 	unsigned int		workload_type;//0 : not identified yet, 1 : weak hot, 2 : strong hot
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];

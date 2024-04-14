@@ -36,38 +36,110 @@ END
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 30"
+        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 13G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g29.sg -i 1000 -t 1e-4 -n 8"
-        #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 28G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+       	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gapbs-cc_sv" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+        BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gapbs-tc" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+        #BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
+        BENCH="${BENCH_PATH}/tc -g 26 -n 8"
+	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
-        BENCH="${BENCH_PATH}/omp-csr -s 27 -e 15 -V"
-        echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
-        BENCH="${BENCH_PATH}/XSBench -t 24 -g 130000 -p 30000000"
-        echo 4G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/XSBench -t 24 -g 70000 -p 30000000" #g 130000
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
         BENCH="${BENCH_PATH}/build/ycsb_bench --fg 16 --iteration 70"
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
         BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 20 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_med_low" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med low"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_med_mid" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med mid"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_med_high" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med high"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_large_low" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low"
+	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_large_mid" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large mid"
+	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_large_high" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large high"
+	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_cg.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
         BENCH="${BENCH_PATH}/bin/cg.D.x"
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_bt.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
         BENCH="${BENCH_PATH}/bin/bt.D.x"
-	echo 4382M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "nas_sp.d" ]]; then
+        BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
+        BENCH="${BENCH_PATH}/bin/sp.D.x"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "nas_mg.d" ]]; then
+        BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
+        BENCH="${BENCH_PATH}/bin/mg.D.x"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "nas_lu.d" ]]; then
+        BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
+        BENCH="${BENCH_PATH}/bin/lu.D.x"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "nas_ua.d" ]]; then
+        BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
+        BENCH="${BENCH_PATH}/bin/ua.D.x"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "btree" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"
+        BENCH="${BENCH_PATH}/bench_btree_mt"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gups_small" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+        BENCH="${BENCH_PATH}/gups 8 2000000000 34 8 32"
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gups_large" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33"
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 else
         echo "$2 benchmark is not supported"
         exit 0

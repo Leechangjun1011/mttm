@@ -5277,8 +5277,9 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->warm_threshold = MTTM_INIT_THRESHOLD;
 	}
 	memcg->dram_determined = false;
-	memcg->use_warm = false;
+	memcg->use_warm = true;
 	memcg->use_mig = true;
+	memcg->hg_mismatch = false;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	memcg->cooled = false;
