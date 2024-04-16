@@ -53,9 +53,8 @@ elif [[ "$2" == "gapbs-cc_sv" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-tc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        #BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
-        BENCH="${BENCH_PATH}/tc -g 26 -n 8"
-	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15
@@ -111,6 +110,15 @@ elif [[ "$2" == "cpu_dlrm_large_mid" ]]; then
 elif [[ "$2" == "cpu_dlrm_large_high" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large high"
+        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "bwaves" ]]; then
+        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 603.bwaves_s"
+        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "fotonik" ]]; then
+        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
+        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "roms" ]]; then
+        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 654.roms_s"
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_cg.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"

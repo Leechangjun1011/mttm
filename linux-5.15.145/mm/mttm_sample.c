@@ -28,7 +28,7 @@ unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
 unsigned int use_dma_migration = 1;
-unsigned long strong_hot_dram_threshold = (1UL << 29) / PAGE_SIZE;
+unsigned long classification_threshold = 15;//1.5% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
@@ -469,6 +469,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	}
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
+		set_lru_adjusting(memcg, true);
 		return;
 	}
 

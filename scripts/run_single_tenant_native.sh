@@ -49,9 +49,8 @@ elif [[ "$2" == "gapbs-cc_sv" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-tc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        #BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
-        BENCH="${BENCH_PATH}/tc -g 26 -n 8"
-	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V"
