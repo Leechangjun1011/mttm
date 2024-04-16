@@ -5260,6 +5260,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	spin_lock_init(&memcg->access_lock);
 	memcg->max_nr_dram_pages = ULONG_MAX;
 	memcg->nr_sampled = 0;
+	memcg->nr_load = 0;
+	memcg->nr_store = 0;
 	memcg->nr_alloc = 0;
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;

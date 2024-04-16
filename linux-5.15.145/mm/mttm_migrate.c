@@ -1078,7 +1078,8 @@ dram_deter_end:
 		trace_migration_stats(tot_promoted, tot_demoted,
 			memcg->cooling_clock, memcg->cooling_period,
 			memcg->active_threshold, memcg->warm_threshold,
-			tot_nr_adjusted, promotion_denied, nr_exceeded, memcg->nr_sampled);
+			tot_nr_adjusted, promotion_denied, nr_exceeded,
+			memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),

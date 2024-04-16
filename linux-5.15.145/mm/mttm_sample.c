@@ -24,6 +24,7 @@
 
 int enable_ksampled = 0;
 unsigned long pebs_sample_period = 10007;
+unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
@@ -240,6 +241,8 @@ static __u64 get_pebs_event(enum eventtype e)
 			return DRAM_LLC_LOAD_MISS;
 		case CXLREAD:
 			return REMOTE_DRAM_LLC_LOAD_MISS;
+		case MEMWRITE:
+			return ALL_STORES;
 		default:
 			return NR_EVENTTYPE;
 	}
@@ -259,7 +262,10 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	attr.config = config;
 	attr.config1 = config1;
 
-	attr.sample_period = pebs_sample_period;
+	if(config == ALL_STORES)
+		attr.sample_period = store_sample_period;
+	else
+		attr.sample_period = pebs_sample_period;
 
 	attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_ADDR;
 
@@ -882,6 +888,11 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		goto mmap_unlock;
 	else {
 		memcg->nr_sampled++;
+		if((get_pebs_event(e) == DRAM_LLC_LOAD_MISS) ||
+			(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS))
+			memcg->nr_load++;
+		else if(get_pebs_event(e) == ALL_STORES)
+			memcg->nr_store++;
 	}
 
 	// cooling

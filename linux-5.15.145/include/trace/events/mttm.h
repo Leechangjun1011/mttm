@@ -41,9 +41,10 @@ TRACE_EVENT(migration_stats,
 		unsigned int cooling_clock, unsigned long cooling_period,
 		unsigned int active_threshold, unsigned int warm_threshold,
 		unsigned long tot_nr_adjusted, bool promotion_denied,
-		unsigned long nr_exceeded, unsigned long nr_sampled),  
+		unsigned long nr_exceeded, unsigned long nr_sampled,
+		unsigned long nr_load, unsigned long nr_store),  
 
-	TP_ARGS(promoted, demoted, cooling_clock, cooling_period, active_threshold, warm_threshold, tot_nr_adjusted, promotion_denied, nr_exceeded, nr_sampled),
+	TP_ARGS(promoted, demoted, cooling_clock, cooling_period, active_threshold, warm_threshold, tot_nr_adjusted, promotion_denied, nr_exceeded, nr_sampled, nr_load, nr_store),
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	promoted)
@@ -56,6 +57,8 @@ TRACE_EVENT(migration_stats,
 		__field(bool,		promotion_denied)
 		__field(unsigned long,	nr_exceeded)
 		__field(unsigned long,	nr_sampled)
+		__field(unsigned long,	nr_load)
+		__field(unsigned long,	nr_store)
 	),
 
 	TP_fast_assign(
@@ -69,14 +72,16 @@ TRACE_EVENT(migration_stats,
 		__entry->promotion_denied = promotion_denied;
 		__entry->nr_exceeded = nr_exceeded;
 		__entry->nr_sampled = nr_sampled;
+		__entry->nr_load = nr_load;
+		__entry->nr_store = nr_store;
 	),
 
-	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu, clock: %u] active: %u warm: %u adjusted: %lu nr_exceeded: %lu promotion [%s] nr_sampled: %lu",
+	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu, clock: %u] active: %u warm: %u adjusted: %lu nr_exceeded: %lu promotion [%s] nr_sampled: %lu (load : %lu, store : %lu)",
 		__entry->promoted >> 8, __entry->demoted >> 8,
 		__entry->cooling_period, __entry->cooling_clock,
 		__entry->active_threshold, __entry->warm_threshold, __entry->tot_nr_adjusted,
 		__entry->nr_exceeded, __entry->promotion_denied ? "denied" : "available",
-		__entry->nr_sampled)
+		__entry->nr_sampled, __entry->nr_load, __entry->nr_store)
 );
 
 TRACE_EVENT(hotness_hg_1,

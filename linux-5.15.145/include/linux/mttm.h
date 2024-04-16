@@ -11,8 +11,10 @@
 #define MTTM_PEBS_BUFFER_SIZE	32 /* # of pages.(32 -> 128KB) */
 #define MAX_SAMPLE_RATIO	50
 #define MIN_SAMPLE_RATIO	10
-#define DRAM_LLC_LOAD_MISS	0x1d3
+
+#define DRAM_LLC_LOAD_MISS		0x1d3
 #define REMOTE_DRAM_LLC_LOAD_MISS	0x2d3
+#define ALL_STORES			0x82d0
 
 #define MTTM_INIT_THRESHOLD	1
 #define MTTM_THRES_COOLING_ALLOC	(256 * 1024 * 10) // 10GB
@@ -43,6 +45,7 @@ struct mttm_event {
 enum eventtype {
 	DRAMREAD = 0,
 	CXLREAD = 1,
+	MEMWRITE = 2,
 	NR_EVENTTYPE,
 };
 
