@@ -197,6 +197,7 @@ extern unsigned int dram_size_tolerance;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
 extern unsigned int use_dma_migration;
+extern unsigned int use_all_stores;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2912,6 +2913,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_dma_migration",
 		.data		= &use_dma_migration,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_all_stores",
+		.data		= &use_all_stores,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

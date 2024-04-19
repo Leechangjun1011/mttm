@@ -29,6 +29,7 @@ unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
 unsigned int use_dma_migration = 1;
+unsigned int use_all_stores = 0;
 unsigned long classification_threshold = 15;//1.5% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
@@ -881,6 +882,12 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	memcg = get_mem_cgroup_from_mm(mm);
 	if(!memcg)
 		goto mmap_unlock;
+
+	if(use_dram_determination &&
+		!READ_ONCE(memcg->dram_determined) &&
+		(get_pebs_event(e) == ALL_STORES))
+		goto mmap_unlock;
+		
 	
 	ret = __update_pginfo(vma, address);
 
@@ -923,6 +930,8 @@ static void ksampled_do_work(void)
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 		nr_sampled = 0;
 		for(event = 0; event < NR_EVENTTYPE; event++) {
+			if(!use_all_stores && (get_pebs_event(event) == ALL_STORES))
+				continue;
 			do {
 				struct perf_buffer *rb;
 				struct perf_event_mmap_page *up;
@@ -1024,7 +1033,12 @@ static int ksampled_run(void)
 					pfe[cpu][event] = NULL;
 					continue;
 				}
-				
+				else if((get_pebs_event(event) == ALL_STORES) &&
+					!use_all_stores) {
+					pfe[cpu][event] = NULL;
+					continue;
+				}
+
 				if(__perf_event_open(get_pebs_event(event), 0, cpu, event))
 					return -1;
 				if(mttm_perf_event_init(pfe[cpu][event], MTTM_PEBS_BUFFER_SIZE))
