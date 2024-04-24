@@ -23,10 +23,21 @@
 #include <linux/processor.h>
 #include <linux/sizes.h>
 #include <linux/compat.h>
+#ifdef CONFIG_MTTM
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
+#endif
 
 #include <linux/uaccess.h>
 
 #include "internal.h"
+
+#ifdef CONFIG_MTTM
+#define NUM_AVAIL_DMA_CHAN	16
+extern unsigned int dma_channel_per_page;
+extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
+extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
+#endif
 
 /**
  * kfree_const - conditionally free memory
@@ -843,6 +854,111 @@ void copy_huge_page(struct page *dst, struct page *src)
 		copy_highpage(nth_page(dst, i), nth_page(src, i));
 	}
 }
+
+#ifdef CONFIG_MTTM
+void copy_huge_page_dma(struct page *dst, struct page *src)
+{
+	struct dma_async_tx_descriptor **tx = NULL;
+	dma_cookie_t *cookie = NULL;
+	struct dmaengine_unmap_data **unmap = NULL;
+	int ret_val = 0;
+	int total_available_chans = dma_channel_per_page;
+	int i;
+	enum dma_ctrl_flags flag = 0;
+
+	struct mem_cgroup *memcg = page_memcg(dst);
+	int chan_start;
+
+	if(memcg)
+		chan_start = memcg->dma_chan_start;
+	else
+		chan_start = 0;
+
+	tx = kzalloc(sizeof(struct dma_async_tx_descriptor *) * total_available_chans, GFP_KERNEL);
+	cookie = kzalloc(sizeof(dma_cookie_t) * total_available_chans, GFP_KERNEL);
+	unmap = kzalloc(sizeof(struct dmaengine_unmap_data *) * total_available_chans, GFP_KERNEL);
+
+	if(!tx || !cookie || !unmap)
+		goto out;
+
+
+	for(i = 0; i < total_available_chans; i++) {
+		unmap[i] = dmaengine_get_unmap_data(copy_dev[chan_start + i]->dev, 2 * total_available_chans, GFP_NOWAIT);
+		if(!unmap[i]) {
+			pr_err("%s: no unmap data at chan %d\n",__func__, i);
+			ret_val = -ENODEV;
+			goto unmap_dma;
+		}
+	}
+	
+	for(i = 0; i < total_available_chans; i++) {
+		size_t page_len = thp_nr_pages(src) * PAGE_SIZE;
+		BUG_ON(page_len != thp_nr_pages(dst) * PAGE_SIZE);
+
+		unmap[i]->to_cnt = 1;
+		unmap[i]->from_cnt = 1;
+		unmap[i]->len = (thp_nr_pages(src) * PAGE_SIZE) / dma_channel_per_page;
+	
+		unmap[i]->addr[i] = dma_map_page(copy_dev[chan_start + i]->dev,
+							src,
+							(page_len / dma_channel_per_page) * i,
+							page_len / dma_channel_per_page,
+							DMA_TO_DEVICE);
+		unmap[i]->addr[i + total_available_chans] = dma_map_page(
+								copy_dev[chan_start + i]->dev,
+								dst,
+								(page_len / dma_channel_per_page) * i,
+								page_len / dma_channel_per_page,
+								DMA_FROM_DEVICE);
+	}
+	
+
+	for(i = 0; i < total_available_chans; i++) {
+		tx[i] = copy_dev[chan_start + i]->device_prep_dma_memcpy(copy_chan[chan_start + i],
+						unmap[i]->addr[i + total_available_chans],
+						unmap[i]->addr[i],
+						unmap[i]->len,
+						flag);
+
+		if(!tx[i]) {
+			pr_err("%s: no tx descriptor at chan %d\n",__func__, i);
+			ret_val = -ENODEV;
+			goto unmap_dma;
+		}
+
+		cookie[i] = tx[i]->tx_submit(tx[i]);
+		if(dma_submit_error(cookie[i])) {
+			pr_err("%s: submission error at chat %d\n",__func__, i);
+			ret_val = -ENODEV;
+			goto unmap_dma;
+		}
+
+		dma_async_issue_pending(copy_chan[chan_start + i]);
+	}
+
+	for(i = 0; i < total_available_chans; i++) {
+		if(dma_sync_wait(copy_chan[chan_start + i], cookie[i]) != DMA_COMPLETE) {
+			ret_val = -6;
+			pr_err("%s: dma does not complete at chan %d\n",__func__, i);
+		}
+	}
+
+unmap_dma:
+	for(i = 0; i < total_available_chans; i++) {
+		if(unmap[i])
+			dmaengine_unmap_put(unmap[i]);
+	}
+out:
+	if(tx)
+		kfree(tx);
+	if(cookie)
+		kfree(cookie);
+	if(unmap)
+		kfree(unmap);
+}
+
+#endif
+
 
 int sysctl_overcommit_memory __read_mostly = OVERCOMMIT_GUESS;
 int sysctl_overcommit_ratio __read_mostly = 50;

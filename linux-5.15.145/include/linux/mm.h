@@ -908,6 +908,9 @@ void put_pages_list(struct list_head *pages);
 
 void split_page(struct page *page, unsigned int order);
 void copy_huge_page(struct page *dst, struct page *src);
+#ifdef CONFIG_MTTM
+void copy_huge_page_dma(struct page *dst, struct page *src);
+#endif
 
 /*
  * Compound pages have a destructor function.  Provide a

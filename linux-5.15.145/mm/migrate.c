@@ -62,6 +62,8 @@
 
 #include "internal.h"
 
+extern unsigned int use_dma_migration;
+
 int isolate_movable_page(struct page *page, isolate_mode_t mode)
 {
 	struct address_space *mapping;
@@ -643,11 +645,19 @@ EXPORT_SYMBOL(migrate_page_states);
 
 void migrate_page_copy(struct page *newpage, struct page *page)
 {
-	if (PageHuge(page) || PageTransHuge(page))
+	if (PageHuge(page) || PageTransHuge(page)) {
+#ifdef CONFIG_MTTM
+		if(use_dma_migration)
+			copy_huge_page_dma(newpage, page);
+		else
+			copy_huge_page(newpage, page);
+#else
 		copy_huge_page(newpage, page);
-	else
+#endif
+	}
+	else {
 		copy_highpage(newpage, page);
-
+	}
 	migrate_page_states(newpage, page);
 }
 EXPORT_SYMBOL(migrate_page_copy);

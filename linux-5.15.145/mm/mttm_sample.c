@@ -16,6 +16,8 @@
 #include <linux/pid.h>
 #include <linux/sched/task.h>
 #include <asm/pgtable.h>
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
 
 #include <trace/events/mttm.h>
 #include "../kernel/events/internal.h"
@@ -28,7 +30,11 @@ unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
+#define NUM_AVAIL_DMA_CHAN	16
 unsigned int use_dma_migration = 1;
+unsigned int dma_channel_per_page = 2;
+struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
+struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
 unsigned long classification_threshold = 15;//1.5% of RSS
 unsigned int dram_size_tolerance = 20;//20%
@@ -36,6 +42,7 @@ int current_tenants = 0;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
+
 
 bool node_is_toptier(int nid)
 {
@@ -347,6 +354,12 @@ SYSCALL_DEFINE1(mttm_register_pid,
 	current->mm->mttm_enabled = true;
 	if(kmigrated_init(memcg))
 		pr_info("[%s] failed to start kmigrated\n",__func__);
+
+	if(use_dma_migration) {
+		memcg->dma_chan_start = current_tenants * dma_channel_per_page;
+		if(memcg->dma_chan_start + dma_channel_per_page > NUM_AVAIL_DMA_CHAN)
+			memcg->dma_chan_start = 0;
+	}
 
 	current_tenants++;
 	//test_pid = pid;
@@ -1020,7 +1033,9 @@ static int ksampled(void *dummy)
 
 static int ksampled_run(void)
 {
-	int ret = 0, cpu, event;
+	int ret = 0, cpu, event, i;
+	dma_cap_mask_t copy_mask;
+
 	if (!ksampled_thread) {
 		pfe = kzalloc(sizeof(struct perf_event **) * CORES_PER_SOCKET, GFP_KERNEL);
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
@@ -1052,13 +1067,37 @@ static int ksampled_run(void)
 			ret = PTR_ERR(ksampled_thread);
 			ksampled_thread = NULL;
 		}
+		else {
+			if(use_dma_migration) {
+				dma_cap_zero(copy_mask);
+				dma_cap_set(DMA_MEMCPY, copy_mask);
+				dmaengine_get();
+			
+				for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
+					if(!copy_chan[i])
+						copy_chan[i] = dma_request_channel(copy_mask, NULL, NULL);
+					if(!copy_chan[i]) {
+						pr_err("%s: cannot grap channel: %d\n", __func__, i);
+						continue;
+					}
+
+					copy_dev[i] = copy_chan[i]->device;
+					if(!copy_dev[i]) {
+						pr_err("%s: no device: %d\n", __func__, i);
+						continue;
+					}
+				}
+
+				pr_info("[%s] dma channel opened\n",__func__);
+			}
+		}
 	}
 	return ret;
 }
 
 static void ksampled_stop(void)
 {
-	int cpu, event;
+	int cpu, event, i;
 	if(ksampled_thread) {
 		kthread_stop(ksampled_thread);	
 		ksampled_thread = NULL;
@@ -1074,6 +1113,18 @@ static void ksampled_stop(void)
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++)
 		kfree(pfe[cpu]);
 	kfree(pfe);
+
+	if(use_dma_migration) {
+		for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
+			if(copy_chan[i]) {
+				dma_release_channel(copy_chan[i]);
+				copy_chan[i] = NULL;
+				copy_dev[i] = NULL;
+			}
+		}
+
+		dmaengine_put();
+	}
 
 	pr_info("[%s] ksampled stop\n", __func__);
 
