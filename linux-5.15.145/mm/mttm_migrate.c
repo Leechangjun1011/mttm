@@ -627,7 +627,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
 
-				check_transhuge_cooling((void *)memcg, page);
+				check_transhuge_cooling_reset((void *)memcg, page);
 				if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
 					still_hot = 2;
 				else {
@@ -865,6 +865,7 @@ static int kmigrated(void *p)
 	unsigned long strong_hot_size = 0;
 	unsigned int strong_hot_checked = 0;
 	unsigned long min_hot_size, max_hot_size;
+	unsigned int active_lru_overflow_cnt = 0;
 
 	/*
 	if(!cpumask_empty(cpumask)) {
@@ -1048,6 +1049,8 @@ dram_deter_end:
 					memcg->warm_threshold = memcg->active_threshold - 1;
 				else
 					memcg->warm_threshold = memcg->active_threshold;
+				active_lru_overflow_cnt++;
+				pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 			}
 		}
 

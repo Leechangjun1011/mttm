@@ -51,6 +51,7 @@ enum eventtype {
 
 #define MTTM_MIN_FREE_PAGES	256 * 10 //10MB
 extern void check_transhuge_cooling(void *arg, struct page *page);
+extern void check_transhuge_cooling_reset(void *arg, struct page *page);
 extern struct page *get_meta_page(struct page *page);
 extern void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page);
 extern void prep_transhuge_page_for_mttm(struct vm_area_struct *vma, struct page *page);
@@ -61,6 +62,7 @@ extern int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *
 extern void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg);
 extern void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg);
 extern void check_base_cooling(pginfo_t *pginfo, struct page *page);
+extern void check_base_cooling_reset(pginfo_t *pginfo, struct page *page);
 
 extern void move_page_to_active_lru(struct page *page);
 extern void move_page_to_inactive_lru(struct page *page);

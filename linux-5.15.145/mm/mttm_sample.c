@@ -631,6 +631,53 @@ lru_unlock:
 	BUG_ON(!list_empty(&l_inactive));
 }
 
+void check_transhuge_cooling_reset(void *arg, struct page *page)
+{
+	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
+	struct page *meta_page;
+	unsigned int memcg_cclock;
+	unsigned long cur_idx;
+
+	if(!memcg)
+		return;
+
+	spin_lock(&memcg->access_lock);
+	meta_page = get_meta_page(page);
+	memcg_cclock = READ_ONCE(memcg->cooling_clock);
+	if(memcg_cclock > meta_page->cooling_clock) {
+		unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
+		meta_page->nr_accesses >>= diff;
+	}
+	meta_page->cooling_clock = memcg_cclock;
+	cur_idx = get_idx(meta_page->nr_accesses);
+	memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+
+	spin_unlock(&memcg->access_lock);
+}
+
+void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
+{
+	struct mem_cgroup *memcg = page_memcg(page);
+	unsigned int memcg_cclock;
+	unsigned long cur_idx;
+
+	if(!memcg)
+		return;
+
+	spin_lock(&memcg->access_lock);
+	memcg_cclock = READ_ONCE(memcg->cooling_clock);
+	if(memcg_cclock > pginfo->cooling_clock) {
+		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+		pginfo->nr_accesses >>= diff;
+	}
+	pginfo->cooling_clock = memcg_cclock;
+	cur_idx = get_idx(pginfo->nr_accesses);
+	memcg->hotness_hg[cur_idx]++;
+
+	spin_unlock(&memcg->access_lock);
+}
+
+
 void check_transhuge_cooling(void *arg, struct page *page)
 {
 	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
@@ -641,7 +688,7 @@ void check_transhuge_cooling(void *arg, struct page *page)
 	if(!memcg)
 		return;
 
-	spin_lock(&memcg->access_lock);	
+	spin_lock(&memcg->access_lock);
 	meta_page = get_meta_page(page);
 	prev_idx = get_idx(meta_page->nr_accesses);
 
