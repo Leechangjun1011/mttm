@@ -31,11 +31,12 @@ unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
 #define NUM_AVAIL_DMA_CHAN	16
-unsigned int use_dma_migration = 1;
+unsigned int use_dma_migration = 0;
 unsigned int dma_channel_per_page = 2;
 struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
+unsigned int use_xarray_basepage = 1;
 unsigned long classification_threshold = 15;//1.5% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;

@@ -2932,6 +2932,13 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
 	},
+	{
+		.procname	= "use_xarray_basepage",
+		.data		= &use_xarray_basepage,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{

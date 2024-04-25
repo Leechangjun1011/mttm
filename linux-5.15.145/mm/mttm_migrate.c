@@ -1057,6 +1057,9 @@ dram_deter_end:
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
+				if(memcg->use_warm && (READ_ONCE(memcg->warm_threshold) == 0)) {
+					goto skip_migration;
+				}
 				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
 			}
 			
@@ -1067,6 +1070,7 @@ dram_deter_end:
 				}
 			}
 		}	
+skip_migration:
 
 		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
