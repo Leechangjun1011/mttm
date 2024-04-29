@@ -40,11 +40,11 @@ TRACE_EVENT(migration_stats,
 	TP_PROTO(unsigned long promoted, unsigned long demoted,
 		unsigned int cooling_clock, unsigned long cooling_period,
 		unsigned int active_threshold, unsigned int warm_threshold,
-		unsigned long tot_nr_adjusted, bool promotion_denied,
+		bool promotion_denied,
 		unsigned long nr_exceeded, unsigned long nr_sampled,
 		unsigned long nr_load, unsigned long nr_store),  
 
-	TP_ARGS(promoted, demoted, cooling_clock, cooling_period, active_threshold, warm_threshold, tot_nr_adjusted, promotion_denied, nr_exceeded, nr_sampled, nr_load, nr_store),
+	TP_ARGS(promoted, demoted, cooling_clock, cooling_period, active_threshold, warm_threshold, promotion_denied, nr_exceeded, nr_sampled, nr_load, nr_store),
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	promoted)
@@ -53,7 +53,6 @@ TRACE_EVENT(migration_stats,
 		__field(unsigned long,	cooling_period)
 		__field(unsigned int,	active_threshold)
 		__field(unsigned int,	warm_threshold)
-		__field(unsigned long,	tot_nr_adjusted)
 		__field(bool,		promotion_denied)
 		__field(unsigned long,	nr_exceeded)
 		__field(unsigned long,	nr_sampled)
@@ -68,7 +67,6 @@ TRACE_EVENT(migration_stats,
 		__entry->cooling_period = cooling_period;
 		__entry->active_threshold = active_threshold;
 		__entry->warm_threshold = warm_threshold;
-		__entry->tot_nr_adjusted = tot_nr_adjusted;
 		__entry->promotion_denied = promotion_denied;
 		__entry->nr_exceeded = nr_exceeded;
 		__entry->nr_sampled = nr_sampled;
@@ -76,13 +74,41 @@ TRACE_EVENT(migration_stats,
 		__entry->nr_store = nr_store;
 	),
 
-	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu, clock: %u] active: %u warm: %u adjusted: %lu nr_exceeded: %lu promotion [%s] nr_sampled: %lu (load : %lu, store : %lu)",
+	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu, clock: %u] active: %u warm: %u nr_exceeded: %lu promotion [%s] nr_sampled: %lu (load : %lu, store : %lu)",
 		__entry->promoted >> 8, __entry->demoted >> 8,
 		__entry->cooling_period, __entry->cooling_clock,
-		__entry->active_threshold, __entry->warm_threshold, __entry->tot_nr_adjusted,
+		__entry->active_threshold, __entry->warm_threshold,
 		__entry->nr_exceeded, __entry->promotion_denied ? "denied" : "available",
 		__entry->nr_sampled, __entry->nr_load, __entry->nr_store)
 );
+
+TRACE_EVENT(lru_stats,
+
+	TP_PROTO(unsigned long tot_nr_adjusted,
+		unsigned long tot_nr_to_active, unsigned long tot_nr_to_inactive,
+		unsigned long tot_nr_cooled),  
+
+	TP_ARGS(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	tot_nr_adjusted)
+		__field(unsigned long,	tot_nr_to_active)
+		__field(unsigned long,	tot_nr_to_inactive)
+		__field(unsigned long,	tot_nr_cooled)
+	),
+
+	TP_fast_assign(
+		__entry->tot_nr_adjusted = tot_nr_adjusted;
+		__entry->tot_nr_to_active = tot_nr_to_active;
+		__entry->tot_nr_to_inactive = tot_nr_to_inactive;
+		__entry->tot_nr_cooled = tot_nr_cooled;
+	),
+
+	TP_printk("Cooled %lu Adjusted %lu [To_active %lu, To_inactive %lu]",
+		__entry->tot_nr_cooled, __entry->tot_nr_adjusted, __entry->tot_nr_to_active,
+		__entry->tot_nr_to_inactive)
+);
+
 
 TRACE_EVENT(hotness_hg_1,
 
@@ -243,6 +269,90 @@ TRACE_EVENT(lru_size,
 	TP_printk("%s. prev_lru_size: %lu --> cur_lru_size: %lu",
 		__entry->active ? "active" : "inactive",
 		__entry->prev_size, __entry->cur_size)
+);
+
+TRACE_EVENT(page_check_hotness,
+
+	TP_PROTO(unsigned long address, unsigned long page,
+		unsigned long pte, unsigned long pte_val,
+		unsigned long pte_page, unsigned long pginfo,
+		unsigned int cur_idx, unsigned int active_threshold, int is_hot),
+
+	TP_ARGS(address, page, pte, pte_val, pte_page, pginfo, cur_idx, active_threshold, is_hot),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	address)
+		__field(unsigned long,	page)	
+		__field(unsigned long,	pte)
+		__field(unsigned long,	pte_val)
+		__field(unsigned long,	pte_page)
+		__field(unsigned long,	pginfo)
+		__field(unsigned int,	cur_idx)
+		__field(unsigned int,	active_threshold)
+		__field(int,		is_hot)
+	),
+
+	TP_fast_assign(
+		__entry->address = address;
+		__entry->page = page;
+		__entry->pte = pte;
+		__entry->pte_val = pte_val;
+		__entry->pte_page = pte_page;
+		__entry->pginfo = pginfo;
+		__entry->cur_idx = cur_idx;
+		__entry->active_threshold = active_threshold;
+		__entry->is_hot = is_hot;
+	),
+
+	TP_printk("address 0x%lx page 0x%lx pte [ptr: 0x%lx, val: 0x%lx, page: 0x%lx] pginfo 0x%lx cur_idx %u active_threshold %u is_hot %d",
+		__entry->address, __entry->page,
+		__entry->pte, __entry->pte_val, __entry->pte_page,
+		__entry->pginfo,
+		__entry->cur_idx, __entry->active_threshold, __entry->is_hot)
+);
+
+TRACE_EVENT(first_touch,
+
+	TP_PROTO(unsigned long address, unsigned long page, unsigned long pte, unsigned long pginfo),
+
+	TP_ARGS(address, page, pte, pginfo),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	address)
+		__field(unsigned long,	page)
+		__field(unsigned long,	pte)
+		__field(unsigned long,	pginfo)
+	),
+
+	TP_fast_assign(
+		__entry->address = address;
+		__entry->page = page;
+		__entry->pte = pte;
+		__entry->pginfo = pginfo;
+	),
+
+	TP_printk("address 0x%lx page 0x%lx pte 0x%lx pginfo 0x%lx",
+		__entry->address, __entry->page, __entry->pte, __entry->pginfo)
+);
+
+TRACE_EVENT(alloc_pginfo,
+
+	TP_PROTO(unsigned long pte_page, unsigned long pginfo),
+
+	TP_ARGS(pte_page, pginfo),
+
+	TP_STRUCT__entry(
+		__field(unsigned long,	pte_page)
+		__field(unsigned long,	pginfo)
+	),
+
+	TP_fast_assign(
+		__entry->pte_page = pte_page;
+		__entry->pginfo = pginfo;
+	),
+
+	TP_printk("pte_page 0x%lx pginfo 0x%lx",
+		__entry->pte_page, __entry->pginfo)
 );
 
 #endif /* _TRACE_MTTM_H */

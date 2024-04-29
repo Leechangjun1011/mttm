@@ -63,6 +63,7 @@
 #include "internal.h"
 
 extern unsigned int use_dma_migration;
+extern unsigned int use_xarray_basepage;
 
 int isolate_movable_page(struct page *page, isolate_mode_t mode)
 {
@@ -265,10 +266,10 @@ static bool remove_migration_pte(struct page *page, struct vm_area_struct *vma,
 
 			if(!memcg)
 				goto out_cooling_check;
-
+			
 			pte_page = virt_to_page((unsigned long)pvmw.pte);
 			if(!PageMttm(pte_page))
-				goto out_cooling_check;
+				goto out_cooling_check;	
 
 			pginfo = get_pginfo_from_pte(pvmw.pte);
 			if(!pginfo)
@@ -1228,6 +1229,9 @@ static int unmap_and_move(new_page_t get_new_page,
 {
 	int rc = MIGRATEPAGE_SUCCESS;
 	struct page *newpage = NULL;
+#ifdef CONFIG_MTTM
+	struct mem_cgroup *memcg = page_memcg(page);
+#endif
 
 	if (!thp_migration_supported() && PageTransHuge(page))
 		return -ENOSYS;
@@ -1250,8 +1254,30 @@ static int unmap_and_move(new_page_t get_new_page,
 		return -ENOMEM;
 
 	rc = __unmap_and_move(page, newpage, force, mode);
-	if (rc == MIGRATEPAGE_SUCCESS)
+	if (rc == MIGRATEPAGE_SUCCESS) {
 		set_page_owner_migrate_reason(newpage, reason);
+#ifdef CONFIG_MTTM
+		if(memcg->mttm_enabled) {
+			if(use_xarray_basepage && memcg->basepage_array) {
+				pginfo_t *old_pginfo = xa_erase(memcg->basepage_array, page_to_pfn(page));
+				if(old_pginfo) {
+					int xa_ret;
+					check_base_cooling(old_pginfo, newpage);
+
+					xa_lock(memcg->basepage_array);
+					xa_ret = __xa_insert(memcg->basepage_array, page_to_pfn(newpage),
+							(void *)old_pginfo, GFP_KERNEL);
+					xa_unlock(memcg->basepage_array);
+					if(xa_ret == -EBUSY)
+						pr_err("[%s] xa_insert fail. Entry already exist.\n",__func__);
+					else if(xa_ret == -ENOMEM)
+						pr_err("[%s] xa_insert fail. No free memory\n",__func__);
+					
+				}
+			}
+		}
+#endif
+	}
 
 out:
 	if (rc != -EAGAIN) {

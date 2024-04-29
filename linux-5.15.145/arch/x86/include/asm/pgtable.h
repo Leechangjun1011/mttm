@@ -726,7 +726,10 @@ static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 static inline pginfo_t *get_pginfo_from_pte(pte_t *pte)
 {
 	struct page *page = virt_to_page((unsigned long)pte);
-	return page->pginfo;
+	unsigned long idx;
+
+	idx = ((unsigned long)(pte) & ~PAGE_MASK) / 8;
+	return &page->pginfo[idx];
 }
 #endif
 

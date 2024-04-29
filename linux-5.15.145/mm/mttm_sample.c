@@ -23,6 +23,7 @@
 #include "../kernel/events/internal.h"
 #include "internal.h"
 #include <linux/mttm.h>
+#include <linux/xarray.h>
 
 int enable_ksampled = 0;
 unsigned long pebs_sample_period = 10007;
@@ -54,6 +55,11 @@ struct page *get_meta_page(struct page *page)
 {
 	page = compound_head(page);
 	return &page[3];
+}
+
+pginfo_t *get_pginfo_from_xa(struct xarray *xa, struct page *page)
+{
+	return (pginfo_t *)xa_load(xa, page_to_pfn(page));
 }
 
 static unsigned int get_accesses_from_idx(unsigned int idx)
@@ -101,7 +107,10 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	if(!PageMttm(pte_page))
 		return 0;
 
-	pginfo = get_pginfo_from_pte(pte);
+	if(use_xarray_basepage && memcg->basepage_array)
+		pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	else
+		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo)
 		return 0;
 
@@ -174,7 +183,7 @@ void free_pginfo_pte(struct page *pte)
 	ClearPageMttm(pte);
 }
 
-void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg)
+void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 {
 	struct page *pte_page;
 	unsigned int idx;
@@ -187,7 +196,10 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg)
 	if(!PageMttm(pte_page))
 		return;
 
-	pginfo = get_pginfo_from_pte(pte);
+	if(use_xarray_basepage && memcg->basepage_array)
+		pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	else
+		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo)
 		return;
 
@@ -197,6 +209,13 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg)
 	if(memcg->hotness_hg[idx] > 0)
 		memcg->hotness_hg[idx]--;
 	spin_unlock(&memcg->access_lock);
+
+	if(use_xarray_basepage && memcg->basepage_array) {
+		pginfo_t *entry = xa_erase(memcg->basepage_array, page_to_pfn(page));
+		if(entry)
+			kmem_cache_free(pginfo_cache, entry);
+	}
+
 }
 
 void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
@@ -350,9 +369,15 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		pr_info("[%s] Can't register tenant due to limit\n",__func__);
 		spin_unlock(&register_lock);
 		return 0;
+	}	
+
+	if(use_xarray_basepage && !memcg->basepage_array) {
+		memcg->basepage_array = kmalloc(sizeof(struct xarray), GFP_KERNEL);
+		xa_init(memcg->basepage_array);
 	}
 
 	current->mm->mttm_enabled = true;
+	memcg->mttm_enabled = true;
 	if(kmigrated_init(memcg))
 		pr_info("[%s] failed to start kmigrated\n",__func__);
 
@@ -379,7 +404,10 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 
 	current_tenants--;
 	kmigrated_stop(memcg);
-
+	if(use_xarray_basepage && memcg->basepage_array) {
+		xa_destroy(memcg->basepage_array);
+		kfree(memcg->basepage_array);
+	}
 	spin_unlock(&register_lock);
 	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d, tot_promoted: %lu MB, tot_demoted: %lu MB\n",
 		__func__, pid, current_tenants, mem_cgroup_id(memcg), memcg->promoted_pages >> 8, memcg->demoted_pages >> 8);
@@ -496,7 +524,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_lock(&memcg->access_lock);
 
-	/*
+	/*	
 	for(idx_hot = 0; idx_hot < 8; idx_hot++)
 		nr_active += memcg->hotness_hg[idx_hot];
 	pr_info("[%s] hotness_hg 0 ~ 7 : %lu %lu %lu %lu %lu %lu %lu %lu [%lu]\n",
@@ -557,7 +585,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	else
 		memcg->warm_threshold = memcg->active_threshold;
 
-	/*pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
+	/*
+	pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
 		__func__, memcg->active_threshold, memcg->warm_threshold, max_nr_pages, nr_active, need_warm ? "true" : "false");
 	*/
 
@@ -744,14 +773,13 @@ void check_base_cooling(pginfo_t *pginfo, struct page *page)
 }
 
 static void update_base_page(struct vm_area_struct *vma, struct page *page,
-							pginfo_t *pginfo)
+				pginfo_t *pginfo, unsigned long address)
 {
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
-	bool hot;
 	unsigned long prev_idx, cur_idx;
 
 	check_base_cooling(pginfo, page);
-	prev_idx = get_idx(pginfo->nr_accesses);	
+	prev_idx = get_idx(pginfo->nr_accesses);
 	pginfo->nr_accesses += HPAGE_PMD_NR;
 	cur_idx = get_idx(pginfo->nr_accesses);
 
@@ -763,8 +791,7 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 	}
 	spin_unlock(&memcg->access_lock);
 
-	hot = cur_idx >= memcg->active_threshold;
-	if(hot)
+	if(cur_idx >= memcg->active_threshold)
 		move_page_to_active_lru(page);
 	else if(PageActive(page))
 		move_page_to_inactive_lru(page);
@@ -776,7 +803,6 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 {
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
 	struct page *meta_page;
-	bool hot;
 	unsigned long prev_idx, cur_idx;
 	
 	meta_page = get_meta_page(page);
@@ -795,8 +821,7 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 	}
 	spin_unlock(&memcg->access_lock);
 
-	hot = cur_idx >= memcg->active_threshold;
-	if(hot)
+	if(cur_idx >= memcg->active_threshold)
 		move_page_to_active_lru(page);
 	else if(PageActive(page))
 		move_page_to_inactive_lru(page);
@@ -811,6 +836,7 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 	pginfo_t *pginfo;
 	struct page *page, *pte_page;
 	int ret = 0;
+	unsigned int prev_accesses;
 
 	pte = pte_offset_map_lock(vma->vm_mm, pmd, address, &ptl);
 	pte_struct = *pte;
@@ -829,12 +855,16 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 		goto pte_unlock;
 	}
 
-	pginfo = get_pginfo_from_pte(pte);
+	if(use_xarray_basepage)
+		pginfo = get_pginfo_from_xa(page_memcg(page)->basepage_array, page);
+	else
+		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo) {
 		goto pte_unlock;
 	}
 
-	update_base_page(vma, page, pginfo);
+	prev_accesses = pginfo->nr_accesses;
+	update_base_page(vma, page, pginfo, address);
 
 	pte_unmap_unlock(pte, ptl);
 
@@ -968,6 +998,15 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		need_memcg_cooling(memcg)) */{
 		if(set_cooling(memcg)) {
 			//nothing
+		}
+		if(use_xarray_basepage && memcg->basepage_array) {
+			unsigned long xa_cnt = 0;
+			unsigned long index;
+			pginfo_t *entry;
+			xa_for_each(memcg->basepage_array, index, entry) {
+				xa_cnt++;
+			}
+			pr_info("[%s] xarray size : %lu\n",__func__, xa_cnt);
 		}
 	}
 

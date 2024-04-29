@@ -14,9 +14,9 @@ fi
 CGMEM_DIR=/sys/fs/cgroup/memory/mttm_$1
 cgdelete -g memory:mttm_$1
 cgcreate -g memory:mttm_$1
-echo 2000000 > ${CGMEM_DIR}/memory.cooling_period
-#echo 1000 > ${CGMEM_DIR}/memory.adjust_period
-echo enabled > ${CGMEM_DIR}/memory.use_mig
+echo 1000000 > ${CGMEM_DIR}/memory.cooling_period
+echo 200000 > ${CGMEM_DIR}/memory.adjust_period
+echo disabled > ${CGMEM_DIR}/memory.use_mig
 echo enabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
 

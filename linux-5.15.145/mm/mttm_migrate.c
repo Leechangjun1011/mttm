@@ -41,6 +41,7 @@
 #endif
 
 extern unsigned int use_dram_determination;
+extern unsigned int use_xarray_basepage;
 extern unsigned long classification_threshold;
 extern unsigned int hotset_size_threshold;
 extern unsigned int dram_size_tolerance;
@@ -158,8 +159,9 @@ static struct page *alloc_migrate_page(struct page *page, unsigned long node)
 		prep_transhuge_page(newpage);
 		__prep_transhuge_page_for_mttm(NULL, newpage);
 	}
-	else
+	else {
 		newpage = __alloc_pages_node(nid, mask, 0);
+	}
 
 	return newpage;
 }
@@ -272,7 +274,13 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 					goto keep_locked;
 			}
 			else {
-				unsigned int idx = get_pginfo_idx(page);
+				unsigned int idx;
+				if(use_xarray_basepage) {
+					pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+					idx = get_idx(pginfo->nr_accesses);
+				}
+				else
+					idx = get_pginfo_idx(page);
 				if(idx >= memcg->warm_threshold)
 					goto keep_locked;
 			}
@@ -591,6 +599,38 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 	return nr_promoted;
 }
 
+static int cooling_page_xa(struct mem_cgroup *memcg, struct page *page)
+{
+	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	unsigned int memcg_cclock;
+	unsigned int cur_idx;
+	int ret = 0;
+
+	if(!pginfo) {
+		//pr_err("[%s] page pginfo null\n",__func__);
+		return ret;
+	}
+
+	spin_lock(&memcg->access_lock);
+	memcg_cclock = READ_ONCE(memcg->cooling_clock);
+	if(memcg_cclock > pginfo->cooling_clock) {
+		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+		pginfo->nr_accesses >>= diff;
+
+		cur_idx = get_idx(pginfo->nr_accesses);
+		memcg->hotness_hg[cur_idx]++;
+
+		if(cur_idx >= memcg->active_threshold - 1)
+			ret = 2;
+		else
+			ret = 1;
+		pginfo->cooling_clock = memcg_cclock;
+	}
+	spin_unlock(&memcg->access_lock);
+
+	return ret;
+}
+
 static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum lru_list lru, unsigned long *nr_active_cooled, unsigned long *nr_active_still_hot)
 {
@@ -635,7 +675,10 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 				}
 			}
 			else {
-				still_hot = cooling_page(page, lruvec_memcg(lruvec));
+				if(use_xarray_basepage)
+					still_hot = cooling_page_xa(memcg, page);
+				else
+					still_hot = cooling_page(page, lruvec_memcg(lruvec));
 			}
 
 			if(still_hot == 2) {
@@ -723,8 +766,28 @@ re_cooling:
 	WRITE_ONCE(pn->need_cooling, false);
 }
 
+static int page_check_hotness_xa(struct page *page, struct mem_cgroup *memcg)
+{
+	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	unsigned int cur_idx;
+	int ret = 0;
+
+	if(!pginfo) {
+		//pr_err("[%s] page pginfo null\n",__func__);
+		return ret;
+	}
+
+	cur_idx = get_idx(pginfo->nr_accesses);
+	if(cur_idx >= memcg->active_threshold)
+		ret = 2;
+	else
+		ret = 1;	
+
+	return ret;
+}
+
 static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
-					enum lru_list lru)
+	enum lru_list lru, unsigned long *nr_to_active_one, unsigned long *nr_to_inactive_one)
 {
 	unsigned long nr_taken;
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
@@ -734,6 +797,7 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 	LIST_HEAD(l_inactive);
 	int file = is_file_lru(lru);
 	bool active = is_active_lru(lru);
+	unsigned long nr_to_active_ = 0, nr_to_inactive_ = 0;
 
 	if(file)
 		return 0;
@@ -767,10 +831,14 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 				status = 1;
 		}
 		else {
-			status = page_check_hotness(page, memcg);
+			if(use_xarray_basepage)
+				status = page_check_hotness_xa(page, memcg);
+			else
+				status = page_check_hotness(page, memcg);
 		}
 
 		if(status == 2) {
+			nr_to_active_ += thp_nr_pages(page);
 			if(active) {
 				list_add(&page->lru, &l_active);
 				continue;
@@ -779,12 +847,17 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 			list_add(&page->lru, &l_active);
 		}
 		else if (status == 0) {
-			if(PageActive(page))
+			if(PageActive(page)) {
 				list_add(&page->lru, &l_active);
-			else
+				nr_to_active_ += thp_nr_pages(page);
+			}
+			else {
 				list_add(&page->lru, &l_inactive);
+				nr_to_inactive_ += thp_nr_pages(page);
+			}
 		}
 		else {
+			nr_to_inactive_ += thp_nr_pages(page);
 			if(!active) {
 				list_add(&page->lru, &l_inactive);
 				continue;
@@ -806,23 +879,34 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 	mem_cgroup_uncharge_list(&l_active);
 	free_unref_page_list(&l_active);
 
+	if(nr_to_active_one)
+		*nr_to_active_one = nr_to_active_;
+	if(nr_to_inactive_one)
+		*nr_to_inactive_one = nr_to_inactive_;
+
 	return nr_taken;
 }
 
-static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool active, unsigned long *nr_adjusted)
+static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool active,
+	unsigned long *nr_adjusted, unsigned long *nr_to_active, unsigned long *nr_to_inactive)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
 	enum lru_list lru = active ? LRU_ACTIVE_ANON : LRU_INACTIVE_ANON;
 	unsigned long nr_to_scan, nr_scanned = 0, nr_max_scan = 12;
 	unsigned int nr_pages = 0;
+	unsigned long nr_to_active_one = 0, nr_to_inactive_one = 0;
+	unsigned long nr_to_active_tot = 0, nr_to_inactive_tot = 0;
 
 	nr_to_scan = lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
 	do {
 		unsigned long scan = nr_to_scan >> 3;
 		if(!scan)
 			scan = nr_to_scan;
-		nr_scanned += adjusting_lru_list(scan, lruvec, lru);
+		nr_scanned += adjusting_lru_list(scan, lruvec, lru,
+					&nr_to_active_one, &nr_to_inactive_one);
+		nr_to_active_tot += nr_to_active_one;
+		nr_to_inactive_tot += nr_to_inactive_one;
 		nr_max_scan--;
 	} while(nr_scanned < nr_to_scan && nr_max_scan);
 
@@ -833,6 +917,10 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 	
 	if(nr_adjusted)
 		*nr_adjusted = nr_scanned;
+	if(nr_to_active)
+		*nr_to_active = nr_to_active_tot;
+	if(nr_to_inactive)
+		*nr_to_inactive = nr_to_inactive_tot;
 }
 
 static bool active_lru_overflow(struct mem_cgroup *memcg)
@@ -878,6 +966,7 @@ static int kmigrated(void *p)
 		unsigned long nr_exceeded = 0;
 		unsigned long hot0, cold0, hot1, cold1;		
 		unsigned long tot_nr_adjusted = 0, nr_adjusted_active = 0, nr_adjusted_inactive = 0;
+		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
 		bool promotion_denied = true;
 
@@ -1002,9 +1091,18 @@ dram_deter_end:
 			tot_nr_cool_failed += nr_still_hot;
 		}
 		else if(need_lru_adjusting(pn0)) {
-			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
-			if(pn0->need_adjusting_all == true)
-				adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive);
+			nr_to_active = 0;
+			nr_to_inactive = 0;
+			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
+			tot_nr_to_active += nr_to_active;
+			tot_nr_to_inactive += nr_to_inactive;
+			if(pn0->need_adjusting_all == true) {
+				nr_to_active = 0;
+				nr_to_inactive = 0;
+				adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
+				tot_nr_to_active += nr_to_active;
+				tot_nr_to_inactive += nr_to_inactive;
+			}
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
@@ -1017,13 +1115,23 @@ dram_deter_end:
 			tot_nr_cool_failed += nr_still_hot;
 		}
 		else if(need_lru_adjusting(pn1)) {
-			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active);
-			if(pn1->need_adjusting_all == true)
-				adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive);
+			nr_to_active = 0;
+			nr_to_inactive = 0;
+			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
+			tot_nr_to_active += nr_to_active;
+			tot_nr_to_inactive += nr_to_inactive;
+			if(pn1->need_adjusting_all == true) {
+				nr_to_active = 0;
+				nr_to_inactive = 0;
+				adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
+				tot_nr_to_active += nr_to_active;
+				tot_nr_to_inactive += nr_to_inactive;
+			}
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
+		/*
 		if(!use_dram_determination || (use_dram_determination && memcg->dram_determined)) {
 			if(active_lru_overflow(memcg)) {
 				// It may not fix the active lru overflow immediately.
@@ -1034,9 +1142,9 @@ dram_deter_end:
 				WRITE_ONCE(memcg->hg_mismatch, true);
 			
 				memcg->active_threshold++;
-				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active);
+				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
 				tot_nr_adjusted += nr_adjusted_active;
-				adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active);
+				adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
 				tot_nr_adjusted += nr_adjusted_active;
 
 				fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
@@ -1052,7 +1160,7 @@ dram_deter_end:
 				active_lru_overflow_cnt++;
 				pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 			}
-		}
+		}*/
 
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
@@ -1085,8 +1193,11 @@ skip_migration:
 		trace_migration_stats(tot_promoted, tot_demoted,
 			memcg->cooling_clock, memcg->cooling_period,
 			memcg->active_threshold, memcg->warm_threshold,
-			tot_nr_adjusted, promotion_denied, nr_exceeded,
+			promotion_denied, nr_exceeded,
 			memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
+
+		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)
+			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),

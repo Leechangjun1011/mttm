@@ -1710,8 +1710,8 @@ struct kmem_cache *pginfo_cache;
 static int __init pginfo_cache_init(void)
 {
 	pginfo_cache = kmem_cache_create("pginfo",
-					sizeof(pginfo_t),
-					sizeof(pginfo_t),
+					sizeof(pginfo_t) * 512,
+					sizeof(pginfo_t) * 512,
 					SLAB_PANIC,
 					NULL);
 	return 0;

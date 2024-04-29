@@ -7,6 +7,10 @@
 #include <asm/fixmap.h>
 #include <asm/mtrr.h>
 
+#ifdef CONFIG_MTTM
+#include <trace/events/mttm.h>
+#endif
+
 #ifdef CONFIG_DYNAMIC_PHYSICAL_MASK
 phys_addr_t physical_mask __ro_after_init = (1ULL << __PHYSICAL_MASK_SHIFT) - 1;
 EXPORT_SYMBOL(physical_mask);
@@ -32,8 +36,10 @@ gfp_t __userpte_alloc_gfp = GFP_PGTABLE_USER | PGTABLE_HIGHMEM;
 static void __pte_alloc_pginfo(struct page *page)
 {
 	page->pginfo = kmem_cache_alloc(pginfo_cache, __userpte_alloc_gfp);
-	if(page->pginfo)
+	if(page->pginfo) {
 		SetPageMttm(page);
+		trace_alloc_pginfo((unsigned long)page, (unsigned long)page->pginfo);
+	}
 }
 #endif
 

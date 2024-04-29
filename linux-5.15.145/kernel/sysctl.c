@@ -199,6 +199,7 @@ extern unsigned int use_dram_determination;
 extern unsigned int use_dma_migration;
 extern unsigned int dma_channel_per_page;
 extern unsigned int use_all_stores;
+extern unsigned int use_xarray_basepage;
 #endif
 
 #endif /* CONFIG_SYSCTL */

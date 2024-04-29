@@ -5283,10 +5283,12 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->use_warm = true;
 	memcg->use_mig = true;
 	memcg->hg_mismatch = false;
+	memcg->mttm_enabled = false;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	memcg->cooled = false;
 	memcg->workload_type = NOT_CLASSIFIED;
+	memcg->basepage_array = NULL;
 #endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
 	return memcg;

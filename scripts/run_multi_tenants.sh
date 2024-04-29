@@ -24,7 +24,8 @@ echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999
 echo 0 > /proc/sys/vm/use_dram_determination
 echo 0 > /proc/sys/vm/use_dma_migration
-echo always > /sys/kernel/mm/transparent_hugepage/enabled
+echo 0 > /proc/sys/vm/use_xarray_basepage
+#echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
 sudo sysctl vm.enable_ksampled=1
 
@@ -44,6 +45,6 @@ do
 done
 wait
 
-echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+#echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl vm.enable_ksampled=0
 

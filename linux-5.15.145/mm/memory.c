@@ -102,6 +102,10 @@ struct page *mem_map;
 EXPORT_SYMBOL(mem_map);
 #endif
 
+#ifdef CONFIG_MTTM
+extern unsigned int use_xarray_basepage;
+#endif
+
 /*
  * A number of key systems in x86 including ioremap() rely on the assumption
  * that high_memory defines the upper bound on direct map memory, then end
@@ -1374,7 +1378,7 @@ again:
 					mark_page_accessed(page);
 			}
 #ifdef CONFIG_MTTM
-			uncharge_mttm_pte(pte, get_mem_cgroup_from_mm(vma->vm_mm));
+			uncharge_mttm_pte(pte, get_mem_cgroup_from_mm(vma->vm_mm), page);
 #endif
 			rss[mm_counter(page)]--;
 			page_remove_rmap(page, false);
@@ -3819,6 +3823,24 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 	if (mem_cgroup_charge(page, vma->vm_mm, GFP_KERNEL))
 		goto oom_free_page;
 	cgroup_throttle_swaprate(page, GFP_KERNEL);
+#ifdef CONFIG_MTTM
+	if(vma->vm_mm->mttm_enabled && use_xarray_basepage) {
+		struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
+		if(memcg->basepage_array) {
+			unsigned long index = page_to_pfn(page);
+			pginfo_t *entry = kmem_cache_alloc(pginfo_cache, GFP_KERNEL);
+			if(entry) {
+				int xa_ret;
+				xa_lock(memcg->basepage_array);
+				xa_ret = __xa_insert(memcg->basepage_array,
+						index, (void *)entry, GFP_KERNEL);
+				xa_unlock(memcg->basepage_array);
+				if(xa_ret)
+					kmem_cache_free(pginfo_cache, entry);
+			}
+		}
+	}
+#endif
 
 	/*
 	 * The memory barrier inside __SetPageUptodate makes sure that

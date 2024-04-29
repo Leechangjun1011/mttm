@@ -77,6 +77,7 @@
 #ifdef CONFIG_MTTM
 #include <linux/random.h>
 #include <linux/mttm.h>
+#include <trace/events/mttm.h>
 #endif
 #include <asm/tlbflush.h>
 
@@ -936,7 +937,7 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 		if(pvmw.pte) {
 			struct page *pte_page;
 			unsigned int memcg_cclock;
-			unsigned long cur_idx;
+			unsigned int cur_idx;
 			pte_t *pte = pvmw.pte;
 
 			pte_page = virt_to_page((unsigned long)pte);
@@ -1001,6 +1002,7 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 		.address = address,
 	};
 	pginfo_t *pginfo;
+	unsigned int cur_idx, active_threshold;
 
 	while(page_vma_mapped_walk(&pvmw)) {
 		address = pvmw.address;
@@ -1008,7 +1010,6 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 
 		if(pvmw.pte) {
 			struct page *pte_page;
-			unsigned long cur_idx;
 			pte_t *pte = pvmw.pte;
 
 			pte_page = virt_to_page((unsigned long)pte);
@@ -1020,10 +1021,18 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 				continue;
 
 			cur_idx = get_idx(pginfo->nr_accesses);
+			active_threshold = mca->memcg->active_threshold;
 			if(cur_idx >= mca->memcg->active_threshold)
 				mca->page_is_hot = 2;
 			else
 				mca->page_is_hot = 1;
+			
+			if((mca->page_is_hot == 1 || mca->page_is_hot == 2))
+				trace_page_check_hotness(address, (unsigned long)page,
+					(unsigned long)pte, pte_val(*pte),
+					(unsigned long)pte_page, (unsigned long)pginfo,
+					cur_idx, active_threshold, mca->page_is_hot);
+	
 		}
 	}
 
