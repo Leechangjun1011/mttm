@@ -37,7 +37,7 @@ unsigned int dma_channel_per_page = 2;
 struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
-unsigned int use_xarray_basepage = 1;
+unsigned int use_xa_basepage = 1;
 unsigned long classification_threshold = 15;//1.5% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
@@ -107,8 +107,8 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	if(!PageMttm(pte_page))
 		return 0;
 
-	if(use_xarray_basepage && memcg->basepage_array)
-		pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	if(use_xa_basepage && memcg->basepage_xa)
+		pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 	else
 		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo)
@@ -196,8 +196,8 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 	if(!PageMttm(pte_page))
 		return;
 
-	if(use_xarray_basepage && memcg->basepage_array)
-		pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	if(use_xa_basepage && memcg->basepage_xa)
+		pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 	else
 		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo)
@@ -210,10 +210,10 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		memcg->hotness_hg[idx]--;
 	spin_unlock(&memcg->access_lock);
 
-	if(use_xarray_basepage && memcg->basepage_array) {
-		pginfo_t *entry = xa_erase(memcg->basepage_array, page_to_pfn(page));
+	if(use_xa_basepage && memcg->basepage_xa) {
+		pginfo_t *entry = xa_erase(memcg->basepage_xa, page_to_pfn(page));
 		if(entry)
-			kmem_cache_free(pginfo_cache, entry);
+			kmem_cache_free(pginfo_cache_xa, entry);
 	}
 
 }
@@ -371,9 +371,9 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		return 0;
 	}	
 
-	if(use_xarray_basepage && !memcg->basepage_array) {
-		memcg->basepage_array = kmalloc(sizeof(struct xarray), GFP_KERNEL);
-		xa_init(memcg->basepage_array);
+	if(use_xa_basepage && !memcg->basepage_xa) {
+		memcg->basepage_xa = kmalloc(sizeof(struct xarray), GFP_KERNEL);
+		xa_init(memcg->basepage_xa);
 	}
 
 	current->mm->mttm_enabled = true;
@@ -404,9 +404,9 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 
 	current_tenants--;
 	kmigrated_stop(memcg);
-	if(use_xarray_basepage && memcg->basepage_array) {
-		xa_destroy(memcg->basepage_array);
-		kfree(memcg->basepage_array);
+	if(use_xa_basepage && memcg->basepage_xa) {
+		xa_destroy(memcg->basepage_xa);
+		kfree(memcg->basepage_xa);
 	}
 	spin_unlock(&register_lock);
 	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d, tot_promoted: %lu MB, tot_demoted: %lu MB\n",
@@ -855,8 +855,8 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 		goto pte_unlock;
 	}
 
-	if(use_xarray_basepage)
-		pginfo = get_pginfo_from_xa(page_memcg(page)->basepage_array, page);
+	if(use_xa_basepage)
+		pginfo = get_pginfo_from_xa(page_memcg(page)->basepage_xa, page);
 	else
 		pginfo = get_pginfo_from_pte(pte);
 	if(!pginfo) {
@@ -999,11 +999,11 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		if(set_cooling(memcg)) {
 			//nothing
 		}
-		if(use_xarray_basepage && memcg->basepage_array) {
+		if(use_xa_basepage && memcg->basepage_xa) {
 			unsigned long xa_cnt = 0;
 			unsigned long index;
 			pginfo_t *entry;
-			xa_for_each(memcg->basepage_array, index, entry) {
+			xa_for_each(memcg->basepage_xa, index, entry) {
 				xa_cnt++;
 			}
 			pr_info("[%s] xarray size : %lu\n",__func__, xa_cnt);
@@ -1109,12 +1109,19 @@ static void ksampled_do_work(void)
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
+	unsigned long total_time, total_cputime = 0, one_cputime;
 
+	total_time = jiffies;
 	while(!kthread_should_stop()) {
+		one_cputime = jiffies;
 		ksampled_do_work();
+		total_cputime += (jiffies - one_cputime);
 		schedule_timeout_interruptible(sleep_timeout);
 	}
+	total_time = jiffies - total_time;
 
+	pr_info("[%s] total_time : %lu, total_cputime : %lu\n",
+		__func__, total_time, total_cputime);
 	return 0;
 }
 

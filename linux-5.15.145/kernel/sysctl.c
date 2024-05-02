@@ -191,6 +191,7 @@ static int max_extfrag_threshold = 1000;
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
 extern unsigned long pebs_sample_period;
+extern unsigned long store_sample_period;
 extern unsigned int strong_hot_threshold;
 extern unsigned long classification_threshold;
 extern unsigned int dram_size_tolerance;
@@ -199,7 +200,7 @@ extern unsigned int use_dram_determination;
 extern unsigned int use_dma_migration;
 extern unsigned int dma_channel_per_page;
 extern unsigned int use_all_stores;
-extern unsigned int use_xarray_basepage;
+extern unsigned int use_xa_basepage;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2878,6 +2879,13 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
+		.procname	= "store_sample_period",
+		.data		= &store_sample_period,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
 		.procname	= "strong_hot_threshold",
 		.data		= &strong_hot_threshold,
 		.maxlen		= sizeof(unsigned int),
@@ -2934,8 +2942,8 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
-		.procname	= "use_xarray_basepage",
-		.data		= &use_xarray_basepage,
+		.procname	= "use_xa_basepage",
+		.data		= &use_xa_basepage,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

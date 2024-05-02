@@ -63,7 +63,7 @@
 #include "internal.h"
 
 extern unsigned int use_dma_migration;
-extern unsigned int use_xarray_basepage;
+extern unsigned int use_xa_basepage;
 
 int isolate_movable_page(struct page *page, isolate_mode_t mode)
 {
@@ -1258,16 +1258,16 @@ static int unmap_and_move(new_page_t get_new_page,
 		set_page_owner_migrate_reason(newpage, reason);
 #ifdef CONFIG_MTTM
 		if(memcg->mttm_enabled) {
-			if(use_xarray_basepage && memcg->basepage_array) {
-				pginfo_t *old_pginfo = xa_erase(memcg->basepage_array, page_to_pfn(page));
+			if(use_xa_basepage && memcg->basepage_xa) {
+				pginfo_t *old_pginfo = xa_erase(memcg->basepage_xa, page_to_pfn(page));
 				if(old_pginfo) {
 					int xa_ret;
 					check_base_cooling(old_pginfo, newpage);
 
-					xa_lock(memcg->basepage_array);
-					xa_ret = __xa_insert(memcg->basepage_array, page_to_pfn(newpage),
+					xa_lock(memcg->basepage_xa);
+					xa_ret = __xa_insert(memcg->basepage_xa, page_to_pfn(newpage),
 							(void *)old_pginfo, GFP_KERNEL);
-					xa_unlock(memcg->basepage_array);
+					xa_unlock(memcg->basepage_xa);
 					if(xa_ret == -EBUSY)
 						pr_err("[%s] xa_insert fail. Entry already exist.\n",__func__);
 					else if(xa_ret == -ENOMEM)

@@ -268,6 +268,7 @@ static inline bool gup_fast_permitted(unsigned long start, unsigned long end)
 
 #ifdef CONFIG_MTTM
 extern struct kmem_cache *pginfo_cache;
+extern struct kmem_cache *pginfo_cache_xa;
 #endif
 
 #include <asm/pgtable-invert.h>

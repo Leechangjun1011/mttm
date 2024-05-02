@@ -1718,5 +1718,17 @@ static int __init pginfo_cache_init(void)
 }
 core_initcall(pginfo_cache_init);
 
+struct kmem_cache *pginfo_cache_xa;
+static int __init pginfo_cache_xa_init(void)
+{
+	pginfo_cache_xa = kmem_cache_create("pginfo",
+					sizeof(pginfo_t),
+					sizeof(pginfo_t),
+					SLAB_PANIC,
+					NULL);
+	return 0;
+}
+core_initcall(pginfo_cache_xa_init);
+
 #endif
 

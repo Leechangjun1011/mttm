@@ -103,7 +103,7 @@ EXPORT_SYMBOL(mem_map);
 #endif
 
 #ifdef CONFIG_MTTM
-extern unsigned int use_xarray_basepage;
+extern unsigned int use_xa_basepage;
 #endif
 
 /*
@@ -3824,19 +3824,19 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 		goto oom_free_page;
 	cgroup_throttle_swaprate(page, GFP_KERNEL);
 #ifdef CONFIG_MTTM
-	if(vma->vm_mm->mttm_enabled && use_xarray_basepage) {
+	if(vma->vm_mm->mttm_enabled && use_xa_basepage) {
 		struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
-		if(memcg->basepage_array) {
+		if(memcg->basepage_xa) {
 			unsigned long index = page_to_pfn(page);
-			pginfo_t *entry = kmem_cache_alloc(pginfo_cache, GFP_KERNEL);
+			pginfo_t *entry = kmem_cache_alloc(pginfo_cache_xa, GFP_KERNEL);
 			if(entry) {
 				int xa_ret;
-				xa_lock(memcg->basepage_array);
-				xa_ret = __xa_insert(memcg->basepage_array,
+				xa_lock(memcg->basepage_xa);
+				xa_ret = __xa_insert(memcg->basepage_xa,
 						index, (void *)entry, GFP_KERNEL);
-				xa_unlock(memcg->basepage_array);
+				xa_unlock(memcg->basepage_xa);
 				if(xa_ret)
-					kmem_cache_free(pginfo_cache, entry);
+					kmem_cache_free(pginfo_cache_xa, entry);
 			}
 		}
 	}

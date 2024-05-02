@@ -38,7 +38,7 @@ if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
@@ -137,8 +137,12 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33"
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 8 4000000000 35 8 33"
+	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gups_store" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+        BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"
+        echo 16G > ${CGMEM_DIR}/memory.max_at_node0
 else
         echo "$2 benchmark is not supported"
         exit 0

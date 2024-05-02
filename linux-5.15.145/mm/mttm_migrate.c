@@ -41,7 +41,7 @@
 #endif
 
 extern unsigned int use_dram_determination;
-extern unsigned int use_xarray_basepage;
+extern unsigned int use_xa_basepage;
 extern unsigned long classification_threshold;
 extern unsigned int hotset_size_threshold;
 extern unsigned int dram_size_tolerance;
@@ -275,8 +275,8 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 			}
 			else {
 				unsigned int idx;
-				if(use_xarray_basepage) {
-					pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+				if(use_xa_basepage) {
+					pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 					idx = get_idx(pginfo->nr_accesses);
 				}
 				else
@@ -601,7 +601,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 
 static int cooling_page_xa(struct mem_cgroup *memcg, struct page *page)
 {
-	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 	unsigned int memcg_cclock;
 	unsigned int cur_idx;
 	int ret = 0;
@@ -615,12 +615,14 @@ static int cooling_page_xa(struct mem_cgroup *memcg, struct page *page)
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	if(memcg_cclock > pginfo->cooling_clock) {
 		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+		unsigned int active_threshold_cooled = (memcg->active_threshold > 1) ?
+				memcg->active_threshold - 1 : memcg->active_threshold;
 		pginfo->nr_accesses >>= diff;
 
 		cur_idx = get_idx(pginfo->nr_accesses);
 		memcg->hotness_hg[cur_idx]++;
 
-		if(cur_idx >= memcg->active_threshold - 1)
+		if(cur_idx >= active_threshold_cooled)
 			ret = 2;
 		else
 			ret = 1;
@@ -675,7 +677,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 				}
 			}
 			else {
-				if(use_xarray_basepage)
+				if(use_xa_basepage)
 					still_hot = cooling_page_xa(memcg, page);
 				else
 					still_hot = cooling_page(page, lruvec_memcg(lruvec));
@@ -768,7 +770,7 @@ re_cooling:
 
 static int page_check_hotness_xa(struct page *page, struct mem_cgroup *memcg)
 {
-	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_array, page);
+	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 	unsigned int cur_idx;
 	int ret = 0;
 
@@ -831,7 +833,7 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 				status = 1;
 		}
 		else {
-			if(use_xarray_basepage)
+			if(use_xa_basepage)
 				status = page_check_hotness_xa(page, memcg);
 			else
 				status = page_check_hotness(page, memcg);
@@ -955,11 +957,13 @@ static int kmigrated(void *p)
 	unsigned long min_hot_size, max_hot_size;
 	unsigned int active_lru_overflow_cnt = 0;
 
+	unsigned long total_time, total_cputime = 0, one_cputime;
 	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
 		pr_info("[%s] kmigrated bind to cpu%d\n",__func__, kmigrated_cpu);
 	}*/
+	total_time = jiffies;
 
 	for(;;) {
 		struct mem_cgroup_per_node *pn0, *pn1;
@@ -979,6 +983,8 @@ static int kmigrated(void *p)
 		pn1 = memcg->nodeinfo[1];
 		if(!pn0 || !pn1) 
 			break;
+
+		one_cputime = jiffies;
 
 		if(use_dram_determination) {
 			// Classify workload type
@@ -1131,7 +1137,6 @@ dram_deter_end:
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
-		/*
 		if(!use_dram_determination || (use_dram_determination && memcg->dram_determined)) {
 			if(active_lru_overflow(memcg)) {
 				// It may not fix the active lru overflow immediately.
@@ -1160,7 +1165,7 @@ dram_deter_end:
 				active_lru_overflow_cnt++;
 				pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 			}
-		}*/
+		}
 
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
@@ -1199,6 +1204,8 @@ skip_migration:
 		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
+		total_cputime += (jiffies - one_cputime);
+
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),
 				msecs_to_jiffies(KMIGRATED_PERIOD_IN_MS));
@@ -1206,6 +1213,9 @@ skip_migration:
 
 	memcg->promoted_pages = tot_promoted;
 	memcg->demoted_pages = tot_demoted;
+	total_time = jiffies - total_time;
+	pr_info("[%s] total_time : %lu, total_cputime : %lu\n",
+		__func__, total_time, total_cputime);
 
 	return 0;
 }

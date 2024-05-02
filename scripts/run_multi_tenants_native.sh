@@ -21,7 +21,7 @@ then
 fi
 
 echo 1 > /proc/sys/vm/drop_caches
-echo always > /sys/kernel/mm/transparent_hugepage/enabled
+#echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
 
 i=1
@@ -40,5 +40,5 @@ do
 done
 wait
 
-echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+#echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 
