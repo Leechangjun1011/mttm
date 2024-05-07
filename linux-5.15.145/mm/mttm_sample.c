@@ -505,14 +505,10 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	if(use_dram_determination) {
 		if(READ_ONCE(memcg->workload_type) == NOT_CLASSIFIED) {
-			WRITE_ONCE(memcg->active_threshold, strong_hot_threshold);
-			WRITE_ONCE(memcg->warm_threshold, strong_hot_threshold);
 			return;
 		}
 		else if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
 			(!READ_ONCE(memcg->dram_determined))) {
-			WRITE_ONCE(memcg->active_threshold, hotset_size_threshold);
-			WRITE_ONCE(memcg->warm_threshold, hotset_size_threshold);
 			return;
 		}
 	}

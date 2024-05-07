@@ -14,10 +14,10 @@ fi
 CGMEM_DIR=/sys/fs/cgroup/memory/mttm_$1
 cgdelete -g memory:mttm_$1
 cgcreate -g memory:mttm_$1
-echo 1000000 > ${CGMEM_DIR}/memory.cooling_period
-echo 200000 > ${CGMEM_DIR}/memory.adjust_period
+#echo 1000000 > ${CGMEM_DIR}/memory.cooling_period
+#echo 200000 > ${CGMEM_DIR}/memory.adjust_period
 echo enabled > ${CGMEM_DIR}/memory.use_mig
-echo disabled > ${CGMEM_DIR}/memory.use_warm
+echo enabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
 
 : << END
@@ -150,7 +150,7 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 4000000000 35 8 33"
+        BENCH="${BENCH_PATH}/gups 8 4000000000 35 8 31"
 	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"

@@ -945,6 +945,132 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 }
 
 
+static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_hot_checked,
+	unsigned long *strong_hot_size, unsigned long *min_hot_size, unsigned long *max_hot_size)
+{
+	struct mem_cgroup_per_node *pn0, *pn1;
+	unsigned long hot0, hot1;
+
+	pn0 = memcg->nodeinfo[0];
+	pn1 = memcg->nodeinfo[1];		
+	// Classify workload type
+	if(memcg->workload_type == NOT_CLASSIFIED) {
+		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
+			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
+			hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			(*strong_hot_size) += (hot0 + hot1);
+			(*strong_hot_checked)++;
+			pr_info("[%s] workload classification. strong_hot_size : %lu MB\n",
+				__func__, (hot0 + hot1) >> 8);
+		}
+
+		if(*strong_hot_checked >= WORKLOAD_TYPE_CLASSIFICATION_COOLING) {
+			unsigned long classification_threshold_in_size;
+			unsigned long tot_pages = get_nr_lru_pages_node(memcg, NODE_DATA(0))
+						+ get_nr_lru_pages_node(memcg, NODE_DATA(1));
+			//TODO
+			classification_threshold_in_size = 0;
+			/*
+			classification_threshold_in_size = (tot_pages * classification_threshold) / 1000;
+			if(classification_threshold_in_size < MIN_CLASSIFICATION_THRESHOLD)
+				classification_threshold_in_size = MIN_CLASSIFICATION_THRESHOLD;
+			else if(classification_threshold_in_size > MAX_CLASSIFICATION_THRESHOLD)
+				classification_threshold_in_size = MAX_CLASSIFICATION_THRESHOLD;
+			*/
+		
+			*strong_hot_size = (*strong_hot_size) / (*strong_hot_checked);
+			pr_info("[%s] workload classification. average strong_hot_size : %lu MB, classification threshold : %lu MB\n",
+				__func__, (*strong_hot_size) >> 8, classification_threshold_in_size >> 8);
+			
+			if(*strong_hot_size >= classification_threshold_in_size) {
+				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
+				WRITE_ONCE(memcg->cooling_period, MTTM_DRAM_DETER_COOLING_PERIOD);
+				//TODO
+				WRITE_ONCE(memcg->active_threshold, 5);
+				WRITE_ONCE(memcg->warm_threshold, 5);
+				//WRITE_ONCE(memcg->active_threshold, hotset_size_threshold);
+				//WRITE_ONCE(memcg->warm_threshold, hotset_size_threshold);
+				pr_info("[%s] strong hot workload\n",__func__);
+			}
+			else {
+				//TODO : weak hot dram determination
+				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
+				WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+				WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+				WRITE_ONCE(memcg->dram_determined, true);
+				pr_info("[%s] weak hot workload\n",__func__);
+			}
+			*strong_hot_size = 0;
+			*strong_hot_checked = 0;
+		}
+	}
+
+	// Measure strong hot set size
+	else if(memcg->workload_type == STRONG_HOT && !READ_ONCE(memcg->dram_determined)) {
+		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
+			(*strong_hot_checked < WORKLOAD_DRAM_DETERMINATION_COOLING)) {
+			hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			(*strong_hot_size) += (hot0 + hot1);
+			/*
+			if(*strong_hot_checked == 0) {
+				*min_hot_size = hot0 + hot1;
+				*max_hot_size = hot0 + hot1;
+			}
+			else {
+				if(hot0 + hot1 < *min_hot_size)
+					*min_hot_size = hot0 + hot1;
+				else if(hot0 + hot1 > *max_hot_size)
+					*max_hot_size = hot0 + hot1;
+
+				if(*max_hot_size > 4*(*min_hot_size)) {
+					pr_info("[%s] unstable hot size. min : %lu MB, max : %lu MB. weak hot workload\n",
+						__func__, (*min_hot_size) >> 8, (*max_hot_size) >> 8);
+
+					WRITE_ONCE(memcg->workload_type, WEAK_HOT);
+					WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+					WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+					WRITE_ONCE(memcg->dram_determined, true);
+					return;
+				}
+
+			}*/
+
+			(*strong_hot_checked)++;
+			pr_info("[%s] DRAM determination. strong_hot_size : %lu MB, active_threshold : %u\n",
+				__func__, (hot0 + hot1) >> 8, memcg->active_threshold);
+		}
+
+		if(*strong_hot_checked >= WORKLOAD_DRAM_DETERMINATION_COOLING) {
+			*strong_hot_size = (*strong_hot_size) / (*strong_hot_checked);
+			pr_info("[%s] average strong_hot_size : %lu MB, final : %lu MB, active_threshold : %u\n",
+				__func__, (*strong_hot_size) >> 8, ((*strong_hot_size) * (100 + dram_size_tolerance) / 100)>>8,
+				memcg->active_threshold);
+			
+			//TODO
+			if(memcg->active_threshold == 1) {
+				WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+				WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (*strong_hot_size) * (100 + dram_size_tolerance) / 100);
+				WRITE_ONCE(memcg->max_nr_dram_pages, (*strong_hot_size) * (100 + dram_size_tolerance) / 100);
+				WRITE_ONCE(memcg->dram_determined, true);
+			}
+			else {
+				*strong_hot_checked = 0;
+				*strong_hot_size = 0;
+				memcg->active_threshold--;
+			}
+		}
+	}
+
+}
+
+
 static int kmigrated(void *p)
 {
 	//TODO : cpu affinity
@@ -952,9 +1078,8 @@ static int kmigrated(void *p)
 	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
-	unsigned long strong_hot_size = 0;
+	unsigned long strong_hot_size = 0, min_hot_size = 0, max_hot_size = 0;
 	unsigned int strong_hot_checked = 0;
-	unsigned long min_hot_size, max_hot_size;
 	unsigned int active_lru_overflow_cnt = 0;
 
 	unsigned long total_time, total_cputime = 0, one_cputime;
@@ -987,107 +1112,10 @@ static int kmigrated(void *p)
 		one_cputime = jiffies;
 
 		if(use_dram_determination) {
-			// Classify workload type
-			if(memcg->workload_type == NOT_CLASSIFIED) {
-				if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
-					(strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
-					hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-					hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-					strong_hot_size += (hot0 + hot1);
-					strong_hot_checked++;
-					pr_info("[%s] workload classification. strong_hot_size : %lu MB\n",
-						__func__, (hot0 + hot1) >> 8);
-				}
-
-				if(strong_hot_checked >= WORKLOAD_TYPE_CLASSIFICATION_COOLING) {
-					unsigned long classification_threshold_in_size;
-					unsigned long tot_pages = get_nr_lru_pages_node(memcg, NODE_DATA(0))
-								+ get_nr_lru_pages_node(memcg, NODE_DATA(1));
-
-					classification_threshold_in_size = (tot_pages * classification_threshold) / 1000;
-					if(classification_threshold_in_size < MIN_CLASSIFICATION_THRESHOLD)
-						classification_threshold_in_size = MIN_CLASSIFICATION_THRESHOLD;
-					else if(classification_threshold_in_size > MAX_CLASSIFICATION_THRESHOLD)
-						classification_threshold_in_size = MAX_CLASSIFICATION_THRESHOLD;
-
-					strong_hot_size = strong_hot_size / strong_hot_checked;
-					pr_info("[%s] workload classification. average strong_hot_size : %lu MB, classification threshold : %lu MB\n",
-						__func__, strong_hot_size >> 8, classification_threshold_in_size >> 8);
-					
-					if(strong_hot_size >= classification_threshold_in_size) {
-						WRITE_ONCE(memcg->workload_type, STRONG_HOT);
-						WRITE_ONCE(memcg->cooling_period, MTTM_DRAM_DETER_COOLING_PERIOD);
-						WRITE_ONCE(memcg->active_threshold, hotset_size_threshold);
-						WRITE_ONCE(memcg->warm_threshold, hotset_size_threshold);
-						pr_info("[%s] strong hot workload\n",__func__);
-					}
-					else {
-						//TODO : weak hot dram determination
-						WRITE_ONCE(memcg->workload_type, WEAK_HOT);
-						WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-						WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-						WRITE_ONCE(memcg->dram_determined, true);
-						pr_info("[%s] weak hot workload\n",__func__);
-					}
-					strong_hot_size = 0;
-					strong_hot_checked = 0;
-				}
-			}
-
-			// Measure strong hot set size
-			else if(memcg->workload_type == STRONG_HOT && !READ_ONCE(memcg->dram_determined)) {
-				if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
-					(strong_hot_checked < WORKLOAD_DRAM_DETERMINATION_COOLING)) {
-					hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-					hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-					strong_hot_size += (hot0 + hot1);
-
-					if(strong_hot_checked == 0) {
-						min_hot_size = hot0 + hot1;
-						max_hot_size = hot0 + hot1;
-					}
-					else {
-						if(hot0 + hot1 < min_hot_size)
-							min_hot_size = hot0 + hot1;
-						else if(hot0 + hot1 > max_hot_size)
-							max_hot_size = hot0 + hot1;
-
-						if(max_hot_size > 4*min_hot_size) {
-							pr_info("[%s] unstable hot size. min : %lu MB, max : %lu MB. weak hot workload\n",
-								__func__, min_hot_size >> 8, max_hot_size >> 8);
-
-							WRITE_ONCE(memcg->workload_type, WEAK_HOT);
-							WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-							WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-							WRITE_ONCE(memcg->dram_determined, true);
-							goto dram_deter_end;
-						}
-
-					}
-
-					strong_hot_checked++;
-					pr_info("[%s] DRAM determination. strong_hot_size : %lu MB\n",__func__, (hot0 + hot1) >> 8);
-				}
-
-				if(strong_hot_checked >= WORKLOAD_DRAM_DETERMINATION_COOLING) {
-					strong_hot_size = strong_hot_size / strong_hot_checked;
-					pr_info("[%s] average strong_hot_size : %lu MB, final : %lu MB\n",
-						__func__, strong_hot_size >> 8, (strong_hot_size * (100 + dram_size_tolerance) / 100)>>8);
-					
-					WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-					WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, strong_hot_size * (100 + dram_size_tolerance) / 100);
-					WRITE_ONCE(memcg->max_nr_dram_pages, strong_hot_size * (100 + dram_size_tolerance) / 100);
-					WRITE_ONCE(memcg->dram_determined, true);
-				}
-			}
+			determine_dram_size(memcg, &strong_hot_checked, &strong_hot_size,
+						&min_hot_size, &max_hot_size);
 		}
 
-dram_deter_end:
 		// Cool & adjust node 0
 		if(need_lru_cooling(pn0)) {
 			nr_cooled = 0;
