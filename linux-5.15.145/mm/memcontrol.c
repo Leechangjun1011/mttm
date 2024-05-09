@@ -5269,8 +5269,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	if(use_dram_determination) {
 		memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 		memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
-		memcg->active_threshold = strong_hot_threshold;
-		memcg->warm_threshold = strong_hot_threshold;
+		memcg->active_threshold = MTTM_DRAM_DETER_INIT_THRESHOLD;
+		memcg->warm_threshold = MTTM_DRAM_DETER_INIT_THRESHOLD;
 	}
 	else {
 		memcg->cooling_period = MTTM_STABLE_COOLING_PERIOD;

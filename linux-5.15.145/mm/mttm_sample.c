@@ -26,11 +26,12 @@
 #include <linux/xarray.h>
 
 int enable_ksampled = 0;
-unsigned long pebs_sample_period = 10007;
+unsigned long pebs_sample_period = PEBS_STABLE_PERIOD;
 unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
+unsigned int dram_deter_end = 0;
 #define NUM_AVAIL_DMA_CHAN	16
 unsigned int use_dma_migration = 0;
 unsigned int dma_channel_per_page = 2;
@@ -38,9 +39,10 @@ struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
 unsigned int use_xa_basepage = 1;
-unsigned long classification_threshold = 15;//1.5% of RSS
+unsigned long classification_threshold = 80;//80% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
+struct mem_cgroup **memcg_list = NULL;
 struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
@@ -323,6 +325,34 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	pfe[cpu][type] = fget(event_fd)->private_data;
 	return 0;
 }
+
+static void pebs_update_period(uint64_t value)
+{
+	int cpu, event;
+
+	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
+		for(event = 0; event < NR_EVENTTYPE; event++) {
+			int ret;
+			if(!pfe[cpu][event])
+				continue;
+
+			switch(event) {
+				case DRAMREAD:
+				case CXLREAD:
+					ret = perf_event_period(pfe[cpu][event], value);
+					break;
+				case MEMWRITE:
+				default:
+					ret = 0;
+					break;
+			}
+
+			if(ret == -EINVAL)
+				pr_err("[%s] failed to update sample period",__func__);
+		}
+	}
+}
+
 #if 0
 pid_t test_pid;
 
@@ -387,6 +417,7 @@ SYSCALL_DEFINE1(mttm_register_pid,
 			memcg->dma_chan_start = 0;
 	}
 
+	memcg_list[current_tenants] = memcg;
 	current_tenants++;
 	//test_pid = pid;
 	spin_unlock(&register_lock);
@@ -506,11 +537,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	if(use_dram_determination) {
 		if(READ_ONCE(memcg->workload_type) == NOT_CLASSIFIED) {
 			return;
-		}
-		else if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
-			(!READ_ONCE(memcg->dram_determined))) {
-			return;
-		}
+		}	
 	}
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
@@ -1018,7 +1045,7 @@ put_task:
 
 static void ksampled_do_work(void)
 {
-	int cpu, event, cond = true;
+	int cpu, event, i, cond = true;
 	int nr_sampled = 0, nr_skip = 0;
 	//unsigned long prev_active_lru_size = 0, cur_active_lru_size = 0;
 
@@ -1098,6 +1125,27 @@ static void ksampled_do_work(void)
 		}
 	}
 
+	if(use_dram_determination && !dram_deter_end && current_tenants) {
+		struct mem_cgroup *memcg;
+		bool all_dram_deter_end = true;
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = memcg_list[i];
+			if(memcg) {
+				if(!READ_ONCE(memcg->dram_determined)) {
+					all_dram_deter_end = false;
+					break;
+				}
+			}
+		}
+
+		if(all_dram_deter_end) {
+			dram_deter_end = 1;
+			pebs_update_period(PEBS_STABLE_PERIOD);
+			pr_info("[%s] pebs period updated to %u\n",
+				__func__, PEBS_STABLE_PERIOD);
+		}
+	}
+
 	//cur_active_lru_size = get_active_lru_size();
 	//trace_lru_size(true, prev_active_lru_size, cur_active_lru_size);
 }
@@ -1132,6 +1180,14 @@ static int ksampled_run(void)
 			pfe[cpu] = kzalloc(sizeof(struct perf_event *) * NR_EVENTTYPE, GFP_KERNEL);
 		}
 
+		memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
+		current_tenants = 0;
+		if(use_dram_determination) {
+			pebs_sample_period = PEBS_DRAM_DETER_PERIOD;
+			dram_deter_end = 0;
+		}
+		else
+			pebs_sample_period = PEBS_STABLE_PERIOD;
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 			for(event = 0; event < NR_EVENTTYPE; event++) {
 				if(get_pebs_event(event) == NR_EVENTTYPE) {
@@ -1203,6 +1259,7 @@ static void ksampled_stop(void)
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++)
 		kfree(pfe[cpu]);
 	kfree(pfe);
+	kfree(memcg_list);
 
 	if(use_dma_migration) {
 		for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
