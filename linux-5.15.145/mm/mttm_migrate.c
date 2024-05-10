@@ -955,25 +955,32 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 	unsigned long *strong_hot_size, unsigned long *min_hot_size, unsigned long *max_hot_size)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
-	unsigned long hot0, hot1;
-	unsigned long tot_pages = get_nr_lru_pages_node(memcg, NODE_DATA(0))
-				+ get_nr_lru_pages_node(memcg, NODE_DATA(1));
-	unsigned long tot_huge_pages = tot_pages >> 9;
+	unsigned long hot0, hot1, cold0, cold1;
+	unsigned long tot_pages;
+	unsigned long tot_huge_pages;
 
 	pn0 = memcg->nodeinfo[0];
 	pn1 = memcg->nodeinfo[1];	
 
 	// Classify workload type
 	if(memcg->workload_type == NOT_CLASSIFIED) {
+		cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+				LRU_INACTIVE_ANON, MAX_NR_ZONES);
+		cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+				LRU_INACTIVE_ANON, MAX_NR_ZONES);
+		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		tot_pages = cold0 + cold1 + hot0 + hot1;
+		tot_huge_pages = tot_pages >> 9;
+
 		if(tot_huge_pages > (memcg->cooling_period >> 1))
 			set_enough_cooling_period(memcg, tot_huge_pages);
 
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
 			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
-			hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-				LRU_ACTIVE_ANON, MAX_NR_ZONES);
-			hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-				LRU_ACTIVE_ANON, MAX_NR_ZONES);
+
 			(*strong_hot_size) += (hot0 + hot1);
 			(*strong_hot_checked)++;
 			pr_info("[%s] strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %lu\n",

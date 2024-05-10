@@ -29,6 +29,7 @@ echo 0 > /proc/sys/vm/use_xa_basepage
 echo 0 > /proc/sys/vm/use_all_stores
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
+sudo sysctl vm.enable_ksampled=0
 sudo sysctl vm.enable_ksampled=1
 
 i=1

@@ -1181,7 +1181,6 @@ static int ksampled_run(void)
 		}
 
 		memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
-		current_tenants = 0;
 		if(use_dram_determination) {
 			pebs_sample_period = PEBS_DRAM_DETER_PERIOD;
 			dram_deter_end = 0;
@@ -1272,7 +1271,7 @@ static void ksampled_stop(void)
 
 		dmaengine_put();
 	}
-
+	
 	pr_info("[%s] ksampled stop\n", __func__);
 
 }
