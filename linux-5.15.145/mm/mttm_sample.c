@@ -26,7 +26,9 @@
 #include <linux/xarray.h>
 
 int enable_ksampled = 0;
-unsigned long pebs_sample_period = PEBS_STABLE_PERIOD;
+unsigned long pebs_stable_period = 10007;
+unsigned long pebs_dram_deter_period = 4999;
+unsigned long pebs_sample_period = 10007;
 unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
@@ -577,9 +579,20 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_unlock(&memcg->access_lock);
 
-	if(idx_hot < MTTM_INIT_THRESHOLD)
-		idx_hot = MTTM_INIT_THRESHOLD;
-
+	if(idx_hot < MTTM_INIT_THRESHOLD) {
+		unsigned long tot_pages = 0;
+		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+		if(max_nr_pages < tot_pages)
+			idx_hot = MTTM_INIT_THRESHOLD;
+		//When RSS is smaller than max_nr_pages, allow active threshold 0.
+	}
 	// some pages may not be reflected in the histogram when cooling happens
 	if(memcg->cooled) {
 		//when cooling happens, thres will be current - 1
@@ -600,11 +613,15 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	set_lru_adjusting(memcg, true);
 
 	if(memcg->use_warm) {
-		if(need_warm)
-			memcg->warm_threshold = memcg->active_threshold - 1;
+		if(need_warm) {
+			if(memcg->active_threshold >= MTTM_INIT_THRESHOLD)
+				memcg->warm_threshold = memcg->active_threshold - 1;
+			else
+				memcg->warm_threshold = memcg->active_threshold;
+		}
 		else
 			memcg->warm_threshold = memcg->active_threshold;
-		}
+	}
 	else
 		memcg->warm_threshold = memcg->active_threshold;
 
@@ -1140,9 +1157,9 @@ static void ksampled_do_work(void)
 
 		if(all_dram_deter_end) {
 			dram_deter_end = 1;
-			pebs_update_period(PEBS_STABLE_PERIOD);
-			pr_info("[%s] pebs period updated to %u\n",
-				__func__, PEBS_STABLE_PERIOD);
+			pebs_update_period(pebs_stable_period);
+			pr_info("[%s] pebs period updated to %lu\n",
+				__func__, pebs_stable_period);
 		}
 	}
 
@@ -1182,11 +1199,11 @@ static int ksampled_run(void)
 
 		memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
 		if(use_dram_determination) {
-			pebs_sample_period = PEBS_DRAM_DETER_PERIOD;
+			pebs_sample_period = pebs_dram_deter_period;
 			dram_deter_end = 0;
 		}
 		else
-			pebs_sample_period = PEBS_STABLE_PERIOD;
+			pebs_sample_period = pebs_stable_period;
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 			for(event = 0; event < NR_EVENTTYPE; event++) {
 				if(get_pebs_event(event) == NR_EVENTTYPE) {
@@ -1235,8 +1252,10 @@ static int ksampled_run(void)
 
 				pr_info("[%s] dma channel opened\n",__func__);
 			}
+			pr_info("[%s] ksampled start\n",__func__);
 		}
 	}
+
 	return ret;
 }
 

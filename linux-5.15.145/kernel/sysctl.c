@@ -191,6 +191,8 @@ static int max_extfrag_threshold = 1000;
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
 extern unsigned long pebs_sample_period;
+extern unsigned long pebs_stable_period;
+extern unsigned long pebs_dram_deter_period;
 extern unsigned long store_sample_period;
 extern unsigned int strong_hot_threshold;
 extern unsigned long classification_threshold;
@@ -2874,6 +2876,20 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "pebs_sample_period",
 		.data		= &pebs_sample_period,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "pebs_stable_period",
+		.data		= &pebs_stable_period,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "pebs_dram_deter_period",
+		.data		= &pebs_dram_deter_period,
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,

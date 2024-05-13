@@ -944,12 +944,6 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 		return false;
 }
 
-static void set_enough_cooling_period(struct mem_cgroup *memcg, unsigned long tot_huge_pages)
-{
-	while(tot_huge_pages > (memcg->cooling_period >> 1)) {
-		memcg->cooling_period <<= 1;
-	}
-}
 
 static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_hot_checked,
 	unsigned long *strong_hot_size, unsigned long *min_hot_size, unsigned long *max_hot_size)
@@ -975,15 +969,27 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		tot_pages = cold0 + cold1 + hot0 + hot1;
 		tot_huge_pages = tot_pages >> 9;
 
-		if(tot_huge_pages > (memcg->cooling_period >> 1))
-			set_enough_cooling_period(memcg, tot_huge_pages);
+		if(tot_huge_pages > (memcg->cooling_period >> 1)) {
+			if(*strong_hot_checked > 0 || memcg->active_threshold < 4) {
+				// reset
+				*strong_hot_checked = 0;
+				*strong_hot_size = 0;
+				memcg->active_threshold = 4;
+				memcg->warm_threshold = 4;
+				adjusting_node(NODE_DATA(0), memcg, true, NULL, NULL, NULL);
+				adjusting_node(NODE_DATA(1), memcg, true, NULL, NULL, NULL);
+			
+				pr_info("[%s] Reset checking dram size\n",__func__);
+			}
+			memcg->cooling_period += MTTM_INIT_COOLING_PERIOD;
+		}
 
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
 			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
 
 			(*strong_hot_size) += (hot0 + hot1);
 			(*strong_hot_checked)++;
-			pr_info("[%s] strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %lu\n",
+			pr_info("[%s] strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %u\n",
 				__func__, (hot0 + hot1) >> 8, tot_huge_pages << 1, memcg->cooling_period, memcg->active_threshold);
 		}
 
@@ -1000,23 +1006,50 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			*/
 		
 			*strong_hot_size = (*strong_hot_size) / (*strong_hot_checked);
-			pr_info("[%s] Average strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %lu\n",
-				__func__, (*strong_hot_size) >> 8, tot_huge_pages << 1, memcg->cooling_period, memcg->active_threshold);
 
-			if(memcg->active_threshold == 1) {
-				WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-				WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-				//WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (*strong_hot_size) * (100 + dram_size_tolerance) / 100);
-				//WRITE_ONCE(memcg->max_nr_dram_pages, (*strong_hot_size) * (100 + dram_size_tolerance) / 100);
-				//TODO : check weak hot or strong hot, dram size for weak hot
-				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
-				WRITE_ONCE(memcg->dram_determined, true);	
-			}
-			else {
+			pr_info("[%s] Average strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %u\n",
+				__func__, (*strong_hot_size) >> 8, tot_huge_pages << 1, memcg->cooling_period, memcg->active_threshold);
+			if(memcg->active_threshold == 4) {
+				memcg->lev4_size = *strong_hot_size;
 				*strong_hot_checked = 0;
 				*strong_hot_size = 0;
 				memcg->active_threshold--;
 				memcg->warm_threshold = memcg->active_threshold;
+			}
+			else if(memcg->active_threshold == 3) {
+				memcg->lev3_size = *strong_hot_size;
+				*strong_hot_checked = 0;
+				*strong_hot_size = 0;
+				memcg->active_threshold--;
+				memcg->warm_threshold = memcg->active_threshold;
+			}
+			else if(memcg->active_threshold == 2) {
+				unsigned long hotness_intensity;
+				
+				memcg->lev2_size = *strong_hot_size;
+				hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
+							2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
+							tot_pages / memcg->lev2_size;
+
+				WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+				WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+				if(hotness_intensity > 200) {
+					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
+					WRITE_ONCE(memcg->max_nr_dram_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
+					WRITE_ONCE(memcg->workload_type, STRONG_HOT);
+					pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
+						__func__, hotness_intensity, ((memcg->lev2_size * (100 + dram_size_tolerance))/100) >> 8);
+				}
+				else {
+					//TODO dram size for weak hot
+					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, ULONG_MAX);
+					WRITE_ONCE(memcg->max_nr_dram_pages, ULONG_MAX);
+					WRITE_ONCE(memcg->workload_type, WEAK_HOT);
+					pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
+						__func__, hotness_intensity);
+				}	
+
+				WRITE_ONCE(memcg->dram_determined, true);
 			}
 		}
 	}

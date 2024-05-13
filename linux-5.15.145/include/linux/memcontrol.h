@@ -384,6 +384,9 @@ struct mem_cgroup {
 	bool			mttm_enabled;
 	unsigned int		dma_chan_start;
 	unsigned int		workload_type;//0 : not identified yet, 1 : weak hot, 2 : strong hot
+	unsigned long		lev2_size;
+	unsigned long		lev3_size;
+	unsigned long		lev4_size;
 	struct xarray		*basepage_xa;
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];

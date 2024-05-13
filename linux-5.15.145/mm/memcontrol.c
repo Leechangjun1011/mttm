@@ -5288,6 +5288,9 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->hotness_hg[i] = 0;
 	memcg->cooled = false;
 	memcg->workload_type = NOT_CLASSIFIED;
+	memcg->lev2_size = 0;
+	memcg->lev3_size = 0;
+	memcg->lev4_size = 0;
 	memcg->basepage_xa = NULL;
 #endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
