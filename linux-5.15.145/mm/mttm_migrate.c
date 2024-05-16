@@ -969,7 +969,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		tot_pages = cold0 + cold1 + hot0 + hot1;
 		tot_huge_pages = tot_pages >> 9;
 
-		if(tot_huge_pages > (memcg->cooling_period >> 1)) {
+		if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
 			if(*strong_hot_checked > 0 || memcg->active_threshold < 4) {
 				// reset
 				*strong_hot_checked = 0;
@@ -981,6 +981,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			
 				pr_info("[%s] Reset checking dram size\n",__func__);
 			}
+
 			memcg->cooling_period += MTTM_INIT_COOLING_PERIOD;
 		}
 

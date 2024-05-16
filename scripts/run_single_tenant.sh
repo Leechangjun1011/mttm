@@ -111,6 +111,7 @@ elif [[ "$2" == "cpu_dlrm_large_high" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large high"
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+#source shrc at SPECCPU_2017 before run SPECCPU
 elif [[ "$2" == "bwaves" ]]; then
         BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 603.bwaves_s"
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
