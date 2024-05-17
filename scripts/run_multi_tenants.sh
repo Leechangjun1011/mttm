@@ -23,7 +23,7 @@ fi
 echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
-echo 1 > /proc/sys/vm/use_dram_determination
+echo 0 > /proc/sys/vm/use_dram_determination
 echo 0 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_xa_basepage
 echo 0 > /proc/sys/vm/use_all_stores

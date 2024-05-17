@@ -1069,13 +1069,16 @@ static int kmigrated(void *p)
 	unsigned int strong_hot_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
-	unsigned long total_time, total_cputime = 0, one_cputime;
+	unsigned long total_time, total_cputime = 0, one_mig_cputime, one_manage_cputime;
+	unsigned long trace_period = msecs_to_jiffies(10000);
+	unsigned long cur, interval_start, interval_mig_cputime = 0, interval_manage_cputime = 0;
 	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
 		pr_info("[%s] kmigrated bind to cpu%d\n",__func__, kmigrated_cpu);
 	}*/
 	total_time = jiffies;
+	interval_start = jiffies;
 
 	for(;;) {
 		struct mem_cgroup_per_node *pn0, *pn1;
@@ -1096,8 +1099,8 @@ static int kmigrated(void *p)
 		if(!pn0 || !pn1) 
 			break;
 
-		one_cputime = jiffies;
-
+		one_manage_cputime = jiffies;
+	
 		if(use_dram_determination) {
 			determine_dram_size(memcg, &strong_hot_checked, &strong_hot_size,
 						&min_hot_size, &max_hot_size);
@@ -1182,6 +1185,9 @@ static int kmigrated(void *p)
 			}
 		}
 
+		one_manage_cputime = jiffies - one_manage_cputime;
+
+		one_mig_cputime = jiffies;
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
@@ -1199,6 +1205,7 @@ static int kmigrated(void *p)
 			}
 		}	
 skip_migration:
+		one_mig_cputime = jiffies - one_mig_cputime;		
 
 		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
@@ -1219,8 +1226,32 @@ skip_migration:
 		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
-		total_cputime += (jiffies - one_cputime);
+		total_cputime += (one_manage_cputime + one_mig_cputime);
+		interval_manage_cputime += one_manage_cputime;
+		interval_mig_cputime += one_mig_cputime;
 
+		cur = jiffies;
+		if(cur - interval_start >= trace_period) {
+			pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu, mig : %lu], util : %llu\n",
+				__func__, cur - interval_start, interval_manage_cputime + interval_mig_cputime,
+				interval_manage_cputime, interval_mig_cputime,
+				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start));
+
+			if(interval_manage_cputime >= 50) {
+				if(memcg->dram_determined) {
+					WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+					WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+					pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
+						__func__, memcg->adjust_period, memcg->cooling_period);
+				}
+			}
+
+			interval_start = cur;
+			interval_manage_cputime = 0;
+			interval_mig_cputime = 0;
+		}
+		
+	
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),
 				msecs_to_jiffies(KMIGRATED_PERIOD_IN_MS));
@@ -1231,6 +1262,8 @@ skip_migration:
 	total_time = jiffies - total_time;
 	pr_info("[%s] total_time : %lu, total_cputime : %lu\n",
 		__func__, total_time, total_cputime);
+	pr_info("[%s] total_time in us : %u us, total_cputime in us : %u us\n",
+		__func__, jiffies_to_usecs(total_time), jiffies_to_usecs(total_cputime));
 
 	return 0;
 }
