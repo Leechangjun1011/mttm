@@ -1039,6 +1039,7 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		goto mmap_unlock;
 	else {
 		memcg->nr_sampled++;
+		memcg->interval_nr_sampled++;
 		if((get_pebs_event(e) == DRAM_LLC_LOAD_MISS) ||
 			(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS))
 			memcg->nr_load++;
@@ -1076,12 +1077,11 @@ put_task:
 static void ksampled_do_work(void)
 {
 	int cpu, event, i, cond = true;
-	int nr_sampled = 0, nr_skip = 0;
+	int nr_skip = 0;
 	//unsigned long prev_active_lru_size = 0, cur_active_lru_size = 0;
 
 	//prev_active_lru_size = get_active_lru_size();
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
-		nr_sampled = 0;
 		for(event = 0; event < NR_EVENTTYPE; event++) {
 			if(!use_all_stores && (get_pebs_event(event) == ALL_STORES))
 				continue;
@@ -1183,13 +1183,34 @@ static void ksampled_do_work(void)
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
-	unsigned long total_time, total_cputime = 0, one_cputime;
+	unsigned long total_time, total_cputime = 0, one_cputime, cur;
+	unsigned long interval_start;
+	unsigned long trace_period = msecs_to_jiffies(2000);
+	struct mem_cgroup *memcg;
+	int i;
 
 	total_time = jiffies;
+	interval_start = jiffies;
 	while(!kthread_should_stop()) {
 		one_cputime = jiffies;
 		ksampled_do_work();
 		total_cputime += (jiffies - one_cputime);
+
+		cur = jiffies;
+		if(cur - interval_start >= trace_period) {
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = memcg_list[i];
+				if(memcg) {
+					pr_info("[%s] memcg id : %d, interval sample : %lu, rate : %lu (samples / jiffies)\n",
+						__func__, mem_cgroup_id(memcg), memcg->interval_nr_sampled,
+						div64_u64(memcg->interval_nr_sampled, cur - interval_start));
+					memcg->interval_nr_sampled = 0;
+				}
+			}
+
+			interval_start = cur;
+		}
+
 		schedule_timeout_interruptible(sleep_timeout);
 	}
 	total_time = jiffies - total_time;
