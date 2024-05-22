@@ -33,6 +33,11 @@ unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
 unsigned int use_dram_determination = 1;
+unsigned int use_pingpong_reduce = 1;
+unsigned long pingpong_reduce_threshold = 200;
+unsigned long manage_cputime_threshold = 50;
+unsigned long mig_cputime_threshold = 200;
+unsigned int use_lru_manage_reduce = 1;
 unsigned int dram_deter_end = 0;
 #define NUM_AVAIL_DMA_CHAN	16
 unsigned int use_dma_migration = 0;
@@ -122,6 +127,8 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 
 	pginfo->nr_accesses = initial_hotness;
 	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock);//do not skip cooling
+	pginfo->promoted = 0;
+	pginfo->demoted = 0;
 
 	return 0;
 }
@@ -149,6 +156,8 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 		return;
 
 	page[3].cooling_clock = memcg->cooling_clock;//do not skip cooling
+	page[3].promoted = 0;
+	page[3].demoted = 0;
 	ClearPageActive(page);
 }
 
@@ -174,6 +183,8 @@ void copy_transhuge_pginfo(struct page *page, struct page *newpage)
 
 	newpage[3].nr_accesses = page[3].nr_accesses;
 	newpage[3].cooling_clock = page[3].cooling_clock;
+	newpage[3].promoted = page[3].promoted;
+	newpage[3].demoted = page[3].demoted;
 	SetPageMttm(&newpage[3]);
 }
 
@@ -442,8 +453,8 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 		kfree(memcg->basepage_xa);
 	}
 	spin_unlock(&register_lock);
-	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d, tot_promoted: %lu MB, tot_demoted: %lu MB\n",
-		__func__, pid, current_tenants, mem_cgroup_id(memcg), memcg->promoted_pages >> 8, memcg->demoted_pages >> 8);
+	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d\n",
+		__func__, pid, current_tenants, mem_cgroup_id(memcg));
 	return 0;
 }
 
@@ -605,6 +616,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	else {
 		memcg->active_threshold = idx_hot;
 	}
+
+	memcg->active_threshold += memcg->threshold_offset;
 
 	/*if(memcg->workload_type == WEAK_HOT) {
 		if(memcg->active_threshold < 15)

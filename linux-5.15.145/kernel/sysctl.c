@@ -199,6 +199,11 @@ extern unsigned long classification_threshold;
 extern unsigned int dram_size_tolerance;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
+extern unsigned int use_pingpong_reduce;
+extern unsigned long pingpong_reduce_threshold;
+extern unsigned long manage_cputime_threshold;
+extern unsigned long mig_cputime_threshold;
+extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
 extern unsigned int dma_channel_per_page;
 extern unsigned int use_all_stores;
@@ -2932,6 +2937,41 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_dram_determination",
 		.data		= &use_dram_determination,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_pingpong_reduce",
+		.data		= &use_pingpong_reduce,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "pingpong_reduce_threshold",
+		.data		= &pingpong_reduce_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "manage_cputime_threshold",
+		.data		= &manage_cputime_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "mig_cputime_threshold",
+		.data		= &mig_cputime_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "use_lru_manage_reduce",
+		.data		= &use_lru_manage_reduce,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

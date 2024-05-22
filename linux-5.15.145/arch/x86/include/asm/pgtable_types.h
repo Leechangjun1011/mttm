@@ -283,7 +283,7 @@ typedef struct pgprot { pgprotval_t pgprot; } pgprot_t;
 typedef struct { pgdval_t pgd; } pgd_t;
 
 #ifdef CONFIG_MTTM /* pginfo_t */
-typedef struct { uint32_t nr_accesses; uint16_t cooling_clock; uint16_t reserved; } pginfo_t;
+typedef struct { uint32_t nr_accesses; uint16_t cooling_clock; unsigned char promoted; unsigned char demoted; } pginfo_t;
 #endif
 
 static inline pgprot_t pgprot_nx(pgprot_t prot)

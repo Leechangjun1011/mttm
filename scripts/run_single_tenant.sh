@@ -40,7 +40,7 @@ END
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
+        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 16"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
@@ -58,7 +58,7 @@ elif [[ "$2" == "gapbs-tc" ]]; then
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15
-	echo 60G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 4G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
         BENCH="${BENCH_PATH}/XSBench -t 24 -g 70000 -p 30000000" #g 130000

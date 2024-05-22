@@ -41,6 +41,11 @@
 #endif
 
 extern unsigned int use_dram_determination;
+extern unsigned int use_pingpong_reduce;
+extern unsigned long pingpong_reduce_threshold;
+extern unsigned long manage_cputime_threshold;
+extern unsigned long mig_cputime_threshold;
+extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_xa_basepage;
 extern unsigned long classification_threshold;
 extern unsigned int hotset_size_threshold;
@@ -222,28 +227,46 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 }
 
 static unsigned long migrate_page_list(struct list_head *migrate_list, pg_data_t *pgdat,
-								bool promotion)
+					bool promotion, unsigned long *mig_cputime)
 {
 	int target_nid = promotion ? 0 : 1;
 	unsigned int nr_succeeded = 0;
+	unsigned long one_mig_cputime;
 
-	if(list_empty(migrate_list))
+	if(list_empty(migrate_list)) {
 		return 0;
-		
+	}
+
+	one_mig_cputime = jiffies;
 	migrate_pages(migrate_list, alloc_migrate_page, NULL, target_nid,
 			MIGRATE_ASYNC, MR_NUMA_MISPLACED, &nr_succeeded);
+	one_mig_cputime = jiffies - one_mig_cputime;
+
+	if(!list_empty(migrate_list)) {
+		struct list_head *p;
+		unsigned int nr_fail = 0;
+		list_for_each(p, migrate_list)
+			nr_fail++;
+		//pr_info("[%s] migration fail : %u\n",__func__, nr_fail);
+	}
+
+	if(mig_cputime)
+		*mig_cputime = one_mig_cputime;
 
 	return nr_succeeded;
 }
 
 static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pgdat,
-		struct mem_cgroup *memcg, bool shrink_active, unsigned long nr_to_reclaim)
+				struct mem_cgroup *memcg, bool shrink_active,
+				unsigned long nr_to_reclaim, unsigned long *demote_cputime,
+				unsigned long *demote_pingpong)
 {
 	LIST_HEAD(demote_pages);
 	LIST_HEAD(ret_pages);
 	unsigned long nr_reclaimed = 0;
 	unsigned long nr_demotion_cand = 0;
 	unsigned long nr_taken = 0;
+	unsigned long demote_list_pingpong = 0;
 
 	cond_resched();
 
@@ -267,22 +290,42 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 		if(!PageAnon(page) && nr_demotion_cand > nr_to_reclaim + MTTM_MIN_FREE_PAGES)
 			goto keep_locked;
 
-		if(memcg->use_warm && PageAnon(page)) {//check page is warm
+		if(PageAnon(page)) {
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
-				if(get_idx(meta_page->nr_accesses) >= memcg->warm_threshold)
+				if(memcg->use_warm && (get_idx(meta_page->nr_accesses) >= memcg->warm_threshold))
 					goto keep_locked;
+				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
+					meta_page->demoted++;
+					if(meta_page->promoted > 0) {
+						demote_list_pingpong += HPAGE_PMD_NR;
+						memcg->nr_pingpong += HPAGE_PMD_NR;
+					}
+				}
 			}
 			else {
 				unsigned int idx;
+				pginfo_t *pginfo = NULL;
 				if(use_xa_basepage) {
-					pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-					idx = get_idx(pginfo->nr_accesses);
+					pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
 				}
-				else
-					idx = get_pginfo_idx(page);
-				if(idx >= memcg->warm_threshold)
+				else {
+					pginfo = get_pginfo_from_page(page);
+				}
+				if(!pginfo) {
+					//pr_err("[%s] NULL pginfo\n",__func__);
 					goto keep_locked;
+				}
+				idx = get_idx(pginfo->nr_accesses);
+				if(memcg->use_warm && idx >= memcg->warm_threshold)
+					goto keep_locked;
+				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
+					pginfo->demoted++;
+					if(pginfo->promoted > 0) {
+						demote_list_pingpong++;
+						memcg->nr_pingpong++;
+					}
+				}
 			}
 		}
 
@@ -296,18 +339,23 @@ keep:
 		list_add(&page->lru, &ret_pages);
 	}
 
-	nr_reclaimed = migrate_page_list(&demote_pages, pgdat, false);
+	nr_reclaimed = migrate_page_list(&demote_pages, pgdat, false, demote_cputime);
 	if(!list_empty(&demote_pages))
 		list_splice(&demote_pages, page_list);
 	list_splice(&ret_pages, page_list);
 
 	trace_shrink_page_list(nr_taken, nr_demotion_cand, nr_reclaimed);
+
+	if(demote_pingpong)
+		*demote_pingpong = demote_list_pingpong;
+
 	return nr_reclaimed;
 }
 
 
 static unsigned long demote_inactive_list(unsigned long nr_to_scan, unsigned long nr_to_reclaim,
-				struct lruvec *lruvec, enum lru_list lru, bool shrink_active)
+					struct lruvec *lruvec, enum lru_list lru, bool shrink_active,
+					unsigned long *demote_cputime, unsigned long *demote_pingpong)
 {
 	LIST_HEAD(page_list);
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
@@ -326,7 +374,7 @@ static unsigned long demote_inactive_list(unsigned long nr_to_scan, unsigned lon
 	}
 
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, lruvec_memcg(lruvec),
-					shrink_active, nr_to_reclaim);
+				shrink_active, nr_to_reclaim, demote_cputime, demote_pingpong);
 
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
@@ -340,12 +388,15 @@ static unsigned long demote_inactive_list(unsigned long nr_to_scan, unsigned lon
 }
 
 static unsigned long demote_lruvec(unsigned long nr_to_reclaim, short priority,
-		pg_data_t *pgdat, struct lruvec *lruvec, bool shrink_active)
+				pg_data_t *pgdat, struct lruvec *lruvec, bool shrink_active,
+				unsigned long *demote_cputime, unsigned long *demote_pingpong)
 {
 	enum lru_list lru, tmp;
 	unsigned long nr_reclaimed = 0;
 	long nr_to_scan;
-	
+	unsigned long demote_list_cputime = 0, demote_one_list_cputime = 0;
+	unsigned long demote_list_pingpong = 0, demote_one_list_pingpong = 0;
+
 	for_each_evictable_lru(tmp) {
 		lru = (tmp + 2) % 4;// scan file lru first
 
@@ -365,8 +416,12 @@ static unsigned long demote_lruvec(unsigned long nr_to_reclaim, short priority,
 
 		while(nr_to_scan > 0) {
 			unsigned long scan = min((unsigned long)nr_to_scan, SWAP_CLUSTER_MAX);
-
-			nr_reclaimed += demote_inactive_list(scan, scan, lruvec, lru, shrink_active);
+			demote_one_list_cputime = 0;
+			demote_one_list_pingpong = 0;
+			nr_reclaimed += demote_inactive_list(scan, scan, lruvec, lru, shrink_active,
+							&demote_one_list_cputime, &demote_one_list_pingpong);
+			demote_list_cputime += demote_one_list_cputime;
+			demote_list_pingpong += demote_one_list_pingpong;
 			nr_to_scan -= (long)scan;
 			if(nr_reclaimed >= nr_to_reclaim)
 				break;
@@ -376,12 +431,17 @@ static unsigned long demote_lruvec(unsigned long nr_to_reclaim, short priority,
 			break;
 	}
 
+	if(demote_cputime)
+		*demote_cputime = demote_list_cputime;
+	if(demote_pingpong)
+		*demote_pingpong = demote_list_pingpong;
+
 	return nr_reclaimed;
 }
 
 
 static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
-						unsigned long nr_exceeded)
+			unsigned long nr_exceeded, unsigned long *demote_cputime, unsigned long *demote_pingpong)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	short priority = DEF_PRIORITY;
@@ -391,7 +451,9 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	int target_nid = 1;
 	unsigned long nr_smem_active = nr_promotion_target(NODE_DATA(target_nid), memcg);
 	unsigned long max_dram = memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages;
-		
+	unsigned long demote_lruvec_cputime = 0, demote_one_lruvec_cputime = 0;
+	unsigned long demote_lruvec_pingpong = 0, demote_one_lruvec_pingpong = 0;
+
 	for_each_evictable_lru(lru) {
 		if(!is_file_lru(lru) && is_active_lru(lru))
 			continue;
@@ -404,8 +466,12 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 
 	do {	//nr_reclaimed starts with small number and 
 		//increases exponentially by decreasing priority
+		demote_one_lruvec_cputime = 0;
+		demote_one_lruvec_pingpong = 0;
 		nr_reclaimed += demote_lruvec(nr_to_reclaim - nr_reclaimed, priority,
-						pgdat, lruvec, shrink_active);
+				pgdat, lruvec, shrink_active, &demote_one_lruvec_cputime, &demote_one_lruvec_pingpong);
+		demote_lruvec_cputime += demote_one_lruvec_cputime;
+		demote_lruvec_pingpong += demote_one_lruvec_pingpong;
 		if(nr_reclaimed >= nr_to_reclaim)
 			break;
 		priority--;
@@ -423,21 +489,30 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 		get_memcg_demotion_wmark(max_dram) < max_dram)
 		WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
 
+
+	if(demote_cputime)
+		*demote_cputime = demote_lruvec_cputime;
+	if(demote_pingpong)
+		*demote_pingpong = demote_lruvec_pingpong;
+
 	return nr_reclaimed;
 }
 
 
 static unsigned long promote_page_list(struct list_head *page_list,
-						pg_data_t *pgdat)
+					pg_data_t *pgdat, unsigned long *promote_cputime,
+					unsigned long *promote_pingpong)
 {
 	LIST_HEAD(promote_pages);
 	LIST_HEAD(ret_pages);
 	unsigned long nr_promoted = 0;
+	unsigned long promote_list_pingpong = 0;
 
 	cond_resched();
 
 	while(!list_empty(page_list)) {
 		struct page *page;
+		struct mem_cgroup *memcg;
 
 		page = lru_to_page(page_list);
 		list_del(&page->lru);
@@ -453,6 +528,36 @@ static unsigned long promote_page_list(struct list_head *page_list,
 		if(PageTransHuge(page) && !thp_migration_supported())
 			goto keep_locked;
 
+		memcg = page_memcg(page);
+		if(PageAnon(page)) {
+			if(PageTransHuge(page)) {
+				struct page *meta_page = get_meta_page(page);
+				meta_page->promoted++;
+				if(meta_page->demoted > 0) {
+					promote_list_pingpong += HPAGE_PMD_NR;
+					memcg->nr_pingpong += HPAGE_PMD_NR;
+				}
+			}
+			else {
+				pginfo_t *pginfo = NULL;
+				if(use_xa_basepage) {
+					pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
+				}
+				else {
+					pginfo = get_pginfo_from_page(page);
+				}
+				if(!pginfo) {
+					//pr_err("[%s] NULL pginfo\n",__func__);
+					goto keep_locked;
+				}
+				pginfo->promoted++;
+				if(pginfo->demoted > 0) {
+					promote_list_pingpong++;
+					memcg->nr_pingpong++;
+				}
+			}
+		}
+
 		list_add(&page->lru, &promote_pages);
 		unlock_page(page);
 		continue;
@@ -462,16 +567,20 @@ keep:
 		list_add(&page->lru, &ret_pages);
 	}
 
-	nr_promoted = migrate_page_list(&promote_pages, pgdat, true);
+	nr_promoted = migrate_page_list(&promote_pages, pgdat, true, promote_cputime);
 	if(!list_empty(&promote_pages))
 		list_splice(&promote_pages, page_list);
 	list_splice(&ret_pages, page_list);
+
+	if(promote_pingpong)
+		*promote_pingpong = promote_list_pingpong;
 
 	return nr_promoted;
 }
 
 static unsigned long promote_active_list(unsigned long nr_to_scan,
-			struct lruvec *lruvec, enum lru_list lru)
+					struct lruvec *lruvec, enum lru_list lru,
+					unsigned long *promote_cputime, unsigned long *promote_pingpong)
 {
 	LIST_HEAD(page_list);
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
@@ -487,7 +596,7 @@ static unsigned long promote_active_list(unsigned long nr_to_scan,
 	if(nr_taken == 0)
 		return 0;
 
-	nr_promoted = promote_page_list(&page_list, pgdat);
+	nr_promoted = promote_page_list(&page_list, pgdat, promote_cputime, promote_pingpong);
 
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
@@ -502,13 +611,28 @@ static unsigned long promote_active_list(unsigned long nr_to_scan,
 
 
 static unsigned long promote_lruvec(unsigned long nr_to_promote, short priority,
-		pg_data_t *pgdat, struct lruvec *lruvec, enum lru_list lru)
+					pg_data_t *pgdat, struct lruvec *lruvec,
+					enum lru_list lru, unsigned long *promote_cputime,
+					unsigned long *promote_pingpong)
 {
 	unsigned long nr_promoted = 0, nr;
+	unsigned long promote_list_cputime = 0, promote_one_list_cputime = 0;
+	unsigned long promote_list_pingpong = 0, promote_one_list_pingpong = 0;
 
 	nr = nr_to_promote >> priority;
-	if(nr)
-		nr_promoted += promote_active_list(nr, lruvec, lru);
+	if(nr) {
+		promote_one_list_cputime = 0;
+		promote_one_list_pingpong = 0;
+		nr_promoted += promote_active_list(nr, lruvec, lru, &promote_one_list_cputime,
+								&promote_one_list_pingpong);
+		promote_list_cputime += promote_one_list_cputime;
+		promote_list_pingpong += promote_one_list_pingpong;
+	}
+
+	if(promote_cputime)
+		*promote_cputime = promote_list_cputime;
+	if(promote_pingpong)
+		*promote_pingpong = promote_list_pingpong;
 
 	return nr_promoted;
 
@@ -573,28 +697,42 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	return false;
 }
 
-static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool *promotion_denied)
+static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool *promotion_denied,
+					unsigned long *promote_cputime, unsigned long *promote_pingpong)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	unsigned long nr_to_promote, nr_promoted = 0, tmp;
 	enum lru_list lru = LRU_ACTIVE_ANON;
 	short priority = DEF_PRIORITY;
 	int target_nid = 0;
+	unsigned long promote_lruvec_cputime = 0, promote_one_lruvec_cputime = 0;
+	unsigned long promote_lruvec_pingpong = 0, promote_one_lruvec_pingpong = 0;
 
 	if(!promotion_available(target_nid, memcg, &nr_to_promote))
 		return 0;
+	if(promotion_denied)
+		*promotion_denied = false;
 
-	*promotion_denied = false;
 	nr_to_promote = min(nr_to_promote,
 			lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
 
 	do {
+		promote_one_lruvec_cputime = 0;
+		promote_one_lruvec_pingpong = 0;
 		nr_promoted += promote_lruvec(nr_to_promote, priority,
-						pgdat, lruvec, lru);
+					pgdat, lruvec, lru, &promote_one_lruvec_cputime,
+					&promote_one_lruvec_pingpong);
+		promote_lruvec_cputime += promote_one_lruvec_cputime;
+		promote_lruvec_pingpong += promote_one_lruvec_pingpong;
 		if(nr_promoted >= nr_to_promote)
 			break;
 		priority--;
 	} while (priority);
+
+	if(promote_cputime)
+		*promote_cputime = promote_lruvec_cputime;
+	if(promote_pingpong)
+		*promote_pingpong = promote_lruvec_pingpong;
 
 	return nr_promoted;
 }
@@ -1069,9 +1207,11 @@ static int kmigrated(void *p)
 	unsigned int strong_hot_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
-	unsigned long total_time, total_cputime = 0, one_mig_cputime, one_manage_cputime;
+	unsigned long total_time, total_cputime = 0, one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong;
 	unsigned long trace_period = msecs_to_jiffies(10000);
-	unsigned long cur, interval_start, interval_mig_cputime = 0, interval_manage_cputime = 0;
+	unsigned long cur, interval_start;
+	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
+	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
 	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
@@ -1088,6 +1228,8 @@ static int kmigrated(void *p)
 		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
 		bool promotion_denied = true;
+		unsigned long demote_cputime = 0, demote_pingpong = 0;
+		unsigned long promote_cputime = 0, promote_pingpong = 0;
 
 		if(kthread_should_stop())
 			break;
@@ -1105,6 +1247,10 @@ static int kmigrated(void *p)
 			determine_dram_size(memcg, &strong_hot_checked, &strong_hot_size,
 						&min_hot_size, &max_hot_size);
 		}
+
+		if(need_lru_cooling(pn0) || need_lru_adjusting(pn0) ||
+			need_lru_cooling(pn1) || need_lru_adjusting(pn1))
+			interval_manage_cnt++;
 
 		// Cool & adjust node 0
 		if(need_lru_cooling(pn0)) {
@@ -1181,6 +1327,7 @@ static int kmigrated(void *p)
 				else
 					memcg->warm_threshold = memcg->active_threshold;
 				active_lru_overflow_cnt++;
+				interval_manage_cnt++;
 				pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 			}
 		}
@@ -1188,22 +1335,29 @@ static int kmigrated(void *p)
 		one_manage_cputime = jiffies - one_manage_cputime;
 
 		one_mig_cputime = jiffies;
+		one_do_mig_cputime = 0;
+		one_pingpong = 0;		
+
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
 				if(memcg->use_warm && (READ_ONCE(memcg->warm_threshold) == 0)) {
 					goto skip_migration;
 				}
-				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded);
+				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded, &demote_cputime, &demote_pingpong);
+				one_do_mig_cputime += demote_cputime;
+				one_pingpong += demote_pingpong;
 			}
 			
 			if(nr_promotion_target(NODE_DATA(1), memcg)) {
-				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied);
+				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied, &promote_cputime, &promote_pingpong);
+				one_do_mig_cputime += promote_cputime;
+				one_pingpong += promote_pingpong;
 				if(promotion_denied) {
 					//WRITE_ONCE(memcg->need_adjusting_from_kmigrated, true);
 				}
 			}
-		}	
+		}
 skip_migration:
 		one_mig_cputime = jiffies - one_mig_cputime;		
 
@@ -1229,15 +1383,20 @@ skip_migration:
 		total_cputime += (one_manage_cputime + one_mig_cputime);
 		interval_manage_cputime += one_manage_cputime;
 		interval_mig_cputime += one_mig_cputime;
+		interval_do_mig_cputime += one_do_mig_cputime;
+		interval_pingpong += one_pingpong;
 
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
-			pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu, mig : %lu], util : %llu\n",
+			pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu (cnt : %lu), mig : %lu (do_mig : %lu)], util : %llu, pingpong : %lu MB\n",
 				__func__, cur - interval_start, interval_manage_cputime + interval_mig_cputime,
-				interval_manage_cputime, interval_mig_cputime,
-				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start));
+				interval_manage_cputime, interval_manage_cnt, interval_mig_cputime, interval_do_mig_cputime,
+				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start),
+				interval_pingpong >> 8);
 
-			if(interval_manage_cputime >= 50) {
+			if(use_lru_manage_reduce &&
+				interval_manage_cputime >= manage_cputime_threshold &&
+				interval_manage_cnt > 1) {
 				if(memcg->dram_determined) {
 					WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
 					WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
@@ -1246,9 +1405,28 @@ skip_migration:
 				}
 			}
 
+			if(use_pingpong_reduce && interval_mig_cputime) {
+				if((interval_mig_cputime >= mig_cputime_threshold) &&
+					(div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold)) {
+					if(memcg->dram_determined) {
+						WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
+						WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
+						if(memcg->use_warm)
+							WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+						else
+							WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+						pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
+							__func__, memcg->threshold_offset, memcg->active_threshold);
+					}
+				}
+			}
+
 			interval_start = cur;
 			interval_manage_cputime = 0;
+			interval_manage_cnt = 0;
 			interval_mig_cputime = 0;
+			interval_do_mig_cputime = 0;
+			interval_pingpong = 0;
 		}
 		
 	
@@ -1260,6 +1438,8 @@ skip_migration:
 	memcg->promoted_pages = tot_promoted;
 	memcg->demoted_pages = tot_demoted;
 	total_time = jiffies - total_time;
+	pr_info("[%s] tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu\n",
+		__func__, tot_promoted >> 8, tot_demoted >> 8, memcg->nr_pingpong);
 	pr_info("[%s] total_time : %lu, total_cputime : %lu\n",
 		__func__, total_time, total_cputime);
 	pr_info("[%s] total_time in us : %u us, total_cputime in us : %u us\n",

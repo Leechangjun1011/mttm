@@ -1120,6 +1120,68 @@ int get_pginfo_idx(struct page *page)
 
 }
 
+struct mttm_rmap_arg {
+	pginfo_t *pginfo;
+	struct mem_cgroup *memcg;
+};
+
+static bool get_pginfo_from_page_one(struct page *page, struct vm_area_struct *vma,
+					unsigned long address, void *arg)
+{
+	struct mttm_rmap_arg *mra = (struct mttm_rmap_arg *)arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+	pginfo_t *pginfo;
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pte) {
+			struct page *pte_page;
+			pte_t *pte = pvmw.pte;
+
+			pte_page = virt_to_page((unsigned long)pte);
+			if(!PageMttm(pte_page))
+				continue;
+
+			pginfo = get_pginfo_from_pte(pte);
+			if(!pginfo)
+				continue;
+
+			mra->pginfo = pginfo;
+		}
+		else if(pvmw.pmd)
+			mra->pginfo = NULL;
+	}
+
+	return true;
+}
+
+pginfo_t *get_pginfo_from_page(struct page *page)
+{
+	struct mttm_rmap_arg mra = {
+		.pginfo = NULL,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = get_pginfo_from_page_one,
+		.arg = (void *)&mra,
+	};
+
+	if(!PageAnon(page) || PageKsm(page))
+		return -1;
+
+	if(!page_mapped(page))
+		return -1;
+
+	rmap_walk(page, &rwc);
+	return mra.pginfo;
+}
+
+
 #endif
 
 static bool page_mkclean_one(struct page *page, struct vm_area_struct *vma,

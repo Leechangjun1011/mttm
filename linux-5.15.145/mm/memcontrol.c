@@ -5271,15 +5271,17 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
 		memcg->active_threshold = MTTM_DRAM_DETER_INIT_THRESHOLD;
 		memcg->warm_threshold = MTTM_DRAM_DETER_INIT_THRESHOLD;
+		memcg->dram_determined = false;
 	}
 	else {
 		memcg->cooling_period = MTTM_STABLE_COOLING_PERIOD;
 		memcg->adjust_period = MTTM_STABLE_ADJUST_PERIOD;
 		memcg->active_threshold = MTTM_INIT_THRESHOLD;
 		memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+		memcg->dram_determined = true;
 	}
+	memcg->threshold_offset = 0;
 	memcg->dma_chan_start = 0;
-	memcg->dram_determined = false;
 	memcg->use_warm = true;
 	memcg->use_mig = true;
 	memcg->hg_mismatch = false;
@@ -5291,6 +5293,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->lev2_size = 0;
 	memcg->lev3_size = 0;
 	memcg->lev4_size = 0;
+	memcg->nr_pingpong = 0;
 	memcg->basepage_xa = NULL;
 #endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);

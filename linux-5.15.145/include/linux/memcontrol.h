@@ -373,6 +373,7 @@ struct mem_cgroup {
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
 	unsigned int		active_threshold;
+	unsigned int		threshold_offset;
 	unsigned int		warm_threshold;
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
@@ -387,6 +388,7 @@ struct mem_cgroup {
 	unsigned long		lev2_size;
 	unsigned long		lev3_size;
 	unsigned long		lev4_size;
+	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];
