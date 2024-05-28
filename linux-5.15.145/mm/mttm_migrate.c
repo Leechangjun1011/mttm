@@ -63,22 +63,24 @@ static bool need_lru_adjusting(struct mem_cgroup_per_node *pn)
 
 unsigned long get_memcg_demotion_wmark(unsigned long max_nr_pages)
 {
-	max_nr_pages = max_nr_pages * 2 / 100;
-	if(max_nr_pages < MIN_WMARK_LOWER_LIMIT)
+	unsigned long ret;
+	ret = max_nr_pages * 2 / 100;
+	if(ret < MIN_WMARK_LOWER_LIMIT)
 		return MIN_WMARK_LOWER_LIMIT;
-	else if(max_nr_pages > MIN_WMARK_UPPER_LIMIT)
+	else if(ret > MIN_WMARK_UPPER_LIMIT)
 		return MIN_WMARK_UPPER_LIMIT;
-	return max_nr_pages;
+	return ret;
 }
 
 unsigned long get_memcg_promotion_wmark(unsigned long max_nr_pages)
 {
-	max_nr_pages = max_nr_pages * 3 / 100;
-	if(max_nr_pages < MAX_WMARK_LOWER_LIMIT)
+	unsigned long ret;
+	ret = max_nr_pages * 3 / 100;
+	if(ret < MAX_WMARK_LOWER_LIMIT)
 		return MAX_WMARK_LOWER_LIMIT;
-	else if(max_nr_pages > MAX_WMARK_UPPER_LIMIT)
+	else if(ret > MAX_WMARK_UPPER_LIMIT)
 		return MAX_WMARK_UPPER_LIMIT;
-	return max_nr_pages;
+	return ret;
 }
 
 static unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg)
@@ -293,6 +295,8 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 		if(PageAnon(page)) {
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
+				if(!meta_page)
+					goto keep_locked;
 				if(memcg->use_warm && (get_idx(meta_page->nr_accesses) >= memcg->warm_threshold))
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
@@ -469,7 +473,8 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 		demote_one_lruvec_cputime = 0;
 		demote_one_lruvec_pingpong = 0;
 		nr_reclaimed += demote_lruvec(nr_to_reclaim - nr_reclaimed, priority,
-				pgdat, lruvec, shrink_active, &demote_one_lruvec_cputime, &demote_one_lruvec_pingpong);
+						pgdat, lruvec, shrink_active, &demote_one_lruvec_cputime,
+						&demote_one_lruvec_pingpong);
 		demote_lruvec_cputime += demote_one_lruvec_cputime;
 		demote_lruvec_pingpong += demote_one_lruvec_pingpong;
 		if(nr_reclaimed >= nr_to_reclaim)
@@ -494,7 +499,7 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 		*demote_cputime = demote_lruvec_cputime;
 	if(demote_pingpong)
 		*demote_pingpong = demote_lruvec_pingpong;
-
+	
 	return nr_reclaimed;
 }
 
@@ -873,6 +878,7 @@ static void cooling_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
 	enum lru_list lru = LRU_ACTIVE_ANON;
+	unsigned long nr_active_cooled_list = 0, nr_active_still_hot_list = 0;
 	unsigned long nr_active_cooled = 0, nr_active_still_hot = 0;
 
 re_cooling:
@@ -881,13 +887,13 @@ re_cooling:
 		unsigned long scan = nr_to_scan >> 3; // 12.5%
 		if(!scan)
 			scan = nr_to_scan;
+		nr_active_cooled_list = 0;
+		nr_active_still_hot_list = 0;
 		nr_scanned += cooling_lru_list(scan, lruvec, lru,
-					&nr_active_cooled, &nr_active_still_hot);
+					&nr_active_cooled_list, &nr_active_still_hot_list);
 		if(lru == LRU_ACTIVE_ANON) {
-			if(nr_cooled)
-				*nr_cooled += nr_active_cooled;
-			if(nr_still_hot)
-				*nr_still_hot += nr_active_still_hot;
+			nr_active_cooled += nr_active_cooled_list;
+			nr_active_still_hot += nr_active_still_hot_list;
 		}
 		nr_max_scan--;
 	} while (nr_scanned < nr_to_scan && nr_max_scan);
@@ -902,6 +908,11 @@ re_cooling:
 	// active file list
 	cooling_lru_list(lruvec_lru_size(lruvec, LRU_ACTIVE_FILE, MAX_NR_ZONES),
 			lruvec, LRU_ACTIVE_FILE, NULL, NULL);
+
+	if(nr_cooled)
+		*nr_cooled = nr_active_cooled;
+	if(nr_still_hot)
+		*nr_still_hot = nr_active_still_hot;
 
 	WRITE_ONCE(pn->need_cooling, false);
 }
@@ -1212,6 +1223,10 @@ static int kmigrated(void *p)
 	unsigned long cur, interval_start;
 	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
 	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
+	unsigned long demote_cputime = 0, demote_pingpong = 0;
+	unsigned long promote_cputime = 0, promote_pingpong = 0;
+
+
 	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
@@ -1228,8 +1243,6 @@ static int kmigrated(void *p)
 		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
 		bool promotion_denied = true;
-		unsigned long demote_cputime = 0, demote_pingpong = 0;
-		unsigned long promote_cputime = 0, promote_pingpong = 0;
 
 		if(kthread_should_stop())
 			break;
@@ -1337,6 +1350,10 @@ static int kmigrated(void *p)
 		one_mig_cputime = jiffies;
 		one_do_mig_cputime = 0;
 		one_pingpong = 0;		
+		demote_cputime = 0;
+		demote_pingpong = 0;
+		promote_cputime = 0;
+		promote_pingpong = 0;
 
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
@@ -1393,7 +1410,7 @@ skip_migration:
 				interval_manage_cputime, interval_manage_cnt, interval_mig_cputime, interval_do_mig_cputime,
 				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start),
 				interval_pingpong >> 8);
-
+			
 			if(use_lru_manage_reduce &&
 				interval_manage_cputime >= manage_cputime_threshold &&
 				interval_manage_cnt > 1) {

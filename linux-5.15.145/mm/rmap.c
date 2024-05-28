@@ -1172,10 +1172,10 @@ pginfo_t *get_pginfo_from_page(struct page *page)
 	};
 
 	if(!PageAnon(page) || PageKsm(page))
-		return -1;
+		return NULL;
 
 	if(!page_mapped(page))
-		return -1;
+		return NULL;
 
 	rmap_walk(page, &rwc);
 	return mra.pginfo;

@@ -37,6 +37,7 @@ unsigned int use_pingpong_reduce = 1;
 unsigned long pingpong_reduce_threshold = 200;
 unsigned long manage_cputime_threshold = 50;
 unsigned long mig_cputime_threshold = 200;
+unsigned int ksampled_trace_period_in_ms = 5000;
 unsigned int use_lru_manage_reduce = 1;
 unsigned int dram_deter_end = 0;
 #define NUM_AVAIL_DMA_CHAN	16
@@ -1185,7 +1186,7 @@ static int ksampled(void *dummy)
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long interval_start;
-	unsigned long trace_period = msecs_to_jiffies(2000);
+	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
 	struct mem_cgroup *memcg;
 	int i;
 
@@ -1201,9 +1202,10 @@ static int ksampled(void *dummy)
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = memcg_list[i];
 				if(memcg) {
-					pr_info("[%s] memcg id : %d, interval sample : %lu, rate : %lu (samples / jiffies)\n",
-						__func__, mem_cgroup_id(memcg), memcg->interval_nr_sampled,
-						div64_u64(memcg->interval_nr_sampled, cur - interval_start));
+					pr_info("[%s] memcg id : %d, interval : %u ms, interval sample : %lu, rate : %llu (samples/s)\n",
+						__func__, mem_cgroup_id(memcg), jiffies_to_msecs(cur - interval_start),
+						memcg->interval_nr_sampled,
+						div64_u64(memcg->interval_nr_sampled * 1000, (unsigned long)jiffies_to_msecs(cur - interval_start)));
 					memcg->interval_nr_sampled = 0;
 				}
 			}

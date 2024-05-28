@@ -58,7 +58,7 @@ elif [[ "$2" == "gapbs-tc" ]]; then
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15
-	echo 4G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
         BENCH="${BENCH_PATH}/XSBench -t 24 -g 70000 -p 30000000" #g 130000
