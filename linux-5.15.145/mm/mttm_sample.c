@@ -1187,8 +1187,9 @@ static int ksampled(void *dummy)
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long interval_start;
 	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
+	unsigned long mean, std_deviation, sum_sample_rate, variance;
 	struct mem_cgroup *memcg;
-	int i;
+	int i, j;
 
 	total_time = jiffies;
 	interval_start = jiffies;
@@ -1202,10 +1203,46 @@ static int ksampled(void *dummy)
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = memcg_list[i];
 				if(memcg) {
-					pr_info("[%s] memcg id : %d, interval : %u ms, interval sample : %lu, rate : %llu (samples/s)\n",
+					for(j = 4; j > 0; j--)
+						memcg->sample_rate[j] = memcg->sample_rate[j-1];
+					memcg->sample_rate[0] = (unsigned long)div64_u64(memcg->interval_nr_sampled * 1000,
+									(unsigned long)jiffies_to_msecs(cur - interval_start));
+
+					// Calculate mean, std_devication
+					sum_sample_rate = 0;
+					for(j = 0; j < 5; j++)
+						sum_sample_rate += memcg->sample_rate[j];
+					mean = sum_sample_rate / 5;
+					variance = 0;
+					for(j = 0; j < 5; j++) {
+						if(memcg->sample_rate[j] > mean)
+							variance += (memcg->sample_rate[j] - mean) * (memcg->sample_rate[j] - mean);
+						else
+							variance += (mean - memcg->sample_rate[j]) * (mean - memcg->sample_rate[j]);
+					}
+					variance = variance / 5;
+					std_deviation = int_sqrt(variance);
+
+					if(memcg->stable_cnt < 3) {
+						if(std_deviation >= mean) {
+							if(memcg->stable_cnt > 0) {
+								memcg->stable_cnt = 0;
+								WRITE_ONCE(memcg->stable_status, false);
+								pr_info("[%s] stable_cnt reset to 0\n",__func__);
+							}
+						}
+						else {
+							memcg->stable_cnt++;
+							if(memcg->stable_cnt >= 3) {
+								WRITE_ONCE(memcg->stable_status, true);
+								pr_info("[%s] sample rate is stable\n",__func__);
+							}
+						}
+					}
+
+					pr_info("[%s] memcg id : %d, interval : %u ms, interval sample : %lu, rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
 						__func__, mem_cgroup_id(memcg), jiffies_to_msecs(cur - interval_start),
-						memcg->interval_nr_sampled,
-						div64_u64(memcg->interval_nr_sampled * 1000, (unsigned long)jiffies_to_msecs(cur - interval_start)));
+						memcg->interval_nr_sampled, memcg->sample_rate[0], mean, std_deviation);
 					memcg->interval_nr_sampled = 0;
 				}
 			}

@@ -1134,6 +1134,10 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			memcg->cooling_period += MTTM_INIT_COOLING_PERIOD;
 		}
 
+		// Skip when sample rate is not stable
+		if(!READ_ONCE(memcg->stable_status))
+			return;
+
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
 			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
 

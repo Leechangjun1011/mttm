@@ -5289,6 +5289,10 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->mttm_enabled = false;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
+	for(i = 0; i < 5; i++)
+		memcg->sample_rate[i] = 0;
+	memcg->stable_cnt = 0;
+	memcg->stable_status = false;
 	memcg->cooled = false;
 	memcg->workload_type = NOT_CLASSIFIED;
 	memcg->lev2_size = 0;
