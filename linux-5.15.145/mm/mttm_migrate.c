@@ -115,14 +115,14 @@ static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	fmem_max_wmark = get_memcg_promotion_wmark(max_nr_pages); // if free mem is larger than this wmark, promotion allowed.
 	fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages); // if free mem is less than this wmark, demotion required.
 
-	if(need_direct_demotion(pgdat, memcg)) { // only set at mempolicy.c
+	if(need_direct_demotion(pgdat, memcg)) { // set at mempolicy.c and dram determination
 		if(nr_lru_pages + fmem_max_wmark <= max_nr_pages)
 			goto check_nr_need_promoted;
 		else if(nr_lru_pages < max_nr_pages)
 			*nr_exceeded = fmem_max_wmark - (max_nr_pages - nr_lru_pages);
 		else
 			*nr_exceeded = nr_lru_pages + fmem_max_wmark - max_nr_pages;
-		*nr_exceeded += 1U * 128 * 100;// 100MB
+		*nr_exceeded += 1U * 64 * 100;// 50MB
 		return true;
 	}
 
@@ -1212,7 +1212,7 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 
 
 static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_hot_checked,
-				unsigned long *min_hot_size, unsigned long *max_hot_size)
+				unsigned long *measured_dram_size)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
 	unsigned long hot0, hot1, cold0, cold1;
@@ -1276,11 +1276,12 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 			if(hotness_intensity > 200) {
-				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
-				WRITE_ONCE(memcg->max_nr_dram_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
+				*measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;	
+				//WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
+				//WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);	
 				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
 				pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
-					__func__, hotness_intensity, ((memcg->lev2_size * (100 + dram_size_tolerance))/100) >> 8);
+					__func__, hotness_intensity, (*measured_dram_size) >> 8);
 			}
 			else {
 				//TODO dram size for weak hot
@@ -1294,6 +1295,24 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			WRITE_ONCE(memcg->dram_determined, true);	
 		}
 	}
+	
+	if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
+		(READ_ONCE(memcg->max_nr_dram_pages) > (*measured_dram_size))) {
+		unsigned long one_step = ((1 << 29) / PAGE_SIZE);
+
+		if((*measured_dram_size) + one_step < READ_ONCE(memcg->max_nr_dram_pages)) {
+			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages - one_step);
+			WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages - one_step);
+		}
+		else {
+			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
+			WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);
+		}
+
+		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+
+		pr_info("[%s] DRAM size set to %lu MB\n",__func__, memcg->max_nr_dram_pages >> 8);
+	}	
 
 }
 
@@ -1305,7 +1324,7 @@ static int kmigrated(void *p)
 	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
-	unsigned long min_hot_size = 0, max_hot_size = 0;
+	unsigned long measured_dram_size = 0;
 	unsigned int strong_hot_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
@@ -1348,7 +1367,7 @@ static int kmigrated(void *p)
 		one_manage_cputime = jiffies;
 	
 		if(use_dram_determination) {
-			determine_dram_size(memcg, &strong_hot_checked, &min_hot_size, &max_hot_size);
+			determine_dram_size(memcg, &strong_hot_checked, &measured_dram_size);
 		}
 
 		if(need_lru_cooling(pn0) || need_lru_adjusting(pn0) ||
@@ -1463,6 +1482,7 @@ static int kmigrated(void *p)
 				}
 			}
 		}
+			
 
 		one_mig_cputime = jiffies - one_mig_cputime;		
 
