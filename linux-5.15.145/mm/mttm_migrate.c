@@ -46,8 +46,8 @@ extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int use_lru_manage_reduce;
+extern unsigned int check_stable_sample_rate;
 extern unsigned int use_xa_basepage;
-extern unsigned long classification_threshold;
 extern unsigned int hotset_size_threshold;
 extern unsigned int dram_size_tolerance;
 
@@ -706,7 +706,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 					unsigned long *promote_cputime, unsigned long *promote_pingpong)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
-	unsigned long nr_to_promote, nr_promoted = 0, tmp;
+	unsigned long nr_to_promote, nr_promoted = 0;
 	enum lru_list lru = LRU_ACTIVE_ANON;
 	short priority = DEF_PRIORITY;
 	int target_nid = 0;
@@ -811,9 +811,17 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
+				unsigned int active_threshold_cooled;
+
+				if(memcg->dram_determined)
+					active_threshold_cooled = (memcg->active_threshold > 1 ) ?
+							memcg->active_threshold - 1 : memcg->active_threshold;
+				else
+					active_threshold_cooled = memcg->active_threshold;
 
 				check_transhuge_cooling_reset((void *)memcg, page);
-				if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
+
+				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
 					still_hot = 2;
 				else {
 					still_hot = 1;
@@ -1045,7 +1053,6 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
 	enum lru_list lru = active ? LRU_ACTIVE_ANON : LRU_INACTIVE_ANON;
 	unsigned long nr_to_scan, nr_scanned = 0, nr_max_scan = 12;
-	unsigned int nr_pages = 0;
 	unsigned long nr_to_active_one = 0, nr_to_inactive_one = 0;
 	unsigned long nr_to_active_tot = 0, nr_to_inactive_tot = 0;
 
@@ -1074,6 +1081,116 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 		*nr_to_inactive = nr_to_inactive_tot;
 }
 
+static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
+						enum lru_list lru)
+{
+	unsigned long nr_taken;
+	pg_data_t *pgdat = lruvec_pgdat(lruvec);
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+	LIST_HEAD(l_hold);
+	LIST_HEAD(l_scanned);
+	int file = is_file_lru(lru);
+	unsigned int idx;
+
+	if(file)
+		return 0;
+
+	lru_add_drain();
+
+	spin_lock_irq(&lruvec->lru_lock);
+	nr_taken = isolate_lru_pages(nr_to_scan, lruvec, lru, &l_hold, 0);
+	__mod_node_page_state(pgdat, NR_ISOLATED_ANON, nr_taken);
+	spin_unlock_irq(&lruvec->lru_lock);
+
+	cond_resched();
+	while(!list_empty(&l_hold)) {
+		struct page *page;
+
+		page = lru_to_page(&l_hold);
+		list_del(&page->lru);
+
+		if(unlikely(!page_evictable(page))) {
+			putback_lru_page(page);
+			continue;
+		}
+		
+		if(PageTransHuge(compound_head(page))) {
+			struct page *meta_page = get_meta_page(page);
+			idx = get_idx(meta_page->nr_accesses);
+			if(idx >= 4)
+				memcg->lev4_size += HPAGE_PMD_NR;
+			if(idx >= 3)
+				memcg->lev3_size += HPAGE_PMD_NR;
+			if(idx >= 2)
+				memcg->lev2_size += HPAGE_PMD_NR;
+		}
+		else {
+			pginfo_t *pginfo = NULL;
+			if(use_xa_basepage) {
+				pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
+			}
+			else {
+				pginfo = get_pginfo_from_page(page);
+			}
+			if(!pginfo) {
+				list_add(&page->lru, &l_scanned);	
+				continue;
+			}
+
+			idx = get_idx(pginfo->nr_accesses);
+			if(idx >= 4)
+				memcg->lev4_size++;
+			if(idx >= 3)
+				memcg->lev3_size++;
+			if(idx >= 2)
+				memcg->lev2_size++;
+		}
+
+		list_add(&page->lru, &l_scanned);
+	}
+
+	spin_lock_irq(&lruvec->lru_lock);
+	move_pages_to_lru(lruvec, &l_scanned);
+
+	__mod_node_page_state(pgdat, NR_ISOLATED_ANON, -nr_taken);
+	spin_unlock_irq(&lruvec->lru_lock);
+
+	mem_cgroup_uncharge_list(&l_scanned);
+	free_unref_page_list(&l_scanned);
+
+	return nr_taken;
+}
+
+
+static void scan_hotness_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
+{
+	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	unsigned long nr_to_scan, nr_max_scan = 12, nr_scanned;
+	enum lru_list lru = LRU_ACTIVE_ANON;
+
+re_scan:
+	nr_to_scan = lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
+	nr_scanned = 0;
+	nr_max_scan = 12;
+	do {
+		unsigned long scan = nr_to_scan >> 3;
+		if(!scan)
+			scan = nr_to_scan;
+		nr_scanned += scan_hotness_lru_list(scan, lruvec, lru);
+		nr_max_scan--;
+	} while(nr_scanned < nr_to_scan && nr_max_scan);
+
+	pr_info("[%s] lru : %s, nr_to_scan : %lu, nr_scanned : %lu\n",
+		__func__, (lru == LRU_ACTIVE_ANON) ? "ACTIVE_ANON" : "INACTIVE_ANON",
+		nr_to_scan, nr_scanned);
+
+	if(lru == LRU_ACTIVE_ANON) {
+		lru = LRU_INACTIVE_ANON;
+		goto re_scan;
+	}
+
+}
+
 static bool active_lru_overflow(struct mem_cgroup *memcg)
 {
 	int fmem_nid = 0;
@@ -1095,7 +1212,7 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 
 
 static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_hot_checked,
-	unsigned long *strong_hot_size, unsigned long *min_hot_size, unsigned long *max_hot_size)
+				unsigned long *min_hot_size, unsigned long *max_hot_size)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
 	unsigned long hot0, hot1, cold0, cold1;
@@ -1119,92 +1236,62 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		tot_huge_pages = tot_pages >> 9;
 
 		if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
-			if(*strong_hot_checked > 0 || memcg->active_threshold < 4) {
+			if(*strong_hot_checked > 0) {
 				// reset
-				*strong_hot_checked = 0;
-				*strong_hot_size = 0;
-				memcg->active_threshold = 4;
-				memcg->warm_threshold = 4;
-				adjusting_node(NODE_DATA(0), memcg, true, NULL, NULL, NULL);
-				adjusting_node(NODE_DATA(1), memcg, true, NULL, NULL, NULL);
-			
+				*strong_hot_checked = 0;			
 				pr_info("[%s] Reset checking dram size\n",__func__);
 			}
-
-			memcg->cooling_period += MTTM_INIT_COOLING_PERIOD;
+			WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
+			WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
 		}
 
 		// Skip when sample rate is not stable
-		if(!READ_ONCE(memcg->stable_status))
+		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate)
 			return;
 
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
 			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
 
-			(*strong_hot_size) += (hot0 + hot1);
+			scan_hotness_node(NODE_DATA(0), memcg);
+			scan_hotness_node(NODE_DATA(1), memcg);
+
 			(*strong_hot_checked)++;
-			pr_info("[%s] strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %u\n",
-				__func__, (hot0 + hot1) >> 8, tot_huge_pages << 1, memcg->cooling_period, memcg->active_threshold);
 		}
 
-		if(*strong_hot_checked >= WORKLOAD_TYPE_CLASSIFICATION_COOLING) {
-			unsigned long classification_threshold_in_size;
-			//TODO
-			classification_threshold_in_size = 0;
-			/*
-			classification_threshold_in_size = (tot_pages * classification_threshold) / 1000;
-			if(classification_threshold_in_size < MIN_CLASSIFICATION_THRESHOLD)
-				classification_threshold_in_size = MIN_CLASSIFICATION_THRESHOLD;
-			else if(classification_threshold_in_size > MAX_CLASSIFICATION_THRESHOLD)
-				classification_threshold_in_size = MAX_CLASSIFICATION_THRESHOLD;
-			*/
-		
-			*strong_hot_size = (*strong_hot_size) / (*strong_hot_checked);
+		if(*strong_hot_checked >= WORKLOAD_TYPE_CLASSIFICATION_COOLING) {	
+			unsigned long hotness_intensity;
 
-			pr_info("[%s] Average strong_hot_size : %lu MB. RSS : %lu MB. Cooling period : %lu. Active threshold : %u\n",
-				__func__, (*strong_hot_size) >> 8, tot_huge_pages << 1, memcg->cooling_period, memcg->active_threshold);
-			if(memcg->active_threshold == 4) {
-				memcg->lev4_size = *strong_hot_size;
-				*strong_hot_checked = 0;
-				*strong_hot_size = 0;
-				memcg->active_threshold--;
-				memcg->warm_threshold = memcg->active_threshold;
-			}
-			else if(memcg->active_threshold == 3) {
-				memcg->lev3_size = *strong_hot_size;
-				*strong_hot_checked = 0;
-				*strong_hot_size = 0;
-				memcg->active_threshold--;
-				memcg->warm_threshold = memcg->active_threshold;
-			}
-			else if(memcg->active_threshold == 2) {
-				unsigned long hotness_intensity;
-				
-				memcg->lev2_size = *strong_hot_size;
-				hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
-							2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
-							tot_pages / memcg->lev2_size;
+			memcg->lev4_size /= (*strong_hot_checked);
+			memcg->lev3_size /= (*strong_hot_checked);
+			memcg->lev2_size /= (*strong_hot_checked);
 
-				WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-				WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-				if(hotness_intensity > 200) {
-					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
-					WRITE_ONCE(memcg->max_nr_dram_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
-					WRITE_ONCE(memcg->workload_type, STRONG_HOT);
-					pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
-						__func__, hotness_intensity, ((memcg->lev2_size * (100 + dram_size_tolerance))/100) >> 8);
-				}
-				else {
-					//TODO dram size for weak hot
-					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, ULONG_MAX);
-					WRITE_ONCE(memcg->max_nr_dram_pages, ULONG_MAX);
-					WRITE_ONCE(memcg->workload_type, WEAK_HOT);
-					pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
-						__func__, hotness_intensity);
-				}	
+			pr_info("[%s] Average [lev4 : %lu MB, lev3 : %lu MB, lev2 : %lu MB]. RSS : %lu MB. Cooling period : %lu\n",
+				__func__, memcg->lev4_size >> 8, memcg->lev3_size >> 8,
+				memcg->lev2_size >> 8, tot_pages >> 8, memcg->cooling_period);
+	
+			hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
+						2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
+						tot_pages / memcg->lev2_size;
 
-				WRITE_ONCE(memcg->dram_determined, true);
+			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+			if(hotness_intensity > 200) {
+				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
+				WRITE_ONCE(memcg->max_nr_dram_pages, (memcg->lev2_size) * (100 + dram_size_tolerance) / 100);
+				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
+				pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
+					__func__, hotness_intensity, ((memcg->lev2_size * (100 + dram_size_tolerance))/100) >> 8);
 			}
+			else {
+				//TODO dram size for weak hot
+				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, ULONG_MAX);
+				WRITE_ONCE(memcg->max_nr_dram_pages, ULONG_MAX);
+				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
+				pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
+					__func__, hotness_intensity);
+			}	
+
+			WRITE_ONCE(memcg->dram_determined, true);	
 		}
 	}
 
@@ -1218,7 +1305,7 @@ static int kmigrated(void *p)
 	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
-	unsigned long strong_hot_size = 0, min_hot_size = 0, max_hot_size = 0;
+	unsigned long min_hot_size = 0, max_hot_size = 0;
 	unsigned int strong_hot_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
@@ -1261,8 +1348,7 @@ static int kmigrated(void *p)
 		one_manage_cputime = jiffies;
 	
 		if(use_dram_determination) {
-			determine_dram_size(memcg, &strong_hot_checked, &strong_hot_size,
-						&min_hot_size, &max_hot_size);
+			determine_dram_size(memcg, &strong_hot_checked, &min_hot_size, &max_hot_size);
 		}
 
 		if(need_lru_cooling(pn0) || need_lru_adjusting(pn0) ||
@@ -1318,36 +1404,37 @@ static int kmigrated(void *p)
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
-		if(!use_dram_determination || (use_dram_determination && memcg->dram_determined)) {
-			if(active_lru_overflow(memcg)) {
-				// It may not fix the active lru overflow immediately.
-				unsigned long fmem_active, smem_active, nr_active_cur;
-				unsigned long max_nr_pages = memcg->max_nr_dram_pages -
-							get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+		if(active_lru_overflow(memcg)) {
+			// It may not fix the active lru overflow immediately.
+			unsigned long fmem_active, smem_active, nr_active_cur;
+			unsigned long max_nr_pages = memcg->max_nr_dram_pages -
+						get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
 
-				WRITE_ONCE(memcg->hg_mismatch, true);
-			
-				memcg->active_threshold++;
-				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
-				tot_nr_adjusted += nr_adjusted_active;
-				adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
-				tot_nr_adjusted += nr_adjusted_active;
+			WRITE_ONCE(memcg->hg_mismatch, true);
+		
+			memcg->active_threshold++;
+			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
+			tot_nr_adjusted += nr_adjusted_active;
+			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
+			tot_nr_adjusted += nr_adjusted_active;
 
-				fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				nr_active_cur = fmem_active + smem_active;
+			fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			nr_active_cur = fmem_active + smem_active;
 
-				if(nr_active_cur < (max_nr_pages * 75 / 100)) 
-					memcg->warm_threshold = memcg->active_threshold - 1;
-				else
-					memcg->warm_threshold = memcg->active_threshold;
-				active_lru_overflow_cnt++;
-				interval_manage_cnt++;
-				pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
-			}
+			if((nr_active_cur < (max_nr_pages * 75 / 100)) &&
+				memcg->use_warm &&
+				(memcg->active_threshold > MTTM_INIT_THRESHOLD))
+				memcg->warm_threshold = memcg->active_threshold - 1;
+			else
+				memcg->warm_threshold = memcg->active_threshold;
+			active_lru_overflow_cnt++;
+			interval_manage_cnt++;
+			pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 		}
+		
 
 		one_manage_cputime = jiffies - one_manage_cputime;
 
@@ -1361,10 +1448,7 @@ static int kmigrated(void *p)
 
 		// Migration
 		if(memcg->use_mig && !active_lru_overflow(memcg)) {
-			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {
-				if(memcg->use_warm && (READ_ONCE(memcg->warm_threshold) == 0)) {
-					goto skip_migration;
-				}
+			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {	
 				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded, &demote_cputime, &demote_pingpong);
 				one_do_mig_cputime += demote_cputime;
 				one_pingpong += demote_pingpong;
@@ -1379,7 +1463,7 @@ static int kmigrated(void *p)
 				}
 			}
 		}
-skip_migration:
+
 		one_mig_cputime = jiffies - one_mig_cputime;		
 
 		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),

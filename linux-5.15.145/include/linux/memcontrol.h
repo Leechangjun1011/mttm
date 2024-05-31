@@ -370,6 +370,8 @@ struct mem_cgroup {
 	unsigned long		interval_nr_sampled;
 	unsigned long		nr_load;
 	unsigned long		nr_store;
+	unsigned long		nr_local;
+	unsigned long		nr_remote;
 	unsigned long		promoted_pages;
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;

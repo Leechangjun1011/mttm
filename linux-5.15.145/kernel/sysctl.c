@@ -192,10 +192,8 @@ static int max_extfrag_threshold = 1000;
 extern int enable_ksampled;
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
-extern unsigned long pebs_dram_deter_period;
 extern unsigned long store_sample_period;
 extern unsigned int strong_hot_threshold;
-extern unsigned long classification_threshold;
 extern unsigned int dram_size_tolerance;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
@@ -204,6 +202,7 @@ extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int ksampled_trace_period_in_ms;
+extern unsigned int check_stable_sample_rate;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
 extern unsigned int dma_channel_per_page;
@@ -2894,13 +2893,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
-		.procname	= "pebs_dram_deter_period",
-		.data		= &pebs_dram_deter_period,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
-	{
 		.procname	= "store_sample_period",
 		.data		= &store_sample_period,
 		.maxlen		= sizeof(unsigned long),
@@ -2927,14 +2919,7 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "classification_threshold",
-		.data		= &classification_threshold,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
+	},	
 	{
 		.procname	= "use_dram_determination",
 		.data		= &use_dram_determination,
@@ -2977,7 +2962,13 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
 	},
-
+	{
+		.procname	= "check_stable_sample_rate",
+		.data		= &check_stable_sample_rate,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
 	{
 		.procname	= "use_lru_manage_reduce",
 		.data		= &use_lru_manage_reduce,

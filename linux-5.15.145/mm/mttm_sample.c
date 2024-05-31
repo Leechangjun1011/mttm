@@ -27,11 +27,11 @@
 
 int enable_ksampled = 0;
 unsigned long pebs_stable_period = 10007;
-unsigned long pebs_dram_deter_period = 4999;
 unsigned long pebs_sample_period = 10007;
 unsigned long store_sample_period = 100003;
 unsigned int strong_hot_threshold = 3;
 unsigned int hotset_size_threshold = 2;
+unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
 unsigned int use_pingpong_reduce = 1;
 unsigned long pingpong_reduce_threshold = 200;
@@ -47,7 +47,6 @@ struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
 unsigned int use_xa_basepage = 1;
-unsigned long classification_threshold = 80;//80% of RSS
 unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
 struct mem_cgroup **memcg_list = NULL;
@@ -548,11 +547,11 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	int idx_hot, i;
 	unsigned long nr_fmem_hot = 0, nr_smem_hot = 0;
 
-	if(use_dram_determination) {
-		if(READ_ONCE(memcg->workload_type) == NOT_CLASSIFIED) {
+	/*if(use_dram_determination) {
+		if(!READ_ONCE(memcg->dram_determined)) {
 			return;
 		}	
-	}
+	}*/
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
 		set_lru_adjusting(memcg, true);
@@ -626,18 +625,9 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	}*/
 	set_lru_adjusting(memcg, true);
 
-	if(memcg->use_warm) {
-		if(need_warm) {
-			if(memcg->active_threshold >= MTTM_INIT_THRESHOLD)
-				memcg->warm_threshold = memcg->active_threshold - 1;
-			else
-				memcg->warm_threshold = memcg->active_threshold;
-		}
-		else
-			memcg->warm_threshold = memcg->active_threshold;
-	}
-	else
-		memcg->warm_threshold = memcg->active_threshold;
+	memcg->warm_threshold = memcg->active_threshold;
+	if(memcg->use_warm && need_warm && (memcg->active_threshold > MTTM_INIT_THRESHOLD))
+		memcg->warm_threshold = memcg->active_threshold - 1;
 
 	/*
 	pr_info("[%s] active_threshold: %u, warm_threshold: %u, max_nr_pages: %lu, active_sum: %lu, warm: %s\n",
@@ -1041,9 +1031,14 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	else {
 		memcg->nr_sampled++;
 		memcg->interval_nr_sampled++;
-		if((get_pebs_event(e) == DRAM_LLC_LOAD_MISS) ||
-			(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS))
+		if(get_pebs_event(e) == DRAM_LLC_LOAD_MISS) {
+			memcg->nr_local++;
 			memcg->nr_load++;
+		}
+		if(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS) {
+			memcg->nr_remote++;
+			memcg->nr_load++;
+		}
 		else if(get_pebs_event(e) == ALL_STORES)
 			memcg->nr_store++;
 	}
@@ -1156,6 +1151,7 @@ static void ksampled_do_work(void)
 		}
 	}
 
+#if 0
 	if(use_dram_determination && !dram_deter_end && current_tenants) {
 		struct mem_cgroup *memcg;
 		bool all_dram_deter_end = true;
@@ -1176,6 +1172,7 @@ static void ksampled_do_work(void)
 				__func__, pebs_stable_period);
 		}
 	}
+#endif
 
 	//cur_active_lru_size = get_active_lru_size();
 	//trace_lru_size(true, prev_active_lru_size, cur_active_lru_size);
@@ -1223,7 +1220,7 @@ static int ksampled(void *dummy)
 					variance = variance / 5;
 					std_deviation = int_sqrt(variance);
 
-					if(memcg->stable_cnt < 3) {
+					if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
 						if(std_deviation >= mean) {
 							if(memcg->stable_cnt > 0) {
 								memcg->stable_cnt = 0;
@@ -1233,17 +1230,20 @@ static int ksampled(void *dummy)
 						}
 						else {
 							memcg->stable_cnt++;
-							if(memcg->stable_cnt >= 3) {
+							if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
 								WRITE_ONCE(memcg->stable_status, true);
 								pr_info("[%s] sample rate is stable\n",__func__);
 							}
 						}
 					}
 
-					pr_info("[%s] memcg id : %d, interval : %u ms, interval sample : %lu, rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
+					pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
 						__func__, mem_cgroup_id(memcg), jiffies_to_msecs(cur - interval_start),
-						memcg->interval_nr_sampled, memcg->sample_rate[0], mean, std_deviation);
+						memcg->nr_local, memcg->nr_remote,
+						memcg->sample_rate[0], mean, std_deviation);
 					memcg->interval_nr_sampled = 0;
+					memcg->nr_local = 0;
+					memcg->nr_remote = 0;
 				}
 			}
 
@@ -1271,12 +1271,7 @@ static int ksampled_run(void)
 		}
 
 		memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
-		if(use_dram_determination) {
-			pebs_sample_period = pebs_dram_deter_period;
-			dram_deter_end = 0;
-		}
-		else
-			pebs_sample_period = pebs_stable_period;
+		
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 			for(event = 0; event < NR_EVENTTYPE; event++) {
 				if(get_pebs_event(event) == NR_EVENTTYPE) {
