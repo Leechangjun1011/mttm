@@ -38,6 +38,7 @@ unsigned long pingpong_reduce_threshold = 200;
 unsigned long manage_cputime_threshold = 50;
 unsigned long mig_cputime_threshold = 200;
 unsigned int ksampled_trace_period_in_ms = 5000;
+unsigned int ksampled_sample_ratio_cnt = 2;
 unsigned int use_lru_manage_reduce = 1;
 unsigned int dram_deter_end = 0;
 #define NUM_AVAIL_DMA_CHAN	16
@@ -1178,15 +1179,104 @@ static void ksampled_do_work(void)
 	//trace_lru_size(true, prev_active_lru_size, cur_active_lru_size);
 }
 
+static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long interval)
+{
+	unsigned long mean, std_deviation, sum_sample_rate, variance;
+	int j;
+	for(j = 4; j > 0; j--)
+		memcg->sample_rate[j] = memcg->sample_rate[j-1];
+	memcg->sample_rate[0] = (unsigned long)div64_u64(memcg->interval_nr_sampled * 1000,
+					(unsigned long)jiffies_to_msecs(interval));
+
+	// Calculate mean, std_devication
+	sum_sample_rate = 0;
+	for(j = 0; j < 5; j++)
+		sum_sample_rate += memcg->sample_rate[j];
+	mean = sum_sample_rate / 5;
+	variance = 0;
+	for(j = 0; j < 5; j++) {
+		if(memcg->sample_rate[j] > mean)
+			variance += (memcg->sample_rate[j] - mean) * (memcg->sample_rate[j] - mean);
+		else
+			variance += (mean - memcg->sample_rate[j]) * (mean - memcg->sample_rate[j]);
+	}
+	variance = variance / 5;
+	std_deviation = int_sqrt(variance);
+
+	if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
+		if(std_deviation >= mean) {
+			if(memcg->stable_cnt > 0) {
+				memcg->stable_cnt = 0;
+				WRITE_ONCE(memcg->stable_status, false);
+				pr_info("[%s] stable_cnt reset to 0\n",__func__);
+			}
+		}
+		else {
+			memcg->stable_cnt++;
+			if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
+				WRITE_ONCE(memcg->stable_status, true);
+				pr_info("[%s] sample rate is stable\n",__func__);
+			}
+		}
+	}
+
+	pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
+		__func__, mem_cgroup_id(memcg), jiffies_to_msecs(interval),
+		memcg->nr_local, memcg->nr_remote,
+		memcg->sample_rate[0], mean, std_deviation);
+	
+}
+
+static void adjust_dram_size(struct mem_cgroup *memcg)
+{
+	int j;
+	unsigned long mean = 0;
+	unsigned long one_step = ((1 << 30) / PAGE_SIZE);
+
+	if(memcg->nr_remote > 0) {
+		for(j = ksampled_sample_ratio_cnt - 1; j > 0; j--)
+			memcg->sample_ratio[j] = memcg->sample_ratio[j-1];
+		memcg->sample_ratio[0] = (unsigned long)div64_u64(memcg->nr_local, memcg->nr_remote);
+		memcg->ratio_cnt++;
+	}	
+	
+	if(memcg->ratio_cnt >= ksampled_sample_ratio_cnt) {
+		mean = 0;
+		for(j = 0; j < ksampled_sample_ratio_cnt; j++)
+			mean += memcg->sample_ratio[j];
+		mean /= ksampled_sample_ratio_cnt;
+		memcg->ratio_cnt = 0;
+
+		pr_info("[%s] best_sample_ratio_mean : %lu, current mean : %lu\n",
+			__func__, memcg->best_sample_ratio_mean, mean);
+
+		if(mean > memcg->best_sample_ratio_mean)
+			memcg->best_sample_ratio_mean = mean;
+
+		if(mean < (memcg->best_sample_ratio_mean >> 2) && READ_ONCE(memcg->dram_shrink_end)) {
+			pr_info("[%s] Bad sample ratio. Best sample ratio : %lu, mean : %lu\n",
+				__func__, memcg->best_sample_ratio_mean, mean);
+
+			// Expand dram size
+			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages + one_step);
+			WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages + one_step);
+			WRITE_ONCE(memcg->dram_expanded, true);
+			pr_info("[%s] DRAM size expanded to %lu MB\n",
+				__func__, memcg->max_nr_dram_pages >> 8);
+		}	
+	}
+
+}
+
+
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long interval_start;
 	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
-	unsigned long mean, std_deviation, sum_sample_rate, variance;
 	struct mem_cgroup *memcg;
-	int i, j;
+	int i;
 
 	total_time = jiffies;
 	interval_start = jiffies;
@@ -1200,50 +1290,12 @@ static int ksampled(void *dummy)
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = memcg_list[i];
 				if(memcg) {
-					for(j = 4; j > 0; j--)
-						memcg->sample_rate[j] = memcg->sample_rate[j-1];
-					memcg->sample_rate[0] = (unsigned long)div64_u64(memcg->interval_nr_sampled * 1000,
-									(unsigned long)jiffies_to_msecs(cur - interval_start));
+					calculate_sample_rate_stat(memcg, cur - interval_start);
+					adjust_dram_size(memcg);
 
-					// Calculate mean, std_devication
-					sum_sample_rate = 0;
-					for(j = 0; j < 5; j++)
-						sum_sample_rate += memcg->sample_rate[j];
-					mean = sum_sample_rate / 5;
-					variance = 0;
-					for(j = 0; j < 5; j++) {
-						if(memcg->sample_rate[j] > mean)
-							variance += (memcg->sample_rate[j] - mean) * (memcg->sample_rate[j] - mean);
-						else
-							variance += (mean - memcg->sample_rate[j]) * (mean - memcg->sample_rate[j]);
-					}
-					variance = variance / 5;
-					std_deviation = int_sqrt(variance);
-
-					if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
-						if(std_deviation >= mean) {
-							if(memcg->stable_cnt > 0) {
-								memcg->stable_cnt = 0;
-								WRITE_ONCE(memcg->stable_status, false);
-								pr_info("[%s] stable_cnt reset to 0\n",__func__);
-							}
-						}
-						else {
-							memcg->stable_cnt++;
-							if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
-								WRITE_ONCE(memcg->stable_status, true);
-								pr_info("[%s] sample rate is stable\n",__func__);
-							}
-						}
-					}
-
-					pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
-						__func__, mem_cgroup_id(memcg), jiffies_to_msecs(cur - interval_start),
-						memcg->nr_local, memcg->nr_remote,
-						memcg->sample_rate[0], mean, std_deviation);
 					memcg->interval_nr_sampled = 0;
 					memcg->nr_local = 0;
-					memcg->nr_remote = 0;
+					memcg->nr_remote = 0;	
 				}
 			}
 

@@ -465,8 +465,8 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	}
 
 	nr_to_reclaim = nr_exceeded;
-	if(nr_exceeded > nr_evictable_pages && need_direct_demotion(pgdat, memcg))
-		shrink_active = true;
+	//if(nr_exceeded > nr_evictable_pages && need_direct_demotion(pgdat, memcg))
+	//	shrink_active = true;
 
 	do {	//nr_reclaimed starts with small number and 
 		//increases exponentially by decreasing priority
@@ -505,7 +505,8 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 
 
 static unsigned long promote_page_list(struct list_head *page_list,
-					pg_data_t *pgdat, unsigned long *promote_cputime,
+					pg_data_t *pgdat, enum lru_list lru,
+					unsigned long *promote_cputime,
 					unsigned long *promote_pingpong)
 {
 	LIST_HEAD(promote_pages);
@@ -537,10 +538,12 @@ static unsigned long promote_page_list(struct list_head *page_list,
 		if(PageAnon(page)) {
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
-				meta_page->promoted++;
-				if(meta_page->demoted > 0) {
-					promote_list_pingpong += HPAGE_PMD_NR;
-					memcg->nr_pingpong += HPAGE_PMD_NR;
+				if(is_active_lru(lru)) {
+					meta_page->promoted++;
+					if(meta_page->demoted > 0) {
+						promote_list_pingpong += HPAGE_PMD_NR;
+						memcg->nr_pingpong += HPAGE_PMD_NR;
+					}
 				}
 			}
 			else {
@@ -555,10 +558,12 @@ static unsigned long promote_page_list(struct list_head *page_list,
 					//pr_err("[%s] NULL pginfo\n",__func__);
 					goto keep_locked;
 				}
-				pginfo->promoted++;
-				if(pginfo->demoted > 0) {
-					promote_list_pingpong++;
-					memcg->nr_pingpong++;
+				if(is_active_lru(lru)) {
+					pginfo->promoted++;
+					if(pginfo->demoted > 0) {
+						promote_list_pingpong++;
+						memcg->nr_pingpong++;
+					}
 				}
 			}
 		}
@@ -583,7 +588,7 @@ keep:
 	return nr_promoted;
 }
 
-static unsigned long promote_active_list(unsigned long nr_to_scan,
+static unsigned long promote_lru_list(unsigned long nr_to_scan,
 					struct lruvec *lruvec, enum lru_list lru,
 					unsigned long *promote_cputime, unsigned long *promote_pingpong)
 {
@@ -601,7 +606,7 @@ static unsigned long promote_active_list(unsigned long nr_to_scan,
 	if(nr_taken == 0)
 		return 0;
 
-	nr_promoted = promote_page_list(&page_list, pgdat, promote_cputime, promote_pingpong);
+	nr_promoted = promote_page_list(&page_list, pgdat, lru, promote_cputime, promote_pingpong);
 
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
@@ -628,7 +633,7 @@ static unsigned long promote_lruvec(unsigned long nr_to_promote, short priority,
 	if(nr) {
 		promote_one_list_cputime = 0;
 		promote_one_list_pingpong = 0;
-		nr_promoted += promote_active_list(nr, lruvec, lru, &promote_one_list_cputime,
+		nr_promoted += promote_lru_list(nr, lruvec, lru, &promote_one_list_cputime,
 								&promote_one_list_pingpong);
 		promote_list_cputime += promote_one_list_cputime;
 		promote_list_pingpong += promote_one_list_pingpong;
@@ -718,8 +723,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 	if(promotion_denied)
 		*promotion_denied = false;
 
-	nr_to_promote = min(nr_to_promote,
-			lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
+	nr_to_promote = min(nr_to_promote, lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
 
 	do {
 		promote_one_lruvec_cputime = 0;
@@ -741,6 +745,39 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 
 	return nr_promoted;
 }
+
+static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *memcg,
+					unsigned long *promote_cputime)
+{
+	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	unsigned long nr_to_promote, nr_promoted = 0;
+	enum lru_list lru = LRU_INACTIVE_ANON;//promote inactive when dram expanded
+	short priority = DEF_PRIORITY;
+	int target_nid = 0;
+	unsigned long promote_lruvec_cputime = 0, promote_one_lruvec_cputime = 0;
+
+	if(!promotion_available(target_nid, memcg, &nr_to_promote))
+		return 0;
+
+	nr_to_promote = min(nr_to_promote, lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
+
+	do {
+		promote_one_lruvec_cputime = 0;
+		nr_promoted += promote_lruvec(nr_to_promote, priority,
+					pgdat, lruvec, lru, &promote_one_lruvec_cputime,
+					NULL);
+		promote_lruvec_cputime += promote_one_lruvec_cputime;
+		if(nr_promoted >= nr_to_promote)
+			break;
+		priority--;
+	} while (priority);
+
+	if(promote_cputime)
+		*promote_cputime = promote_lruvec_cputime;
+
+	return nr_promoted;
+}
+
 
 static int cooling_page_xa(struct mem_cgroup *memcg, struct page *page)
 {
@@ -1276,9 +1313,12 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 			if(hotness_intensity > 200) {
-				*measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;	
-				//WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
-				//WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);	
+				*measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;
+				/*if((*measured_dram_size) < memcg->max_nr_dram_pages)
+					WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
+				WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);
+				*/
 				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
 				pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
 					__func__, hotness_intensity, (*measured_dram_size) >> 8);
@@ -1292,12 +1332,13 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 					__func__, hotness_intensity);
 			}	
 
-			WRITE_ONCE(memcg->dram_determined, true);	
+			WRITE_ONCE(memcg->dram_determined, true);
 		}
 	}
 	
+	
 	if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
-		(READ_ONCE(memcg->max_nr_dram_pages) > (*measured_dram_size))) {
+		!READ_ONCE(memcg->dram_shrink_end)) {
 		unsigned long one_step = ((1 << 29) / PAGE_SIZE);
 
 		if((*measured_dram_size) + one_step < READ_ONCE(memcg->max_nr_dram_pages)) {
@@ -1307,13 +1348,14 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		else {
 			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
 			WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);
+			WRITE_ONCE(memcg->dram_shrink_end, true);
 		}
 
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 
 		pr_info("[%s] DRAM size set to %lu MB\n",__func__, memcg->max_nr_dram_pages >> 8);
-	}	
-
+	}
+	
 }
 
 
@@ -1335,7 +1377,7 @@ static int kmigrated(void *p)
 	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
 	unsigned long demote_cputime = 0, demote_pingpong = 0;
 	unsigned long promote_cputime = 0, promote_pingpong = 0;
-
+	unsigned int high_manage_cnt = 0, high_pingpong_cnt = 0;
 
 	/*
 	if(!cpumask_empty(cpumask)) {
@@ -1481,6 +1523,13 @@ static int kmigrated(void *p)
 					//WRITE_ONCE(memcg->need_adjusting_from_kmigrated, true);
 				}
 			}
+			if(READ_ONCE(memcg->dram_expanded)) {
+				promote_cputime = 0;
+				tot_promoted += promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
+				one_do_mig_cputime += promote_cputime;
+				WRITE_ONCE(memcg->dram_expanded, false);
+			}
+
 		}
 			
 
@@ -1522,26 +1571,34 @@ static int kmigrated(void *p)
 			if(use_lru_manage_reduce &&
 				interval_manage_cputime >= manage_cputime_threshold &&
 				interval_manage_cnt > 1) {
-				if(memcg->dram_determined) {
-					WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-					WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-					pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
-						__func__, memcg->adjust_period, memcg->cooling_period);
+				high_manage_cnt++;
+				if(high_manage_cnt >= 1) {
+					high_manage_cnt = 0;
+					if(memcg->dram_determined) {
+						WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+						WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+						pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
+							__func__, memcg->adjust_period, memcg->cooling_period);
+					}
 				}
 			}
 
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if((interval_mig_cputime >= mig_cputime_threshold) &&
 					(div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold)) {
-					if(memcg->dram_determined) {
-						WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
-						WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
-						if(memcg->use_warm)
-							WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-						else
-							WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-						pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
-							__func__, memcg->threshold_offset, memcg->active_threshold);
+					high_pingpong_cnt++;
+					if(high_pingpong_cnt >= 1) {
+						high_pingpong_cnt = 0;
+						if(memcg->dram_determined) {
+							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
+							WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
+							if(memcg->use_warm)
+								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+							else
+								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+							pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
+								__func__, memcg->threshold_offset, memcg->active_threshold);
+						}
 					}
 				}
 			}

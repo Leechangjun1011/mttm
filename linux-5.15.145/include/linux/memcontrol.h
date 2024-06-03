@@ -381,7 +381,12 @@ struct mem_cgroup {
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
 	unsigned long		sample_rate[5];
+	unsigned long		sample_ratio[5];
+	unsigned int		ratio_cnt;
+	unsigned long		best_sample_ratio_mean;
 	unsigned long		stable_cnt;
+	bool			dram_shrink_end;
+	bool			dram_expanded;
 	bool			stable_status;
 	bool			cooled;
 	bool			use_warm;

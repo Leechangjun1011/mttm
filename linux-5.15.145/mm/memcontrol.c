@@ -5290,8 +5290,14 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->mttm_enabled = false;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
-	for(i = 0; i < 5; i++)
+	for(i = 0; i < 5; i++) {
 		memcg->sample_rate[i] = 0;
+		memcg->sample_ratio[i] = 0;
+	}
+	memcg->dram_shrink_end = false;
+	memcg->dram_expanded = false;
+	memcg->ratio_cnt = 0;
+	memcg->best_sample_ratio_mean = 0;
 	memcg->stable_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;
