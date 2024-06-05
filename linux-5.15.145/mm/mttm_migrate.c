@@ -525,7 +525,9 @@ static unsigned long promote_page_list(struct list_head *page_list,
 
 		if(!trylock_page(page))
 			goto keep;
-		if(!PageActive(page))
+		if(!PageActive(page) && is_active_lru(lru))
+			goto keep_locked;
+		if(PageActive(page) && !is_active_lru(lru))
 			goto keep_locked;
 		if(unlikely(!page_evictable(page)))
 			goto keep_locked;
@@ -756,8 +758,9 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 	int target_nid = 0;
 	unsigned long promote_lruvec_cputime = 0, promote_one_lruvec_cputime = 0;
 
-	if(!promotion_available(target_nid, memcg, &nr_to_promote))
+	if(!promotion_available(target_nid, memcg, &nr_to_promote)) {
 		return 0;
+	}
 
 	nr_to_promote = min(nr_to_promote, lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
 
@@ -1336,7 +1339,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		}
 	}
 	
-	
+	/*
 	if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
 		!READ_ONCE(memcg->dram_shrink_end)) {
 		unsigned long one_step = ((1 << 29) / PAGE_SIZE);
@@ -1354,7 +1357,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 
 		pr_info("[%s] DRAM size set to %lu MB\n",__func__, memcg->max_nr_dram_pages >> 8);
-	}
+	}*/
 	
 }
 
@@ -1524,8 +1527,12 @@ static int kmigrated(void *p)
 				}
 			}
 			if(READ_ONCE(memcg->dram_expanded)) {
+				unsigned long promoted_expanded = 0;
 				promote_cputime = 0;
-				tot_promoted += promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
+				promoted_expanded = promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
+				tot_promoted += promoted_expanded;
+				pr_info("[%s] %lu MB promoted due to dram expansion\n",
+					__func__, promoted_expanded >> 8);
 				one_do_mig_cputime += promote_cputime;
 				WRITE_ONCE(memcg->dram_expanded, false);
 			}
@@ -1568,26 +1575,30 @@ static int kmigrated(void *p)
 				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start),
 				interval_pingpong >> 8);
 			
-			if(use_lru_manage_reduce &&
-				interval_manage_cputime >= manage_cputime_threshold &&
-				interval_manage_cnt > 1) {
-				high_manage_cnt++;
-				if(high_manage_cnt >= 1) {
+			if(use_lru_manage_reduce) {
+				if(interval_manage_cputime >= manage_cputime_threshold && interval_manage_cnt > 1 &&
+					READ_ONCE(memcg->dram_determined)) {
+					high_manage_cnt++;
+					if(high_manage_cnt >= 2) {
+						high_manage_cnt = 0;
+						if(memcg->dram_determined) {
+							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+							pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
+								__func__, memcg->adjust_period, memcg->cooling_period);
+						}
+					}	
+				}
+				else {
 					high_manage_cnt = 0;
-					if(memcg->dram_determined) {
-						WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-						WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-						pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
-							__func__, memcg->adjust_period, memcg->cooling_period);
-					}
 				}
 			}
 
 			if(use_pingpong_reduce && interval_mig_cputime) {
-				if((interval_mig_cputime >= mig_cputime_threshold) &&
-					(div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold)) {
+				if(interval_mig_cputime >= mig_cputime_threshold &&
+					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
 					high_pingpong_cnt++;
-					if(high_pingpong_cnt >= 1) {
+					if(high_pingpong_cnt >= 3) {
 						high_pingpong_cnt = 0;
 						if(memcg->dram_determined) {
 							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
@@ -1601,6 +1612,9 @@ static int kmigrated(void *p)
 						}
 					}
 				}
+				else {
+					high_pingpong_cnt = 0;
+				}	
 			}
 
 			interval_start = cur;

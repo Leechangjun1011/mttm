@@ -371,7 +371,9 @@ struct mem_cgroup {
 	unsigned long		nr_load;
 	unsigned long		nr_store;
 	unsigned long		nr_local;
+	unsigned long		nr_local_acc;
 	unsigned long		nr_remote;
+	unsigned long		nr_remote_acc;
 	unsigned long		promoted_pages;
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
@@ -381,9 +383,11 @@ struct mem_cgroup {
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
 	unsigned long		sample_rate[5];
-	unsigned long		sample_ratio[5];
+	unsigned long		highest_rate;
+	unsigned long		rollback_dram_size;
+	unsigned int		bad_ratio_cnt;
 	unsigned int		ratio_cnt;
-	unsigned long		best_sample_ratio_mean;
+	unsigned long		prev_ratio_mean;
 	unsigned long		stable_cnt;
 	bool			dram_shrink_end;
 	bool			dram_expanded;

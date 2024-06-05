@@ -5264,7 +5264,9 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_load = 0;
 	memcg->nr_store = 0;
 	memcg->nr_local = 0;
+	memcg->nr_local_acc = 0;
 	memcg->nr_remote = 0;
+	memcg->nr_remote_acc = 0;
 	memcg->nr_alloc = 0;
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
@@ -5292,12 +5294,15 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->hotness_hg[i] = 0;
 	for(i = 0; i < 5; i++) {
 		memcg->sample_rate[i] = 0;
-		memcg->sample_ratio[i] = 0;
 	}
+	memcg->rollback_dram_size = 0;
+	memcg->bad_ratio_cnt = 0;	
+
 	memcg->dram_shrink_end = false;
 	memcg->dram_expanded = false;
+	memcg->highest_rate = 0;
 	memcg->ratio_cnt = 0;
-	memcg->best_sample_ratio_mean = 0;
+	memcg->prev_ratio_mean = 0;
 	memcg->stable_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;

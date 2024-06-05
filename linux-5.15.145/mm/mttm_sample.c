@@ -1215,8 +1215,19 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 			memcg->stable_cnt++;
 			if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
 				WRITE_ONCE(memcg->stable_status, true);
+				//reset ratio_cnt
+				memcg->ratio_cnt = 0;
+				memcg->nr_local_acc = 0;
+				memcg->nr_remote_acc = 0;
 				pr_info("[%s] sample rate is stable\n",__func__);
 			}
+		}
+	}
+
+	if(READ_ONCE(memcg->dram_determined) && !READ_ONCE(memcg->dram_shrink_end)) {
+		if(memcg->highest_rate < mean) {
+			WRITE_ONCE(memcg->highest_rate, mean);
+			pr_info("[%s] highest_rate updated to %lu\n",__func__, mean);
 		}
 	}
 
@@ -1231,39 +1242,73 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 {
 	int j;
 	unsigned long mean = 0;
-	unsigned long one_step = ((1 << 30) / PAGE_SIZE);
 
 	if(memcg->nr_remote > 0) {
-		for(j = ksampled_sample_ratio_cnt - 1; j > 0; j--)
-			memcg->sample_ratio[j] = memcg->sample_ratio[j-1];
-		memcg->sample_ratio[0] = (unsigned long)div64_u64(memcg->nr_local, memcg->nr_remote);
+		memcg->nr_local_acc += memcg->nr_local;
+		memcg->nr_remote_acc += memcg->nr_remote;
 		memcg->ratio_cnt++;
 	}	
 	
 	if(memcg->ratio_cnt >= ksampled_sample_ratio_cnt) {
-		mean = 0;
-		for(j = 0; j < ksampled_sample_ratio_cnt; j++)
-			mean += memcg->sample_ratio[j];
-		mean /= ksampled_sample_ratio_cnt;
+		mean = div64_u64(memcg->nr_local_acc, memcg->nr_remote_acc);
+		memcg->nr_local_acc = 0;
+		memcg->nr_remote_acc = 0;
 		memcg->ratio_cnt = 0;
 
-		pr_info("[%s] best_sample_ratio_mean : %lu, current mean : %lu\n",
-			__func__, memcg->best_sample_ratio_mean, mean);
+		pr_info("[%s] prev_ratio_mean : %lu, threshold : %lu, current mean : %lu\n",
+			__func__, memcg->prev_ratio_mean, memcg->prev_ratio_mean >> 1, mean);
 
-		if(mean > memcg->best_sample_ratio_mean)
-			memcg->best_sample_ratio_mean = mean;
+		if(memcg->rollback_dram_size == 0)
+			memcg->max_nr_dram_pages;
 
-		if(mean < (memcg->best_sample_ratio_mean >> 2) && READ_ONCE(memcg->dram_shrink_end)) {
-			pr_info("[%s] Bad sample ratio. Best sample ratio : %lu, mean : %lu\n",
-				__func__, memcg->best_sample_ratio_mean, mean);
+		if(READ_ONCE(memcg->dram_determined) &&
+			READ_ONCE(memcg->workload_type) == STRONG_HOT) {
+			if((mean > (memcg->prev_ratio_mean >> 1) || mean > 20) && 
+				!READ_ONCE(memcg->dram_shrink_end)) {
+				unsigned long measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;
+				unsigned long size_diff = (measured_dram_size < memcg->max_nr_dram_pages) ? 
+								(memcg->max_nr_dram_pages - measured_dram_size) : 0;
+				pr_info("[%s] Good sample ratio. Prev sample ratio : %lu, mean : %lu\n",
+					__func__, memcg->prev_ratio_mean, mean);
 
-			// Expand dram size
-			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages + one_step);
-			WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages + one_step);
-			WRITE_ONCE(memcg->dram_expanded, true);
-			pr_info("[%s] DRAM size expanded to %lu MB\n",
-				__func__, memcg->max_nr_dram_pages >> 8);
-		}	
+				// set rollback point
+				memcg->rollback_dram_size = memcg->max_nr_dram_pages;
+				if(size_diff == 0) {
+					WRITE_ONCE(memcg->dram_shrink_end, true);
+				}
+				else {
+					pr_info("[%s] size_diff : %lu, 1GB : %lu\n",__func__, size_diff, (1UL << 30)/PAGE_SIZE);
+					if(size_diff > ((1UL << 30) / PAGE_SIZE)) {
+						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages - (size_diff >> 1));
+						WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages - (size_diff >> 1));
+					}
+					else {
+						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);
+						WRITE_ONCE(memcg->max_nr_dram_pages, measured_dram_size);
+						WRITE_ONCE(memcg->dram_shrink_end, true);
+					}
+					WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+					pr_info("[%s] DRAM size shrink to %lu MB\n",
+						__func__, memcg->max_nr_dram_pages >> 8);
+				}
+				memcg->bad_ratio_cnt = 0;
+			}
+			else if(mean <= (memcg->prev_ratio_mean >> 1) && mean <= 20) {
+				memcg->bad_ratio_cnt++;
+				pr_info("[%s] Bad sample ratio. Prev sample ratio : %lu, mean : %lu, cnt : %u\n",
+					__func__, memcg->prev_ratio_mean, mean, memcg->bad_ratio_cnt);
+				if(memcg->bad_ratio_cnt >= 3) {
+					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->rollback_dram_size);
+					WRITE_ONCE(memcg->max_nr_dram_pages, memcg->rollback_dram_size);
+					WRITE_ONCE(memcg->dram_shrink_end, true);
+					memcg->bad_ratio_cnt = 0;
+					pr_info("[%s] DRAM size rollback to %lu MB\n",
+						__func__, memcg->max_nr_dram_pages >> 8);
+				}
+			}
+		}
+
+		memcg->prev_ratio_mean = mean;
 	}
 
 }
