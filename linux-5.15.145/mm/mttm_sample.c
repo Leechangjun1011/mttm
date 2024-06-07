@@ -48,7 +48,6 @@ struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
 unsigned int use_xa_basepage = 1;
-unsigned int dram_size_tolerance = 20;//20%
 int current_tenants = 0;
 struct mem_cgroup **memcg_list = NULL;
 struct task_struct *ksampled_thread = NULL;
@@ -1265,9 +1264,31 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 			READ_ONCE(memcg->workload_type) == STRONG_HOT) {
 			if((mean > (memcg->prev_ratio_mean >> 1) || mean > 20) && 
 				!READ_ONCE(memcg->dram_shrink_end)) {
-				unsigned long measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;
-				unsigned long size_diff = (measured_dram_size < memcg->max_nr_dram_pages) ? 
-								(memcg->max_nr_dram_pages - measured_dram_size) : 0;
+				unsigned long measured_dram_size;
+				unsigned long size_diff;
+				unsigned long hot0, hot1, cold0, cold1;
+				unsigned long tot_pages;
+
+				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+				tot_pages = hot0 + hot1 + cold0 + cold1;
+
+				memcg->dram_tolerance_max = 100 + (100 - (memcg->lev2_size * 100 / tot_pages));//percentage
+				memcg->dram_tolerance = min_t(unsigned int, memcg->dram_tolerance_max,
+								100 + (memcg->highest_rate * 100 / 50000));//percentage
+				measured_dram_size = memcg->lev2_size * memcg->dram_tolerance / 100;
+				size_diff = (measured_dram_size < memcg->max_nr_dram_pages) ? 
+						(memcg->max_nr_dram_pages - measured_dram_size) : 0;
+
+				pr_info("[%s] tolerance_max : %u, tolerance : %u, dram_size : %lu, highest_rate : %lu\n",
+					__func__, memcg->dram_tolerance_max, memcg->dram_tolerance, measured_dram_size >> 8,
+					memcg->highest_rate);
 				pr_info("[%s] Good sample ratio. Prev sample ratio : %lu, mean : %lu\n",
 					__func__, memcg->prev_ratio_mean, mean);
 
@@ -1277,10 +1298,11 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 					WRITE_ONCE(memcg->dram_shrink_end, true);
 				}
 				else {
-					pr_info("[%s] size_diff : %lu, 1GB : %lu\n",__func__, size_diff, (1UL << 30)/PAGE_SIZE);
 					if(size_diff > ((1UL << 30) / PAGE_SIZE)) {
-						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages - (size_diff >> 1));
-						WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages - (size_diff >> 1));
+						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages,
+								memcg->nodeinfo[0]->max_nr_base_pages - (size_diff >> 1));
+						WRITE_ONCE(memcg->max_nr_dram_pages,
+								memcg->max_nr_dram_pages - (size_diff >> 1));
 					}
 					else {
 						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);

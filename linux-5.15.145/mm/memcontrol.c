@@ -5296,6 +5296,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->sample_rate[i] = 0;
 	}
 	memcg->rollback_dram_size = 0;
+	memcg->dram_tolerance = 0;
+	memcg->dram_tolerance_max = 0;
 	memcg->bad_ratio_cnt = 0;	
 
 	memcg->dram_shrink_end = false;

@@ -49,7 +49,7 @@ extern unsigned int use_lru_manage_reduce;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_xa_basepage;
 extern unsigned int hotset_size_threshold;
-extern unsigned int dram_size_tolerance;
+
 
 static bool need_lru_cooling(struct mem_cgroup_per_node *pn)
 {
@@ -1316,7 +1316,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 			if(hotness_intensity > 200) {
-				*measured_dram_size = (memcg->lev2_size) * (100 + dram_size_tolerance) / 100;
+				*measured_dram_size = memcg->lev2_size;
 				/*if((*measured_dram_size) < memcg->max_nr_dram_pages)
 					WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);

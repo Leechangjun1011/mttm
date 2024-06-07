@@ -385,6 +385,8 @@ struct mem_cgroup {
 	unsigned long		sample_rate[5];
 	unsigned long		highest_rate;
 	unsigned long		rollback_dram_size;
+	unsigned int		dram_tolerance_max;
+	unsigned int		dram_tolerance;
 	unsigned int		bad_ratio_cnt;
 	unsigned int		ratio_cnt;
 	unsigned long		prev_ratio_mean;

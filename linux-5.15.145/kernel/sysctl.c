@@ -194,7 +194,6 @@ extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
 extern unsigned int strong_hot_threshold;
-extern unsigned int dram_size_tolerance;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
 extern unsigned int use_pingpong_reduce;
@@ -2903,13 +2902,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "strong_hot_threshold",
 		.data		= &strong_hot_threshold,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "dram_size_tolerance",
-		.data		= &dram_size_tolerance,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
