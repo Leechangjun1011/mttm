@@ -34,7 +34,7 @@
 
 #ifdef CONFIG_MTTM
 #define NUM_AVAIL_DMA_CHAN	16
-extern unsigned int dma_channel_per_page;
+#define DMA_CHAN_PER_PAGE	2
 extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 #endif
@@ -858,11 +858,11 @@ void copy_huge_page(struct page *dst, struct page *src)
 #ifdef CONFIG_MTTM
 void copy_huge_page_dma(struct page *dst, struct page *src)
 {
-	struct dma_async_tx_descriptor **tx = NULL;
-	dma_cookie_t *cookie = NULL;
-	struct dmaengine_unmap_data **unmap = NULL;
+	struct dma_async_tx_descriptor *tx[DMA_CHAN_PER_PAGE];
+	dma_cookie_t cookie[DMA_CHAN_PER_PAGE];
+	struct dmaengine_unmap_data *unmap[DMA_CHAN_PER_PAGE];
 	int ret_val = 0;
-	int total_available_chans = dma_channel_per_page;
+	int total_available_chans = DMA_CHAN_PER_PAGE;
 	int i;
 	enum dma_ctrl_flags flag = 0;
 
@@ -874,13 +874,13 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	else
 		chan_start = 0;
 
-	tx = kzalloc(sizeof(struct dma_async_tx_descriptor *) * total_available_chans, GFP_KERNEL);
+	/*tx = kzalloc(sizeof(struct dma_async_tx_descriptor *) * total_available_chans, GFP_KERNEL);
 	cookie = kzalloc(sizeof(dma_cookie_t) * total_available_chans, GFP_KERNEL);
 	unmap = kzalloc(sizeof(struct dmaengine_unmap_data *) * total_available_chans, GFP_KERNEL);
 
 	if(!tx || !cookie || !unmap)
 		goto out;
-
+	*/
 
 	for(i = 0; i < total_available_chans; i++) {
 		unmap[i] = dmaengine_get_unmap_data(copy_dev[chan_start + i]->dev, 2 * total_available_chans, GFP_NOWAIT);
@@ -897,18 +897,18 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 
 		unmap[i]->to_cnt = 1;
 		unmap[i]->from_cnt = 1;
-		unmap[i]->len = (thp_nr_pages(src) * PAGE_SIZE) / dma_channel_per_page;
+		unmap[i]->len = (thp_nr_pages(src) * PAGE_SIZE) / DMA_CHAN_PER_PAGE;
 	
 		unmap[i]->addr[i] = dma_map_page(copy_dev[chan_start + i]->dev,
 							src,
-							(page_len / dma_channel_per_page) * i,
-							page_len / dma_channel_per_page,
+							(page_len / DMA_CHAN_PER_PAGE) * i,
+							page_len / DMA_CHAN_PER_PAGE,
 							DMA_TO_DEVICE);
 		unmap[i]->addr[i + total_available_chans] = dma_map_page(
 								copy_dev[chan_start + i]->dev,
 								dst,
-								(page_len / dma_channel_per_page) * i,
-								page_len / dma_channel_per_page,
+								(page_len / DMA_CHAN_PER_PAGE) * i,
+								page_len / DMA_CHAN_PER_PAGE,
 								DMA_FROM_DEVICE);
 	}
 	
@@ -948,13 +948,14 @@ unmap_dma:
 		if(unmap[i])
 			dmaengine_unmap_put(unmap[i]);
 	}
-out:
+/*out:
 	if(tx)
 		kfree(tx);
 	if(cookie)
 		kfree(cookie);
 	if(unmap)
 		kfree(unmap);
+*/
 }
 
 #endif

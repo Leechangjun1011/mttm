@@ -42,8 +42,8 @@ unsigned int ksampled_sample_ratio_cnt = 2;
 unsigned int use_lru_manage_reduce = 1;
 unsigned int dram_deter_end = 0;
 #define NUM_AVAIL_DMA_CHAN	16
+#define DMA_CHAN_PER_PAGE	2
 unsigned int use_dma_migration = 0;
-unsigned int dma_channel_per_page = 2;
 struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
@@ -425,8 +425,8 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		pr_info("[%s] failed to start kmigrated\n",__func__);
 
 	if(use_dma_migration) {
-		memcg->dma_chan_start = current_tenants * dma_channel_per_page;
-		if(memcg->dma_chan_start + dma_channel_per_page > NUM_AVAIL_DMA_CHAN)
+		memcg->dma_chan_start = current_tenants * DMA_CHAN_PER_PAGE;
+		if(memcg->dma_chan_start + DMA_CHAN_PER_PAGE > NUM_AVAIL_DMA_CHAN)
 			memcg->dma_chan_start = 0;
 	}
 
@@ -1210,7 +1210,7 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 				pr_info("[%s] stable_cnt reset to 0\n",__func__);
 			}
 		}
-		else {
+		else if(mean > 10) {
 			memcg->stable_cnt++;
 			if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
 				WRITE_ONCE(memcg->stable_status, true);
@@ -1242,7 +1242,7 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 	int j;
 	unsigned long mean = 0;
 
-	if(memcg->nr_remote > 0) {
+	if(memcg->nr_remote > 0 && memcg->interval_nr_sampled > 20) {
 		memcg->nr_local_acc += memcg->nr_local;
 		memcg->nr_remote_acc += memcg->nr_remote;
 		memcg->ratio_cnt++;
@@ -1258,75 +1258,97 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 			__func__, memcg->prev_ratio_mean, memcg->prev_ratio_mean >> 1, mean);
 
 		if(memcg->rollback_dram_size == 0)
-			memcg->max_nr_dram_pages;
+			memcg->rollback_dram_size = memcg->max_nr_dram_pages;
 
 		if(READ_ONCE(memcg->dram_determined) &&
 			READ_ONCE(memcg->workload_type) == STRONG_HOT) {
-			if((mean > (memcg->prev_ratio_mean >> 1) || mean > 20) && 
-				!READ_ONCE(memcg->dram_shrink_end)) {
-				unsigned long measured_dram_size;
-				unsigned long size_diff;
-				unsigned long hot0, hot1, cold0, cold1;
-				unsigned long tot_pages;
+			if(mean >= 10) {
+				if(!READ_ONCE(memcg->dram_shrink_end)) {
+					unsigned long measured_dram_size;
+					unsigned long size_diff;
+					unsigned long hot0, hot1, cold0, cold1;
+					unsigned long tot_pages;
 
-				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				tot_pages = hot0 + hot1 + cold0 + cold1;
+					cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+							LRU_INACTIVE_ANON, MAX_NR_ZONES);
+					cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+							LRU_INACTIVE_ANON, MAX_NR_ZONES);
+					hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+							LRU_ACTIVE_ANON, MAX_NR_ZONES);
+					hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+							LRU_ACTIVE_ANON, MAX_NR_ZONES);
+					tot_pages = hot0 + hot1 + cold0 + cold1;
 
-				memcg->dram_tolerance_max = 100 + (100 - (memcg->lev2_size * 100 / tot_pages));//percentage
-				memcg->dram_tolerance = min_t(unsigned int, memcg->dram_tolerance_max,
-								100 + (memcg->highest_rate * 100 / 50000));//percentage
-				measured_dram_size = memcg->lev2_size * memcg->dram_tolerance / 100;
-				size_diff = (measured_dram_size < memcg->max_nr_dram_pages) ? 
-						(memcg->max_nr_dram_pages - measured_dram_size) : 0;
+					memcg->dram_tolerance_max = 100 + (100 - (memcg->lev2_size * 100 / tot_pages));//percentage
+					memcg->dram_tolerance = min_t(unsigned int, memcg->dram_tolerance_max,
+									100 + (memcg->highest_rate * 100 / 50000));//percentage
+					measured_dram_size = memcg->lev2_size * memcg->dram_tolerance / 100;
+					size_diff = (measured_dram_size < memcg->max_nr_dram_pages) ? 
+							(memcg->max_nr_dram_pages - measured_dram_size) : 0;
 
-				pr_info("[%s] tolerance_max : %u, tolerance : %u, dram_size : %lu, highest_rate : %lu\n",
-					__func__, memcg->dram_tolerance_max, memcg->dram_tolerance, measured_dram_size >> 8,
-					memcg->highest_rate);
-				pr_info("[%s] Good sample ratio. Prev sample ratio : %lu, mean : %lu\n",
-					__func__, memcg->prev_ratio_mean, mean);
+					pr_info("[%s] tolerance_max : %u, tolerance : %u, dram_size : %lu, highest_rate : %lu\n",
+						__func__, memcg->dram_tolerance_max, memcg->dram_tolerance, measured_dram_size >> 8,
+						memcg->highest_rate);
+					pr_info("[%s] Good sample ratio. Prev sample ratio : %lu, mean : %lu\n",
+						__func__, memcg->prev_ratio_mean, mean);
 
-				// set rollback point
-				memcg->rollback_dram_size = memcg->max_nr_dram_pages;
-				if(size_diff == 0) {
+					// set rollback point
+					memcg->rollback_dram_size = memcg->max_nr_dram_pages;
+
+
+					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);
+					WRITE_ONCE(memcg->max_nr_dram_pages, measured_dram_size);
 					WRITE_ONCE(memcg->dram_shrink_end, true);
-				}
-				else {
-					if(size_diff > ((1UL << 30) / PAGE_SIZE)) {
-						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages,
-								memcg->nodeinfo[0]->max_nr_base_pages - (size_diff >> 1));
-						WRITE_ONCE(memcg->max_nr_dram_pages,
-								memcg->max_nr_dram_pages - (size_diff >> 1));
-					}
-					else {
-						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);
-						WRITE_ONCE(memcg->max_nr_dram_pages, measured_dram_size);
-						WRITE_ONCE(memcg->dram_shrink_end, true);
-					}
+
 					WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 					pr_info("[%s] DRAM size shrink to %lu MB\n",
 						__func__, memcg->max_nr_dram_pages >> 8);
+
+
+					#if 0
+					if(size_diff == 0) {
+						WRITE_ONCE(memcg->dram_shrink_end, true);
+					}
+					else {
+						/*if(size_diff > ((1UL << 30) / PAGE_SIZE)) {
+							WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages,
+									memcg->nodeinfo[0]->max_nr_base_pages - (size_diff >> 1));
+							WRITE_ONCE(memcg->max_nr_dram_pages,
+									memcg->max_nr_dram_pages - (size_diff >> 1));
+						}
+						else {
+							WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);
+							WRITE_ONCE(memcg->max_nr_dram_pages, measured_dram_size);
+							WRITE_ONCE(memcg->dram_shrink_end, true);
+						}*/
+						WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, measured_dram_size);
+						WRITE_ONCE(memcg->max_nr_dram_pages, measured_dram_size);
+						WRITE_ONCE(memcg->dram_shrink_end, true);
+
+						WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+						pr_info("[%s] DRAM size shrink to %lu MB\n",
+							__func__, memcg->max_nr_dram_pages >> 8);
+					}
+					#endif
 				}
+				if(memcg->rollback_dram_size > memcg->max_nr_dram_pages)
+					memcg->rollback_dram_size = memcg->max_nr_dram_pages;
 				memcg->bad_ratio_cnt = 0;
 			}
-			else if(mean <= (memcg->prev_ratio_mean >> 1) && mean <= 20) {
+			else if(mean < 10) {
 				memcg->bad_ratio_cnt++;
 				pr_info("[%s] Bad sample ratio. Prev sample ratio : %lu, mean : %lu, cnt : %u\n",
 					__func__, memcg->prev_ratio_mean, mean, memcg->bad_ratio_cnt);
-				if(memcg->bad_ratio_cnt >= 3) {
+				//TODO
+				/*if(memcg->bad_ratio_cnt >= 3) {
 					WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->rollback_dram_size);
 					WRITE_ONCE(memcg->max_nr_dram_pages, memcg->rollback_dram_size);
 					WRITE_ONCE(memcg->dram_shrink_end, true);
 					memcg->bad_ratio_cnt = 0;
 					pr_info("[%s] DRAM size rollback to %lu MB\n",
 						__func__, memcg->max_nr_dram_pages >> 8);
-				}
+				}*/
+				pr_err("[%s] DRAM size is too small\n",__func__);
 			}
 		}
 

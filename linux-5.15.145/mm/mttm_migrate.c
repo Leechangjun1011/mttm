@@ -1373,7 +1373,8 @@ static int kmigrated(void *p)
 	unsigned int strong_hot_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
-	unsigned long total_time, total_cputime = 0, one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong;
+	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
+	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong;
 	unsigned long trace_period = msecs_to_jiffies(10000);
 	unsigned long cur, interval_start;
 	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
@@ -1526,7 +1527,7 @@ static int kmigrated(void *p)
 					//WRITE_ONCE(memcg->need_adjusting_from_kmigrated, true);
 				}
 			}
-			if(READ_ONCE(memcg->dram_expanded)) {
+			/*if(READ_ONCE(memcg->dram_expanded)) {
 				unsigned long promoted_expanded = 0;
 				promote_cputime = 0;
 				promoted_expanded = promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
@@ -1535,7 +1536,7 @@ static int kmigrated(void *p)
 					__func__, promoted_expanded >> 8);
 				one_do_mig_cputime += promote_cputime;
 				WRITE_ONCE(memcg->dram_expanded, false);
-			}
+			}*/
 
 		}
 			
@@ -1562,6 +1563,7 @@ static int kmigrated(void *p)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
 		total_cputime += (one_manage_cputime + one_mig_cputime);
+		total_mig_cputime += one_mig_cputime;
 		interval_manage_cputime += one_manage_cputime;
 		interval_mig_cputime += one_mig_cputime;
 		interval_do_mig_cputime += one_do_mig_cputime;
@@ -1598,7 +1600,9 @@ static int kmigrated(void *p)
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
 					high_pingpong_cnt++;
-					if(high_pingpong_cnt >= 3) {
+					pr_info("[%s] Pinpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
+						__func__, div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
+					if(high_pingpong_cnt > memcg->threshold_offset) {
 						high_pingpong_cnt = 0;
 						if(memcg->dram_determined) {
 							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
@@ -1636,10 +1640,8 @@ static int kmigrated(void *p)
 	total_time = jiffies - total_time;
 	pr_info("[%s] tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu\n",
 		__func__, tot_promoted >> 8, tot_demoted >> 8, memcg->nr_pingpong);
-	pr_info("[%s] total_time : %lu, total_cputime : %lu\n",
-		__func__, total_time, total_cputime);
-	pr_info("[%s] total_time in us : %u us, total_cputime in us : %u us\n",
-		__func__, jiffies_to_usecs(total_time), jiffies_to_usecs(total_cputime));
+	pr_info("[%s] total_time : %lu, total_cputime : %lu, total_mig_cputime : %lu\n",
+		__func__, total_time, total_cputime, total_mig_cputime);
 
 	return 0;
 }

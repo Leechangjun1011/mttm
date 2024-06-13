@@ -94,15 +94,15 @@ elif [[ "$2" == "cpu_dlrm_med_high" ]]; then
 elif [[ "$2" == "cpu_dlrm_large_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low"
-	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_large_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large mid"
-	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_large_high" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large high"
-	echo 70G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_cg.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
         BENCH="${BENCH_PATH}/bin/cg.D.x"

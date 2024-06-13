@@ -205,7 +205,6 @@ extern unsigned int ksampled_sample_ratio_cnt;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
-extern unsigned int dma_channel_per_page;
 extern unsigned int use_all_stores;
 extern unsigned int use_xa_basepage;
 #endif
@@ -2979,13 +2978,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_dma_migration",
 		.data		= &use_dma_migration,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "dma_channel_per_page",
-		.data		= &dma_channel_per_page,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
