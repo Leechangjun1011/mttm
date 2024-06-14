@@ -1220,10 +1220,10 @@ re_scan:
 		nr_max_scan--;
 	} while(nr_scanned < nr_to_scan && nr_max_scan);
 
-	pr_info("[%s] lru : %s, nr_to_scan : %lu, nr_scanned : %lu\n",
+	/*pr_info("[%s] lru : %s, nr_to_scan : %lu, nr_scanned : %lu\n",
 		__func__, (lru == LRU_ACTIVE_ANON) ? "ACTIVE_ANON" : "INACTIVE_ANON",
 		nr_to_scan, nr_scanned);
-
+	*/
 	if(lru == LRU_ACTIVE_ANON) {
 		lru = LRU_INACTIVE_ANON;
 		goto re_scan;
@@ -1279,7 +1279,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			if(*strong_hot_checked > 0) {
 				// reset
 				*strong_hot_checked = 0;			
-				pr_info("[%s] Reset checking dram size\n",__func__);
+				//pr_info("[%s] Reset checking dram size\n",__func__);
 			}
 			WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
@@ -1305,10 +1305,10 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			memcg->lev3_size /= (*strong_hot_checked);
 			memcg->lev2_size /= (*strong_hot_checked);
 
-			pr_info("[%s] Average [lev4 : %lu MB, lev3 : %lu MB, lev2 : %lu MB]. RSS : %lu MB. Cooling period : %lu\n",
+			/*pr_info("[%s] Average [lev4 : %lu MB, lev3 : %lu MB, lev2 : %lu MB]. RSS : %lu MB. Cooling period : %lu\n",
 				__func__, memcg->lev4_size >> 8, memcg->lev3_size >> 8,
 				memcg->lev2_size >> 8, tot_pages >> 8, memcg->cooling_period);
-	
+			*/
 			hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 						2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 						tot_pages / memcg->lev2_size;
@@ -1316,20 +1316,12 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 			if(hotness_intensity > 200) {
-				*measured_dram_size = memcg->lev2_size;
-				/*if((*measured_dram_size) < memcg->max_nr_dram_pages)
-					WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
-				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
-				WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);
-				*/
+				*measured_dram_size = memcg->lev2_size;	
 				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
 				pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
 					__func__, hotness_intensity, (*measured_dram_size) >> 8);
 			}
 			else {
-				//TODO dram size for weak hot
-				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, ULONG_MAX);
-				WRITE_ONCE(memcg->max_nr_dram_pages, ULONG_MAX);
 				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
 				pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
 					__func__, hotness_intensity);
@@ -1339,25 +1331,6 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 		}
 	}
 	
-	/*
-	if((READ_ONCE(memcg->workload_type) == STRONG_HOT) &&
-		!READ_ONCE(memcg->dram_shrink_end)) {
-		unsigned long one_step = ((1 << 29) / PAGE_SIZE);
-
-		if((*measured_dram_size) + one_step < READ_ONCE(memcg->max_nr_dram_pages)) {
-			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, memcg->nodeinfo[0]->max_nr_base_pages - one_step);
-			WRITE_ONCE(memcg->max_nr_dram_pages, memcg->max_nr_dram_pages - one_step);
-		}
-		else {
-			WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, *measured_dram_size);
-			WRITE_ONCE(memcg->max_nr_dram_pages, *measured_dram_size);
-			WRITE_ONCE(memcg->dram_shrink_end, true);
-		}
-
-		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
-
-		pr_info("[%s] DRAM size set to %lu MB\n",__func__, memcg->max_nr_dram_pages >> 8);
-	}*/
 	
 }
 
@@ -1497,7 +1470,7 @@ static int kmigrated(void *p)
 				memcg->warm_threshold = memcg->active_threshold;
 			active_lru_overflow_cnt++;
 			interval_manage_cnt++;
-			pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
+			//pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 		}
 		
 
@@ -1571,12 +1544,12 @@ static int kmigrated(void *p)
 
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
-			pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu (cnt : %lu), mig : %lu (do_mig : %lu)], util : %llu, pingpong : %lu MB\n",
+			/*pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu (cnt : %lu), mig : %lu (do_mig : %lu)], util : %llu, pingpong : %lu MB\n",
 				__func__, cur - interval_start, interval_manage_cputime + interval_mig_cputime,
 				interval_manage_cputime, interval_manage_cnt, interval_mig_cputime, interval_do_mig_cputime,
 				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start),
 				interval_pingpong >> 8);
-			
+			*/
 			if(use_lru_manage_reduce) {
 				if(interval_manage_cputime >= manage_cputime_threshold && interval_manage_cnt > 1 &&
 					READ_ONCE(memcg->dram_determined)) {
@@ -1586,8 +1559,9 @@ static int kmigrated(void *p)
 						if(memcg->dram_determined) {
 							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
 							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-							pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
+							/*pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
 								__func__, memcg->adjust_period, memcg->cooling_period);
+							*/
 						}
 					}	
 				}
@@ -1600,8 +1574,9 @@ static int kmigrated(void *p)
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
 					high_pingpong_cnt++;
-					pr_info("[%s] Pinpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
+					/*pr_info("[%s] Pinpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
 						__func__, div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
+					*/
 					if(high_pingpong_cnt > memcg->threshold_offset) {
 						high_pingpong_cnt = 0;
 						if(memcg->dram_determined) {
@@ -1611,8 +1586,8 @@ static int kmigrated(void *p)
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 							else
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-							pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
-								__func__, memcg->threshold_offset, memcg->active_threshold);
+							/*pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
+								__func__, memcg->threshold_offset, memcg->active_threshold);*/
 						}
 					}
 				}

@@ -37,6 +37,8 @@ unsigned int use_pingpong_reduce = 1;
 unsigned long pingpong_reduce_threshold = 200;
 unsigned long manage_cputime_threshold = 50;
 unsigned long mig_cputime_threshold = 200;
+char mttm_local_dram_string[16];
+unsigned long mttm_local_dram = ((80UL << 30) >> 12);//80GB on # of pages
 unsigned int ksampled_trace_period_in_ms = 5000;
 unsigned int ksampled_sample_ratio_cnt = 2;
 unsigned int use_lru_manage_reduce = 1;
@@ -405,6 +407,7 @@ put_task:
 SYSCALL_DEFINE1(mttm_register_pid,
 		pid_t, pid)
 {
+	int i;
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	spin_lock(&register_lock);
 
@@ -432,10 +435,20 @@ SYSCALL_DEFINE1(mttm_register_pid,
 
 	memcg_list[current_tenants] = memcg;
 	current_tenants++;
-	//test_pid = pid;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(memcg_list[i]) {
+			if(memcg_list[i]->mttm_enabled && use_dram_determination) {
+				WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
+				WRITE_ONCE(memcg->max_nr_dram_pages, mttm_local_dram / current_tenants);
+			}
+		}
+	}
+
+	pr_info("[%s] registered pid : %d. current_tenants : %d, memcg id : %d, local_dram : %lu MB\n",
+		__func__, pid, current_tenants, mem_cgroup_id(memcg), (mttm_local_dram / current_tenants) >> 8);
+
 	spin_unlock(&register_lock);
-	pr_info("[%s] registered pid : %d. current_tenants : %d, memcg id : %d\n",
-		__func__, pid, current_tenants, mem_cgroup_id(memcg));
 	
 	return 0;
 }
@@ -443,6 +456,7 @@ SYSCALL_DEFINE1(mttm_register_pid,
 SYSCALL_DEFINE1(mttm_unregister_pid,
 		pid_t, pid)
 {
+	int i;
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	spin_lock(&register_lock);
 
@@ -452,6 +466,14 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 		xa_destroy(memcg->basepage_xa);
 		kfree(memcg->basepage_xa);
 	}
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(memcg_list[i] == memcg) {
+			WRITE_ONCE(memcg_list[i], NULL);
+			break;
+		}
+	}
+
 	spin_unlock(&register_lock);
 	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d\n",
 		__func__, pid, current_tenants, mem_cgroup_id(memcg));
@@ -591,6 +613,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	spin_unlock(&memcg->access_lock);
 
 	if(idx_hot < MTTM_INIT_THRESHOLD) {
+		idx_hot = MTTM_INIT_THRESHOLD;
+		/*
 		unsigned long tot_pages = 0;
 		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_INACTIVE_ANON, MAX_NR_ZONES);
@@ -601,9 +625,11 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 		tot_pages += lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
 		if(max_nr_pages < tot_pages)
-			idx_hot = MTTM_INIT_THRESHOLD;
+			idx_hot = MTTM_INIT_THRESHOLD;*/
 		//When RSS is smaller than max_nr_pages, allow active threshold 0.
 	}
+
+
 	// some pages may not be reflected in the histogram when cooling happens
 	if(memcg->cooled) {
 		//when cooling happens, thres will be current - 1
@@ -1207,7 +1233,7 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 			if(memcg->stable_cnt > 0) {
 				memcg->stable_cnt = 0;
 				WRITE_ONCE(memcg->stable_status, false);
-				pr_info("[%s] stable_cnt reset to 0\n",__func__);
+				//pr_info("[%s] stable_cnt reset to 0\n",__func__);
 			}
 		}
 		else if(mean > 10) {
@@ -1218,44 +1244,49 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 				memcg->ratio_cnt = 0;
 				memcg->nr_local_acc = 0;
 				memcg->nr_remote_acc = 0;
-				pr_info("[%s] sample rate is stable\n",__func__);
+				//pr_info("[%s] sample rate is stable\n",__func__);
 			}
 		}
 	}
 
-	if(READ_ONCE(memcg->dram_determined) && !READ_ONCE(memcg->dram_shrink_end)) {
+	if(READ_ONCE(memcg->dram_determined) &&
+		READ_ONCE(memcg->stable_status) &&
+		!READ_ONCE(memcg->dram_shrink_end)) {
 		if(memcg->highest_rate < mean) {
 			WRITE_ONCE(memcg->highest_rate, mean);
-			pr_info("[%s] highest_rate updated to %lu\n",__func__, mean);
+			//pr_info("[%s] highest_rate updated to %lu\n",__func__, mean);
 		}
 	}
 
-	pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
+	/*pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
 		__func__, mem_cgroup_id(memcg), jiffies_to_msecs(interval),
 		memcg->nr_local, memcg->nr_remote,
 		memcg->sample_rate[0], mean, std_deviation);
-	
+	*/
 }
-
+#if 0
 static void adjust_dram_size(struct mem_cgroup *memcg)
 {
 	int j;
 	unsigned long mean = 0;
 
-	if(memcg->nr_remote > 0 && memcg->interval_nr_sampled > 20) {
+	if(memcg->interval_nr_sampled > 20) {
 		memcg->nr_local_acc += memcg->nr_local;
 		memcg->nr_remote_acc += memcg->nr_remote;
 		memcg->ratio_cnt++;
 	}	
 	
 	if(memcg->ratio_cnt >= ksampled_sample_ratio_cnt) {
+		if(memcg->nr_remote_acc == 0)
+			memcg->nr_remote_acc = 1;
 		mean = div64_u64(memcg->nr_local_acc, memcg->nr_remote_acc);
 		memcg->nr_local_acc = 0;
 		memcg->nr_remote_acc = 0;
 		memcg->ratio_cnt = 0;
 
-		pr_info("[%s] prev_ratio_mean : %lu, threshold : %lu, current mean : %lu\n",
+		/*pr_info("[%s] prev_ratio_mean : %lu, threshold : %lu, current mean : %lu\n",
 			__func__, memcg->prev_ratio_mean, memcg->prev_ratio_mean >> 1, mean);
+		*/
 
 		if(memcg->rollback_dram_size == 0)
 			memcg->rollback_dram_size = memcg->max_nr_dram_pages;
@@ -1358,6 +1389,189 @@ static void adjust_dram_size(struct mem_cgroup *memcg)
 }
 
 
+static void calculate_sample_ratio(struct mem_cgroup *memcg)
+{
+	int j;
+	unsigned long mean = 0;
+
+	if(memcg->interval_nr_sampled > 20) {
+		memcg->nr_local_acc += memcg->nr_local;
+		memcg->nr_remote_acc += memcg->nr_remote;
+		memcg->ratio_cnt++;
+	}	
+	
+	if(memcg->ratio_cnt >= ksampled_sample_ratio_cnt) {
+		if(memcg->nr_remote_acc == 0)
+			memcg->nr_remote_acc = 1;
+		mean = div64_u64(memcg->nr_local_acc, memcg->nr_remote_acc);
+		memcg->nr_local_acc = 0;
+		memcg->nr_remote_acc = 0;
+		memcg->ratio_cnt = 0;
+
+		if(memcg->highest_ratio_mean < mean)
+			memcg->highest_ratio_mean = mean;
+	}
+}
+#endif
+
+static void calculate_required_dram(struct mem_cgroup *memcg)
+{
+	if(READ_ONCE(memcg->dram_determined)) {
+		if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+			!READ_ONCE(memcg->dram_shrink_end)) {
+			unsigned long hot0, hot1, cold0, cold1;
+			unsigned long tot_pages;
+
+			cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+			cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES);
+			hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			tot_pages = hot0 + hot1 + cold0 + cold1;
+
+			memcg->dram_tolerance_max = 100 + (100 - (memcg->lev2_size * 100 / tot_pages));//percentage
+			memcg->dram_tolerance = min_t(unsigned int, memcg->dram_tolerance_max,
+							100 + (memcg->highest_rate * 100 / 50000));//percentage
+
+			pr_info("[%s] tolerance_max : %u, tolerance : %u, highest_rate : %lu\n",
+				__func__, memcg->dram_tolerance_max, memcg->dram_tolerance, memcg->highest_rate);
+
+		}
+	}
+
+}
+
+static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
+{
+	unsigned long cur_dram = memcg->max_nr_dram_pages;
+
+	WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, required_dram);
+	WRITE_ONCE(memcg->max_nr_dram_pages, required_dram);
+	WRITE_ONCE(memcg->dram_shrink_end, true);
+
+	if(required_dram < cur_dram)
+		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+}
+
+static void distribute_local_dram(void)
+{
+	int i;
+	unsigned long tot_strong_hot_dram = 0, tot_weak_hot_dram = 0, tot_not_classified = 0;
+	unsigned long required_dram = 0, free_dram = 0;
+	struct mem_cgroup *memcg;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(memcg->workload_type == STRONG_HOT)
+				tot_strong_hot_dram += (memcg->lev2_size * memcg->dram_tolerance / 100);
+			else if(memcg->workload_type == NOT_CLASSIFIED)
+				tot_not_classified += memcg->max_nr_dram_pages;
+			else if(memcg->workload_type == WEAK_HOT) {
+				unsigned long hot0, hot1, cold0, cold1;
+				
+				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+				tot_weak_hot_dram += (cold0 + cold1 + hot0 + hot1);
+			}
+		}
+	}
+
+	// 1. Shrink dram size first
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(memcg->workload_type == STRONG_HOT &&
+				!READ_ONCE(memcg->dram_shrink_end)) {
+				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
+				if(required_dram < memcg->max_nr_dram_pages) {
+					set_dram_size(memcg, required_dram);
+					pr_info("[%s] strong hot. dram shrink to %lu MB\n",
+						__func__, required_dram >> 8);
+				}
+			}
+
+			free_dram += memcg->max_nr_dram_pages;
+		}
+	}
+	free_dram = (mttm_local_dram > free_dram) ? mttm_local_dram - free_dram : 0;
+
+
+
+	// 2. Give free local dram to strong hot
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(memcg->workload_type == STRONG_HOT && 
+				!READ_ONCE(memcg->dram_shrink_end)) {
+				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
+				//TODO : strong hot compete
+				if(required_dram > memcg->max_nr_dram_pages + free_dram) {
+					set_dram_size(memcg, memcg->max_nr_dram_pages + free_dram);
+					pr_info("[%s] strong hot. dram expand to %lu MB. No free dram now.\n",
+						__func__, (memcg->max_nr_dram_pages + free_dram) >> 8);
+					free_dram = 0;
+				}
+				else if(required_dram < memcg->max_nr_dram_pages + free_dram) {
+					free_dram -= (required_dram - memcg->max_nr_dram_pages);
+					set_dram_size(memcg, required_dram);
+					pr_info("[%s] strong hot. dram expand to %lu MB. Free dram : %lu MB\n",
+						__func__, (required_dram) >> 8, free_dram >> 8);
+				}
+			}
+		}
+	}
+
+
+	// 3. Give free local dram to weak hot
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(memcg->workload_type == WEAK_HOT && 
+				!READ_ONCE(memcg->dram_shrink_end)) {
+				unsigned long hot0, hot1, cold0, cold1;
+				unsigned long promotion_wmark = get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+				unsigned long padding = ((100UL << 20) >> 12);//100MB
+
+				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_INACTIVE_ANON, MAX_NR_ZONES);
+				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+
+				required_dram = cold0 + cold1 + hot0 + hot1 + promotion_wmark + padding;
+				//TODO : weak hot compete
+				if(required_dram > memcg->max_nr_dram_pages + free_dram) {
+					set_dram_size(memcg, memcg->max_nr_dram_pages + free_dram);
+					pr_info("[%s] weak hot. dram expand to %lu MB. No free dram now.\n",
+						__func__, (memcg->max_nr_dram_pages + free_dram) >> 8);
+					free_dram = 0;
+				}
+				else {
+					free_dram -= (required_dram - memcg->max_nr_dram_pages);
+					set_dram_size(memcg, required_dram);
+					pr_info("[%s] weak hot. dram expand to %lu MB. Free dram : %lu MB\n",
+						__func__, (required_dram) >> 8, free_dram >> 8);
+				}
+			}
+		}
+	}
+
+}
+
+
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
@@ -1377,16 +1591,21 @@ static int ksampled(void *dummy)
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
 			for(i = 0; i < LIMIT_TENANTS; i++) {
-				memcg = memcg_list[i];
+				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
 					calculate_sample_rate_stat(memcg, cur - interval_start);
-					adjust_dram_size(memcg);
+					//TODO : ratio
+					//calculate_sample_ratio(memcg);
+					if(use_dram_determination)
+						calculate_required_dram(memcg);	
 
 					memcg->interval_nr_sampled = 0;
 					memcg->nr_local = 0;
 					memcg->nr_remote = 0;	
 				}
 			}
+			if(use_dram_determination)
+				distribute_local_dram();
 
 			interval_start = cur;
 		}
@@ -1527,6 +1746,34 @@ int sysctl_enable_ksampled(struct ctl_table *table, int write,
 		else if(ksampled_thread &&
 			enable_ksampled == 0) {
 			ksampled_stop();
+		}
+	}
+	return err;
+}
+
+int sysctl_mttm_local_dram(struct ctl_table *table, int write,
+			void *buffer, size_t *lenp, loff_t *ppos)
+{
+	int err = 0;
+	unsigned long max;
+
+	if (write && !capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	err = proc_dostring(table, write, buffer, lenp, ppos);
+
+	if (err < 0)
+		return err;
+	if (write) {
+		err = page_counter_memparse(mttm_local_dram_string,
+				"max_local_dram", &max);
+		if(err)
+			pr_err("[%s] Failed to set mttm_local_dram\n",
+				__func__);
+		else {
+			WRITE_ONCE(mttm_local_dram, max);
+			pr_info("[%s] mttm_local_dram set to %lu GB\n",
+				__func__, max >> 18);
 		}
 	}
 	return err;

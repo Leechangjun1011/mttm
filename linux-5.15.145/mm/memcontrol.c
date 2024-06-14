@@ -5304,7 +5304,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->dram_expanded = false;
 	memcg->highest_rate = 0;
 	memcg->ratio_cnt = 0;
-	memcg->prev_ratio_mean = 0;
+	memcg->highest_ratio_mean = 0;
 	memcg->stable_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;

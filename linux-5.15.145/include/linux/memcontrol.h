@@ -389,7 +389,7 @@ struct mem_cgroup {
 	unsigned int		dram_tolerance;
 	unsigned int		bad_ratio_cnt;
 	unsigned int		ratio_cnt;
-	unsigned long		prev_ratio_mean;
+	unsigned long		highest_ratio_mean;
 	unsigned long		stable_cnt;
 	bool			dram_shrink_end;
 	bool			dram_expanded;

@@ -23,9 +23,11 @@ fi
 echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
-echo 1 > /proc/sys/vm/use_dram_determination
+
+echo 20G > /proc/sys/vm/mttm_local_dram_string
+echo 0 > /proc/sys/vm/use_dram_determination
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
-echo 0 > /proc/sys/vm/use_pingpong_reduce
+echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 200 > /proc/sys/vm/pingpong_reduce_threshold
 echo 50 > /proc/sys/vm/manage_cputime_threshold
 echo 200 > /proc/sys/vm/mig_cputime_threshold

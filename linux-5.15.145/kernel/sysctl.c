@@ -190,6 +190,7 @@ static int max_extfrag_threshold = 1000;
 
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
+extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
@@ -2878,6 +2879,13 @@ static struct ctl_table vm_table[] = {
 		.extra2		= SYSCTL_ONE,
 	},
 	{
+		.procname	= "mttm_local_dram_string",
+		.data		= mttm_local_dram_string,
+		.maxlen		= 16,
+		.mode		= 0644,
+		.proc_handler	= sysctl_mttm_local_dram,
+	},
+	{
 		.procname	= "pebs_sample_period",
 		.data		= &pebs_sample_period,
 		.maxlen		= sizeof(unsigned long),
@@ -2995,7 +3003,7 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
-	},
+	},	
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{

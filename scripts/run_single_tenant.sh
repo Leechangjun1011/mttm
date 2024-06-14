@@ -20,33 +20,39 @@ echo enabled > ${CGMEM_DIR}/memory.use_mig
 echo enabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
 
-: << END
+
 CGCPU_DIR=/sys/fs/cgroup/cpuset/mttm_$1
 cgdelete -g cpuset:mttm_$1
 cgcreate -g cpuset:mttm_$1
+: << END
 if [[ $1 -eq 1 ]]
 then
 	CPUSETS="0-7"
 elif [[ $1 -eq 2 ]]
 then
 	CPUSETS="8-15"
-else
+elif [[ $1 -eq 3 ]]
+then
 	CPUSETS="16-23"
+else
+	CPUSETS="-23"
 fi
+END
+CPUSETS="0-7"
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
-END
+
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 24"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
-       	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+       	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
@@ -73,12 +79,12 @@ elif [[ "$2" == "btree" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 20 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+	echo 31150M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
-        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
@@ -162,5 +168,12 @@ else
         exit 0
 fi
 
-./run_bench ${BENCH}
+function release_cpuset
+{
+	sleep 3s
+	echo "0-23" > ${CGCPU_DIR}/cpuset.cpus
+}
+
+./run_bench ${BENCH} & release_cpuset
+wait
 
