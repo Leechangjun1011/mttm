@@ -109,7 +109,7 @@ static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	int target_nid = 1;
 	pg_data_t *target_pgdat = NODE_DATA(target_nid);
 
-	max_nr_pages = memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages;
+	max_nr_pages = READ_ONCE(memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages);
 	nr_lru_pages = get_nr_lru_pages_node(memcg, pgdat);
 
 	fmem_max_wmark = get_memcg_promotion_wmark(max_nr_pages); // if free mem is larger than this wmark, promotion allowed.
@@ -454,7 +454,7 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	bool shrink_active = false;
 	int target_nid = 1;
 	unsigned long nr_smem_active = nr_promotion_target(NODE_DATA(target_nid), memcg);
-	unsigned long max_dram = memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages;
+	unsigned long max_dram = READ_ONCE(memcg->nodeinfo[pgdat->node_id]->max_nr_base_pages);
 	unsigned long demote_lruvec_cputime = 0, demote_one_lruvec_cputime = 0;
 	unsigned long demote_lruvec_pingpong = 0, demote_one_lruvec_pingpong = 0;
 
@@ -689,7 +689,7 @@ static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	pgdat = NODE_DATA(target_nid);
 
 	cur_nr_pages = get_nr_lru_pages_node(memcg, pgdat);
-	max_nr_pages = memcg->nodeinfo[target_nid]->max_nr_base_pages;
+	max_nr_pages = READ_ONCE(memcg->nodeinfo[target_nid]->max_nr_base_pages);
 	//isolated on node vs isolated on memcg .. at multi tenants
 	//demotion & promotion are coupled, so nr_isolated may be close to 0.
 	nr_isolated = node_page_state(pgdat, NR_ISOLATED_ANON) +
@@ -1235,8 +1235,8 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 {
 	int fmem_nid = 0;
 	unsigned long fmem_active, smem_active;
-	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
-		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+	unsigned long max_dram_pages = READ_ONCE(memcg->max_nr_dram_pages);
+	unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
 
 
 	fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
@@ -1325,7 +1325,7 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
 				pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
 					__func__, hotness_intensity);
-			}	
+			}
 
 			WRITE_ONCE(memcg->dram_determined, true);
 		}
@@ -1445,8 +1445,8 @@ static int kmigrated(void *p)
 		if(active_lru_overflow(memcg)) {
 			// It may not fix the active lru overflow immediately.
 			unsigned long fmem_active, smem_active, nr_active_cur;
-			unsigned long max_nr_pages = memcg->max_nr_dram_pages -
-						get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+			unsigned long max_dram_pages = READ_ONCE(memcg->max_nr_dram_pages);
+			unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
 
 			WRITE_ONCE(memcg->hg_mismatch, true);
 		
@@ -1497,7 +1497,7 @@ static int kmigrated(void *p)
 				one_do_mig_cputime += promote_cputime;
 				one_pingpong += promote_pingpong;
 				if(promotion_denied) {
-					//WRITE_ONCE(memcg->need_adjusting_from_kmigrated, true);
+				
 				}
 			}
 			/*if(READ_ONCE(memcg->dram_expanded)) {

@@ -1452,7 +1452,8 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
 	WRITE_ONCE(memcg->max_nr_dram_pages, required_dram);
 	WRITE_ONCE(memcg->dram_shrink_end, true);
 
-	if(required_dram < cur_dram)
+	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
+		get_memcg_demotion_wmark(required_dram) > required_dram)
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 }
 
@@ -1490,7 +1491,7 @@ static void distribute_local_dram(void)
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(memcg->workload_type == STRONG_HOT &&
+			if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
 				!READ_ONCE(memcg->dram_shrink_end)) {
 				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
 				if(required_dram < memcg->max_nr_dram_pages) {
@@ -1511,7 +1512,7 @@ static void distribute_local_dram(void)
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(memcg->workload_type == STRONG_HOT && 
+			if(READ_ONCE(memcg->workload_type) == STRONG_HOT && 
 				!READ_ONCE(memcg->dram_shrink_end)) {
 				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
 				//TODO : strong hot compete
@@ -1536,7 +1537,7 @@ static void distribute_local_dram(void)
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(memcg->workload_type == WEAK_HOT && 
+			if(READ_ONCE(memcg->workload_type) == WEAK_HOT && 
 				!READ_ONCE(memcg->dram_shrink_end)) {
 				unsigned long hot0, hot1, cold0, cold1;
 				unsigned long promotion_wmark = get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
@@ -1559,7 +1560,7 @@ static void distribute_local_dram(void)
 						__func__, (memcg->max_nr_dram_pages + free_dram) >> 8);
 					free_dram = 0;
 				}
-				else {
+				else if(required_dram < memcg->max_nr_dram_pages + free_dram) {
 					free_dram -= (required_dram - memcg->max_nr_dram_pages);
 					set_dram_size(memcg, required_dram);
 					pr_info("[%s] weak hot. dram expand to %lu MB. Free dram : %lu MB\n",
