@@ -404,11 +404,12 @@ put_task:
 	return ret;
 }
 #endif
-SYSCALL_DEFINE1(mttm_register_pid,
-		pid_t, pid)
+SYSCALL_DEFINE2(mttm_register_pid,
+		pid_t, pid, const char __user *, u_name)
 {
 	int i;
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
+	char name[PATH_MAX];
 	spin_lock(&register_lock);
 
 	if(current_tenants == LIMIT_TENANTS) {
@@ -445,8 +446,10 @@ SYSCALL_DEFINE1(mttm_register_pid,
 		}
 	}
 
-	pr_info("[%s] registered pid : %d. current_tenants : %d, memcg id : %d, local_dram : %lu MB\n",
-		__func__, pid, current_tenants, mem_cgroup_id(memcg), (mttm_local_dram / current_tenants) >> 8);
+	copy_from_user(name, u_name, strnlen_user(u_name, PATH_MAX));
+	strlcpy(memcg->tenant_name, name, PATH_MAX);
+	pr_info("[%s] registered pid : %d. name : [ %s ], current_tenants : %d, memcg id : %d, local_dram : %lu MB\n",
+		__func__, pid, memcg->tenant_name, current_tenants, mem_cgroup_id(memcg), (mttm_local_dram / current_tenants) >> 8);
 
 	spin_unlock(&register_lock);
 	
@@ -471,12 +474,20 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 		if(memcg_list[i] == memcg) {
 			WRITE_ONCE(memcg_list[i], NULL);
 			break;
+		}	
+	}
+
+	// Re-distribute local DRAM
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(memcg_list[i]) {
+			WRITE_ONCE(memcg_list[i]->dram_fixed, false);
 		}
 	}
 
 	spin_unlock(&register_lock);
-	pr_info("[%s] unregistered pid : %d, current_tenants : %d, memcg id : %d\n",
-		__func__, pid, current_tenants, mem_cgroup_id(memcg));
+
+	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, memcg id : %d\n",
+		__func__, pid, memcg->tenant_name, current_tenants, mem_cgroup_id(memcg));
 	return 0;
 }
 
@@ -1251,7 +1262,7 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 
 	if(READ_ONCE(memcg->dram_determined) &&
 		READ_ONCE(memcg->stable_status) &&
-		!READ_ONCE(memcg->dram_shrink_end)) {
+		!READ_ONCE(memcg->dram_fixed)) {
 		if(memcg->highest_rate < mean) {
 			WRITE_ONCE(memcg->highest_rate, mean);
 			//pr_info("[%s] highest_rate updated to %lu\n",__func__, mean);
@@ -1264,6 +1275,7 @@ static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long i
 		memcg->sample_rate[0], mean, std_deviation);
 	*/
 }
+
 #if 0
 static void adjust_dram_size(struct mem_cgroup *memcg)
 {
@@ -1414,161 +1426,417 @@ static void calculate_sample_ratio(struct mem_cgroup *memcg)
 }
 #endif
 
-static void calculate_required_dram(struct mem_cgroup *memcg)
+static unsigned long get_anon_rss(struct mem_cgroup *memcg)
+{
+	unsigned long hot0, hot1, cold0, cold1;
+
+	cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+			LRU_INACTIVE_ANON, MAX_NR_ZONES);
+	cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+			LRU_INACTIVE_ANON, MAX_NR_ZONES);
+	hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+			LRU_ACTIVE_ANON, MAX_NR_ZONES);
+	hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+			LRU_ACTIVE_ANON, MAX_NR_ZONES);
+
+	return cold0 + cold1 + hot0 + hot1;
+}
+
+static void calculate_strong_hot_dram_tolerance(struct mem_cgroup *memcg)
 {
 	if(READ_ONCE(memcg->dram_determined)) {
 		if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
-			!READ_ONCE(memcg->dram_shrink_end)) {
-			unsigned long hot0, hot1, cold0, cold1;
-			unsigned long tot_pages;
-
-			cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-					LRU_INACTIVE_ANON, MAX_NR_ZONES);
-			cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-					LRU_INACTIVE_ANON, MAX_NR_ZONES);
-			hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-					LRU_ACTIVE_ANON, MAX_NR_ZONES);
-			hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-					LRU_ACTIVE_ANON, MAX_NR_ZONES);
-			tot_pages = hot0 + hot1 + cold0 + cold1;
+			!READ_ONCE(memcg->dram_fixed)) {
+			unsigned long tot_pages = get_anon_rss(memcg);
 
 			memcg->dram_tolerance_max = 100 + (100 - (memcg->lev2_size * 100 / tot_pages));//percentage
 			memcg->dram_tolerance = min_t(unsigned int, memcg->dram_tolerance_max,
-							100 + (memcg->highest_rate * 100 / 50000));//percentage
-
-			pr_info("[%s] tolerance_max : %u, tolerance : %u, highest_rate : %lu\n",
-				__func__, memcg->dram_tolerance_max, memcg->dram_tolerance, memcg->highest_rate);
-
+							100 + (memcg->highest_rate * 100 / 20000));//percentage
 		}
 	}
 
 }
 
-static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
+static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram, bool fixed)
 {
-	unsigned long cur_dram = memcg->max_nr_dram_pages;
-
 	WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, required_dram);
 	WRITE_ONCE(memcg->max_nr_dram_pages, required_dram);
-	WRITE_ONCE(memcg->dram_shrink_end, true);
+	WRITE_ONCE(memcg->dram_fixed, fixed);
 
 	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
 		get_memcg_demotion_wmark(required_dram) > required_dram)
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
 }
 
-static void distribute_local_dram(void)
+// Return : total weak hot coefficient
+static unsigned int calculate_weak_hot_dram_coefficient(void)
 {
 	int i;
-	unsigned long tot_strong_hot_dram = 0, tot_weak_hot_dram = 0, tot_not_classified = 0;
-	unsigned long required_dram = 0, free_dram = 0;
+	unsigned long min_rate = ULONG_MAX;
+	unsigned int tot_coefficient = 0;
 	struct mem_cgroup *memcg;
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(memcg->workload_type == STRONG_HOT)
-				tot_strong_hot_dram += (memcg->lev2_size * memcg->dram_tolerance / 100);
-			else if(memcg->workload_type == NOT_CLASSIFIED)
-				tot_not_classified += memcg->max_nr_dram_pages;
-			else if(memcg->workload_type == WEAK_HOT) {
-				unsigned long hot0, hot1, cold0, cold1;
-				
-				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				tot_weak_hot_dram += (cold0 + cold1 + hot0 + hot1);
+			if(READ_ONCE(memcg->workload_type) == WEAK_HOT) {
+				min_rate = min_t(unsigned long, min_rate, memcg->highest_rate);
 			}
 		}
 	}
 
-	// 1. Shrink dram size first
+	if(min_rate < ULONG_MAX) {
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->workload_type) == WEAK_HOT) {
+					memcg->weak_hot_dram_coefficient = div64_u64(memcg->highest_rate, min_rate);
+					tot_coefficient += memcg->weak_hot_dram_coefficient;
+				}
+			}
+		}
+	}
+
+	return tot_coefficient;
+}
+
+
+// Return : total strong hot coefficient
+static unsigned int calculate_strong_hot_dram_coefficient(void)
+{
+	int i;
+	unsigned long min_rate = ULONG_MAX;
+	unsigned int tot_coefficient = 0;
+	struct mem_cgroup *memcg;
+
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
-				!READ_ONCE(memcg->dram_shrink_end)) {
-				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
-				if(required_dram < memcg->max_nr_dram_pages) {
-					set_dram_size(memcg, required_dram);
-					pr_info("[%s] strong hot. dram shrink to %lu MB\n",
-						__func__, required_dram >> 8);
-				}
+			if(READ_ONCE(memcg->workload_type) == STRONG_HOT) {
+				min_rate = min_t(unsigned long, min_rate, memcg->highest_rate);
 			}
-
-			free_dram += memcg->max_nr_dram_pages;
 		}
 	}
-	free_dram = (mttm_local_dram > free_dram) ? mttm_local_dram - free_dram : 0;
+
+	if(min_rate < ULONG_MAX) {
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->workload_type) == STRONG_HOT) {
+					memcg->strong_hot_dram_coefficient = div64_u64(memcg->highest_rate, min_rate);
+					tot_coefficient += memcg->strong_hot_dram_coefficient;
+				}
+			}
+		}
+	}
+
+	return tot_coefficient;
+}
 
 
+// Return : mttm_local_dram - strong_hot_dram - not_classified_dram - weak_hot_dram
+static unsigned long calculate_free_dram(void)
+{
+	int i;
+	unsigned long used_dram = 0;
+	struct mem_cgroup *memcg;
 
-	// 2. Give free local dram to strong hot
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(READ_ONCE(memcg->workload_type) == STRONG_HOT && 
-				!READ_ONCE(memcg->dram_shrink_end)) {
-				required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
-				//TODO : strong hot compete
-				if(required_dram > memcg->max_nr_dram_pages + free_dram) {
-					set_dram_size(memcg, memcg->max_nr_dram_pages + free_dram);
-					pr_info("[%s] strong hot. dram expand to %lu MB. No free dram now.\n",
-						__func__, (memcg->max_nr_dram_pages + free_dram) >> 8);
-					free_dram = 0;
-				}
-				else if(required_dram < memcg->max_nr_dram_pages + free_dram) {
-					free_dram -= (required_dram - memcg->max_nr_dram_pages);
-					set_dram_size(memcg, required_dram);
-					pr_info("[%s] strong hot. dram expand to %lu MB. Free dram : %lu MB\n",
-						__func__, (required_dram) >> 8, free_dram >> 8);
-				}
-			}
+			used_dram += memcg->max_nr_dram_pages;
 		}
 	}
 
+	return mttm_local_dram - used_dram;
+}
 
-	// 3. Give free local dram to weak hot
+static void shrink_extra_dram(struct mem_cgroup *memcg)
+{
+	unsigned long tot_anon_rss = get_anon_rss(memcg);
+	unsigned long required_dram;
+	unsigned long padding = ((100UL << 20) >> 12);//100MB
+
+	if(tot_anon_rss * 100 / 97 < memcg->max_nr_dram_pages) {
+		required_dram = (tot_anon_rss * 100 / 97) + padding;//promotion wmark is 3%
+		set_dram_size(memcg, required_dram, false);
+	}
+}
+
+
+static void distribute_local_dram(void)
+{
+	int i;
+	unsigned long required_dram = 0, free_dram = 0;
+	struct mem_cgroup *memcg;
+	bool not_classified_exist = false, all_fixed = true;
+	
+	
+	// Check that not classified workload exist.
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
-			if(READ_ONCE(memcg->workload_type) == WEAK_HOT && 
-				!READ_ONCE(memcg->dram_shrink_end)) {
-				unsigned long hot0, hot1, cold0, cold1;
-				unsigned long promotion_wmark = get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
-				unsigned long padding = ((100UL << 20) >> 12);//100MB
+			if(READ_ONCE(memcg->workload_type) == NOT_CLASSIFIED)
+				not_classified_exist = true;
+			if(!READ_ONCE(memcg->dram_fixed))
+				all_fixed = false;
+		}
+	}
 
-				cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_INACTIVE_ANON, MAX_NR_ZONES);
-				hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
-				hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-						LRU_ACTIVE_ANON, MAX_NR_ZONES);
+	if(all_fixed)
+		return;
 
-				required_dram = cold0 + cold1 + hot0 + hot1 + promotion_wmark + padding;
-				//TODO : weak hot compete
-				if(required_dram > memcg->max_nr_dram_pages + free_dram) {
-					set_dram_size(memcg, memcg->max_nr_dram_pages + free_dram);
-					pr_info("[%s] weak hot. dram expand to %lu MB. No free dram now.\n",
-						__func__, (memcg->max_nr_dram_pages + free_dram) >> 8);
-					free_dram = 0;
+
+	// When workload type classification still on going,
+	// Shrink strong hot dram first to get free dram.
+	// Then, distribute free dram to weak hot by only expand.
+	// Do not fix dram size here.
+	if(not_classified_exist) {
+		unsigned int tot_coefficient;
+		unsigned long tot_free_dram;
+
+		// Shrink dram size first
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+					!READ_ONCE(memcg->dram_fixed)) {
+					required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
+					if(required_dram < memcg->max_nr_dram_pages) {
+						set_dram_size(memcg, required_dram, false);
+						pr_info("[%s] Not fixed. strong hot name : [ %s ]. dram shrink to %lu MB, tolerance : %u, highest_rate : %lu\n",
+							__func__, memcg->tenant_name, required_dram >> 8, memcg->dram_tolerance, memcg->highest_rate);
+					}
 				}
-				else if(required_dram < memcg->max_nr_dram_pages + free_dram) {
-					free_dram -= (required_dram - memcg->max_nr_dram_pages);
-					set_dram_size(memcg, required_dram);
-					pr_info("[%s] weak hot. dram expand to %lu MB. Free dram : %lu MB\n",
-						__func__, (required_dram) >> 8, free_dram >> 8);
+				else if(READ_ONCE(memcg->workload_type) == WEAK_HOT &&
+					!READ_ONCE(memcg->dram_fixed)) {
+					shrink_extra_dram(memcg);
+					//pr_info("[%s] Not fixed. weak hot id : %d extra dram shrink to %lu MB\n",
+					//	__func__, mem_cgroup_id(memcg), memcg->max_nr_dram_pages >> 8);
+				}
+			}
+		}
+
+
+		tot_coefficient = calculate_weak_hot_dram_coefficient();
+		tot_free_dram = calculate_free_dram();
+
+		// Distribute dram to weak hot
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->workload_type) == WEAK_HOT && 
+					!READ_ONCE(memcg->dram_fixed)) {
+					unsigned long padding = ((100UL << 20) >> 12);//100MB
+					unsigned long assigned_dram = tot_free_dram * memcg->weak_hot_dram_coefficient / tot_coefficient;
+
+					required_dram = (get_anon_rss(memcg) * 100 / 97) + padding;//promotion wmark is 3%
+					if(required_dram > memcg->max_nr_dram_pages + assigned_dram) {
+						set_dram_size(memcg, memcg->max_nr_dram_pages + assigned_dram, false);
+					}
+					else if(required_dram <= memcg->max_nr_dram_pages + assigned_dram) {
+						set_dram_size(memcg, required_dram, false);
+					}
+
+					//pr_info("[%s] Not fixed. weak hot id : %d dram is expanded to %lu MB\n",
+					//	__func__, mem_cgroup_id(memcg), memcg->max_nr_dram_pages >> 8);
+
+					// re-calculate free dram and coefficient
+					tot_coefficient -= memcg->weak_hot_dram_coefficient;
+					tot_free_dram = calculate_free_dram();
 				}
 			}
 		}
 	}
+	else {
+		// All workloads are classified.
+		// Dram size can be fixed now.
+		unsigned long tot_strong_hot_dram = 0, tot_weak_hot_dram = 0, tot_rss = 0;
+		unsigned long min_dram = ((1UL << 30) >> 12);
+		unsigned long nr_weak_hot = 0;
+		unsigned long padding = ((100UL << 20) >> 12);//100MB
+
+		// Dram Partition Policy
+		// 1. Calculate all required strong_hot_dram, weak_hot_dram size
+		// 2. Compare it with mttm_local_dram
+		// 	2-1. strong_hot_dram + weak_hot_dram <= mttm_local_dram
+		//		Distribute dram as required.
+		//	2-2. strong_hot_dram + weak_hot_dram > mttm_local_dram && strong_hot_dram <= mttm_local_dram
+		//		Distribute dram to strong hot as required.
+		//		Distribute remaining dram to weak hot proportional to their access rate.
+		//	2-3. strong_hot_dram > mttm_local_dram
+		//		Most extreme case.
+		//		Distribute dram to strong hot proportional to their access rate.
+		//		Distribute minimum dram to weak hot.
+
+
+		// Calculate required dram
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+					!READ_ONCE(memcg->dram_fixed)) {
+					tot_strong_hot_dram += max_t(unsigned long, min_dram,
+								memcg->lev2_size * memcg->dram_tolerance / 100);
+				}
+				else if(READ_ONCE(memcg->workload_type) == WEAK_HOT &&
+					!READ_ONCE(memcg->dram_fixed)) {
+					tot_strong_hot_dram += min_dram;
+					tot_weak_hot_dram += ((get_anon_rss(memcg) * 100 / 97) + padding);//promotion wmark is 3%
+					nr_weak_hot++;
+				}
+				tot_rss += ((get_anon_rss(memcg) * 100 / 97) + padding);
+			}
+		}
+
+		// Case 1 : All tenants RSS <= mttm_local_dram
+		if(tot_rss <= mttm_local_dram) {
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					required_dram = max_t(unsigned long, min_dram,
+								(get_anon_rss(memcg) * 100 / 97) + padding);
+					set_dram_size(memcg, required_dram, true);
+				}
+			}
+			pr_info("[%s] Case 1. All tenants get full DRAM\n",__func__);
+		}
+
+		// Case 2 : total RSS > mttm_local dram
+		//		&& tot_strong_hot_dram + tot_weak_hot_dram <= mttm_local_dram
+		else if(tot_rss > mttm_local_dram && 
+			tot_strong_hot_dram + tot_weak_hot_dram - nr_weak_hot * min_dram <= mttm_local_dram) {
+			// All weak hot can get full DRAM.
+			// Distribute extra DRAM to strong hot based on access rate.
+			unsigned long extra_dram = mttm_local_dram - tot_strong_hot_dram -
+							tot_weak_hot_dram + nr_weak_hot * min_dram;
+			unsigned long tot_strong_hot_coefficient = calculate_strong_hot_dram_coefficient();
+
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						required_dram = max_t(unsigned long, min_dram,
+								memcg->lev2_size * memcg->dram_tolerance / 100);
+						required_dram += (extra_dram * memcg->strong_hot_dram_coefficient
+									/ tot_strong_hot_coefficient);
+						set_dram_size(memcg, required_dram, true);
+						pr_info("[%s] Case 2. strong hot name : [ %s ]. dram set to %lu MB. highest_rate : %lu, coefficient : %u, tot_coefficient : %lu\n",
+							__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8, memcg->highest_rate,
+							memcg->strong_hot_dram_coefficient, tot_strong_hot_coefficient);
+					}
+					else if(READ_ONCE(memcg->workload_type) == WEAK_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						required_dram = max_t(unsigned long, min_dram,
+								(get_anon_rss(memcg) * 100 / 97) + padding);
+						set_dram_size(memcg, required_dram, true);
+						pr_info("[%s] Case 2. weak hot name : [ %s ]. dram set to %lu MB. highest_rate : %lu\n",
+							__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8, memcg->highest_rate);
+
+					}
+				}
+			}
+		}
+
+		// Case 3 : tot_strong_hot_dram + tot_weak_hot_dram > mttm_local_dram &&
+		//		tot_strong_hot_dram <= mttm_local_dram
+		else if(tot_strong_hot_dram + tot_weak_hot_dram - nr_weak_hot * min_dram > mttm_local_dram &&
+			tot_strong_hot_dram <= mttm_local_dram){
+			unsigned long tot_free_dram = mttm_local_dram - tot_strong_hot_dram + nr_weak_hot * min_dram;
+			unsigned int tot_coefficient = calculate_weak_hot_dram_coefficient();
+
+			// Distribute dram to strong hot first
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						required_dram = max_t(unsigned long, min_dram,
+								memcg->lev2_size * memcg->dram_tolerance / 100);
+						set_dram_size(memcg, required_dram, true);
+						pr_info("[%s] Case 3. strong hot name : [ %s ]. dram set to %lu MB, tolerance : %u, highest_rate : %lu\n",
+							__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8, memcg->dram_tolerance, memcg->highest_rate);
+					}
+				}
+			}
+			// Distribute dram to weak hot next
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					if(READ_ONCE(memcg->workload_type) == WEAK_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						unsigned long available_dram = tot_free_dram * memcg->weak_hot_dram_coefficient / tot_coefficient;
+						unsigned long final_dram;
+						required_dram = (get_anon_rss(memcg) * 100 / 97) + padding;//promotion wmark is 3%
+
+						if(required_dram > available_dram)
+							final_dram = max_t(unsigned long, min_dram, available_dram);
+						else
+							final_dram = max_t(unsigned long, min_dram, required_dram);
+
+						set_dram_size(memcg, final_dram, true);
+						pr_info("[%s] Case 3. weak hot name : [ %s ]. dram set to %lu MB, coefficient : %u, tot_coefficient : %u\n",
+							__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8, memcg->weak_hot_dram_coefficient,
+							tot_coefficient);
+						// re-calculate free dram and coefficient
+						tot_coefficient -= memcg->weak_hot_dram_coefficient;
+						tot_free_dram -= final_dram;
+					}
+				}
+			}
+		}
+
+		// Case 4 : tot_strong_hot_dram > mttm_local_dram
+		else {
+			unsigned long tot_free_dram = mttm_local_dram;
+			unsigned int tot_coefficient = calculate_strong_hot_dram_coefficient();
+
+			// Distribute minimal dram to weak hot first
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					if(READ_ONCE(memcg->workload_type) == WEAK_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						set_dram_size(memcg, min_dram, true);
+						BUG_ON(tot_free_dram < min_dram);
+						tot_free_dram -= min_dram;
+						pr_info("[%s] Case 4. weak hot name : [ %s ]. dram set to min_dram\n",
+							__func__, memcg->tenant_name);
+					}
+				}
+			}
+
+			// Distribute dram to strong hot
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					if(READ_ONCE(memcg->workload_type) == STRONG_HOT &&
+						!READ_ONCE(memcg->dram_fixed)) {
+						unsigned long available_dram = tot_free_dram * memcg->strong_hot_dram_coefficient / tot_coefficient;
+						unsigned long final_dram;
+						required_dram = (memcg->lev2_size * memcg->dram_tolerance / 100);
+
+						if(required_dram > available_dram)
+							final_dram = max_t(unsigned long, min_dram, available_dram);
+						else
+							final_dram = max_t(unsigned long, min_dram, required_dram);
+
+						set_dram_size(memcg, final_dram, true);
+						pr_info("[%s] Case 4. strong hot name : [ %s ]. dram set to %lu MB, tolerance : %u, highest_rate : %lu, coefficient : %u, tot_coefficient : %u\n",
+							__func__, memcg->tenant_name, memcg->max_nr_dram_pages,
+							memcg->dram_tolerance, memcg->highest_rate,
+							memcg->strong_hot_dram_coefficient, tot_coefficient);
+
+						// re-calculate free dram and coefficient
+						tot_coefficient -= memcg->strong_hot_dram_coefficient;
+						tot_free_dram -= final_dram;
+					}
+				}
+			}
+		}
+	}
+
 
 }
 
@@ -1598,7 +1866,7 @@ static int ksampled(void *dummy)
 					//TODO : ratio
 					//calculate_sample_ratio(memcg);
 					if(use_dram_determination)
-						calculate_required_dram(memcg);	
+						calculate_strong_hot_dram_tolerance(memcg);	
 
 					memcg->interval_nr_sampled = 0;
 					memcg->nr_local = 0;

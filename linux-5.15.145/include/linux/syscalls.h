@@ -944,7 +944,7 @@ asmlinkage long sys_rt_tgsigqueueinfo(pid_t tgid, pid_t  pid, int sig,
 asmlinkage long sys_perf_event_open(
 		struct perf_event_attr __user *attr_uptr,
 		pid_t pid, int cpu, int group_fd, unsigned long flags);
-asmlinkage long sys_mttm_register_pid(pid_t pid);
+asmlinkage long sys_mttm_register_pid(pid_t pid, const char __user * u_name);
 asmlinkage long sys_mttm_unregister_pid(pid_t pid);
 
 asmlinkage long sys_accept4(int, struct sockaddr __user *, int __user *, int);

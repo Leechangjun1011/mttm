@@ -12,10 +12,10 @@ then
 	exit 0
 fi
 
-NUM_BATCH=120
+NUM_BATCH=150 #120
 BS=64
 LOG=print_out.log
-INSTANCES=8
+INSTANCES=6
 EXTRA_FLAGS=
 GDB='gdb --args'
 DLRM_SYSTEMS=$DLRM_SYSTEM
@@ -25,6 +25,9 @@ if [[ "$1" == "small" ]]; then
 	BOT_MLP=256-128-128
 	TOP_MLP=128-64-1
 	EMBS='128,1000000,60,120'
+	if [[ "$2" == "low" ]]; then
+		NUM_BATCH=150 #120
+	fi
 elif [[ "$1" == "med" ]]; then
 	BOT_MLP=1024-512-128-128
 	TOP_MLP=384-192-1
@@ -33,6 +36,9 @@ elif [[ "$1" == "large" ]]; then
 	BOT_MLP=2048-1024-256-128
 	TOP_MLP=512-256-1
 	EMBS='128,1000000,170,180'
+	if [[ "$2" == "low" ]]; then
+		NUM_BATCH=30 #120
+	fi
 fi
 
 if [[ "$2" == "low" ]]; then

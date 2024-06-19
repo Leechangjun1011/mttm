@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <err.h>
 #include <sys/wait.h>
@@ -25,9 +26,9 @@ double elapsed(struct timeval *starttime, struct timeval *endtime)
   return tv_to_double(diff);
 }
 
-long mttm_register_pid(pid_t pid)
+long mttm_register_pid(pid_t pid, const char *name)
 {
-	return syscall(449, pid);
+	return syscall(449, pid, name);
 }
 
 long mttm_unregister_pid(pid_t pid)
@@ -38,17 +39,27 @@ long mttm_unregister_pid(pid_t pid)
 int main(int argc, char** argv)
 {
 	pid_t pid;
-	int state;
+	int state, i;
 	struct timeval start, end;
+	char clean_name[1024];
 
 	if (argc < 2) {
 		printf("Usage: ./run_bench [BENCHMARK]\n");
 		return 0;
 	}
 
+	for(i = strlen(argv[1]); i >= 0; i--) {
+		if(argv[1][i] == '/') {
+			strncpy(clean_name, &argv[1][i+1], strlen(argv[1]) - i + 1);
+			break;
+		}
+		if(i == 0)
+			strncpy(clean_name, argv[1], strlen(argv[1]) + 1);
+	}
+
 	gettimeofday(&start, NULL);
-	mttm_register_pid(getpid());
-	printf("pid : %d registered, name : %s\n",getpid(), argv[1]);
+	mttm_register_pid(getpid(), clean_name);
+	printf("pid : %d registered, name : %s\n",getpid(), clean_name);
 
 	pid = fork();
 	if (pid == 0) {
@@ -60,7 +71,7 @@ int main(int argc, char** argv)
 	waitpid(pid, &state, 0);
 	mttm_unregister_pid(getpid());
 	gettimeofday(&end, NULL);
-	printf("pid : %d unregistered, name : %s, total time : %f s\n",getpid(), argv[1], elapsed(&start, &end));
+	printf("pid : %d unregistered, name : %s, total time : %f s\n",getpid(), clean_name, elapsed(&start, &end));
 
 	return 0;
 }

@@ -38,7 +38,7 @@ else
 	CPUSETS="-23"
 fi
 END
-CPUSETS="0-7"
+CPUSETS="0-5"
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
@@ -46,16 +46,16 @@ echo $$ > ${CGCPU_DIR}/cgroup.procs
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 24"
+        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
-       	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+       	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
+        BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-tc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
@@ -63,7 +63,7 @@ elif [[ "$2" == "gapbs-tc" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
-        BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15
+        BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15, options.h NBFS_max is number of BFS
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
@@ -79,12 +79,12 @@ elif [[ "$2" == "btree" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
-	echo 31150M > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 6 --scale-factor 198000 --ops-per-worker=500000000 --slow-exit"
+	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
-        echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
@@ -170,7 +170,7 @@ fi
 
 function release_cpuset
 {
-	sleep 3s
+	sleep 4s
 	echo "0-23" > ${CGCPU_DIR}/cpuset.cpus
 }
 

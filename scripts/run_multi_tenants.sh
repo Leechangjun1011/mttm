@@ -24,7 +24,7 @@ echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
-echo 40G > /proc/sys/vm/mttm_local_dram_string
+echo 30G > /proc/sys/vm/mttm_local_dram_string
 echo 1 > /proc/sys/vm/use_dram_determination
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce

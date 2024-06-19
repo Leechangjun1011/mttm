@@ -5295,13 +5295,11 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	for(i = 0; i < 5; i++) {
 		memcg->sample_rate[i] = 0;
 	}
-	memcg->rollback_dram_size = 0;
 	memcg->dram_tolerance = 0;
 	memcg->dram_tolerance_max = 0;
-	memcg->bad_ratio_cnt = 0;	
-
-	memcg->dram_shrink_end = false;
-	memcg->dram_expanded = false;
+	memcg->weak_hot_dram_coefficient = 1;
+	memcg->strong_hot_dram_coefficient = 1;
+	memcg->dram_fixed = false;
 	memcg->highest_rate = 0;
 	memcg->ratio_cnt = 0;
 	memcg->highest_ratio_mean = 0;

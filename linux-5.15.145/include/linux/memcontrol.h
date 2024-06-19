@@ -384,15 +384,14 @@ struct mem_cgroup {
 	unsigned long		hotness_hg[16];// page distribution
 	unsigned long		sample_rate[5];
 	unsigned long		highest_rate;
-	unsigned long		rollback_dram_size;
 	unsigned int		dram_tolerance_max;
 	unsigned int		dram_tolerance;
-	unsigned int		bad_ratio_cnt;
+	unsigned int		weak_hot_dram_coefficient;
+	unsigned int		strong_hot_dram_coefficient;
 	unsigned int		ratio_cnt;
 	unsigned long		highest_ratio_mean;
 	unsigned long		stable_cnt;
-	bool			dram_shrink_end;
-	bool			dram_expanded;
+	bool			dram_fixed;
 	bool			stable_status;
 	bool			cooled;
 	bool			use_warm;
@@ -407,6 +406,7 @@ struct mem_cgroup {
 	unsigned long		lev4_size;
 	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
+	char			tenant_name[PATH_MAX];
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];
 };

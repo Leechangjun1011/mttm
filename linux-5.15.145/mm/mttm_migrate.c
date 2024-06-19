@@ -1318,13 +1318,13 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			if(hotness_intensity > 200) {
 				*measured_dram_size = memcg->lev2_size;	
 				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
-				pr_info("[%s] hotness_intensity : %lu. Workload type : strong_hot. DRAM size : %lu MB\n",
-					__func__, hotness_intensity, (*measured_dram_size) >> 8);
+				pr_info("[%s] name : [ %s ]. hotness_intensity : %lu. Workload type : strong_hot. lev2_size : %lu MB\n",
+					__func__, memcg->tenant_name, hotness_intensity, (*measured_dram_size) >> 8);
 			}
 			else {
 				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
-				pr_info("[%s] hotness_intensity : %lu. Workload type : weak_hot\n",
-					__func__, hotness_intensity);
+				pr_info("[%s] name : [ %s ]. hotness_intensity : %lu. Workload type : weak_hot\n",
+					__func__, memcg->tenant_name, hotness_intensity);
 			}
 
 			WRITE_ONCE(memcg->dram_determined, true);
@@ -1559,9 +1559,9 @@ static int kmigrated(void *p)
 						if(memcg->dram_determined) {
 							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
 							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-							/*pr_info("[%s] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
-								__func__, memcg->adjust_period, memcg->cooling_period);
-							*/
+							//pr_info("[%s] Manage period doubled. id : %d, Adjust : %lu, Cooling : %lu\n",
+							//	__func__, mem_cgroup_id(memcg), memcg->adjust_period, memcg->cooling_period);
+							
 						}
 					}	
 				}
@@ -1586,8 +1586,8 @@ static int kmigrated(void *p)
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 							else
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-							/*pr_info("[%s] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
-								__func__, memcg->threshold_offset, memcg->active_threshold);*/
+							//pr_info("[%s] Pingpong reduced. id : %d, threshold_offset : %u, active_threshold : %u\n",
+							//	__func__, mem_cgroup_id(memcg), memcg->threshold_offset, memcg->active_threshold);
 						}
 					}
 				}
@@ -1613,10 +1613,10 @@ static int kmigrated(void *p)
 	memcg->promoted_pages = tot_promoted;
 	memcg->demoted_pages = tot_demoted;
 	total_time = jiffies - total_time;
-	pr_info("[%s] tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu\n",
-		__func__, tot_promoted >> 8, tot_demoted >> 8, memcg->nr_pingpong);
-	pr_info("[%s] total_time : %lu, total_cputime : %lu, total_mig_cputime : %lu\n",
-		__func__, total_time, total_cputime, total_mig_cputime);
+	pr_info("[%s] name : %s. tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu\n",
+		__func__, memcg->tenant_name, tot_promoted >> 8, tot_demoted >> 8, memcg->nr_pingpong);
+	pr_info("[%s] name : %s. total_time : %lu, total_cputime : %lu, total_mig_cputime : %lu\n",
+		__func__, memcg->tenant_name, total_time, total_cputime, total_mig_cputime);
 
 	return 0;
 }
