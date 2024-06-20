@@ -5301,6 +5301,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->strong_hot_dram_coefficient = 1;
 	memcg->dram_fixed = false;
 	memcg->highest_rate = 0;
+	memcg->mean_rate = 0;
 	memcg->ratio_cnt = 0;
 	memcg->highest_ratio_mean = 0;
 	memcg->stable_cnt = 0;

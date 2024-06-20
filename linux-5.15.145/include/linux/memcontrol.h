@@ -384,6 +384,7 @@ struct mem_cgroup {
 	unsigned long		hotness_hg[16];// page distribution
 	unsigned long		sample_rate[5];
 	unsigned long		highest_rate;
+	unsigned long		mean_rate;
 	unsigned int		dram_tolerance_max;
 	unsigned int		dram_tolerance;
 	unsigned int		weak_hot_dram_coefficient;
