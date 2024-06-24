@@ -948,30 +948,22 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 			if(!pginfo)
 				continue;	
 
-			spin_lock(&mca->memcg->access_lock);
 			memcg_cclock = READ_ONCE(mca->memcg->cooling_clock);
 			if(memcg_cclock > pginfo->cooling_clock) {
-				unsigned int diff = memcg_cclock - pginfo->cooling_clock;
 				unsigned int active_threshold_cooled;
 
-				if(mca->memcg->dram_determined)
-					active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
+				active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
 						mca->memcg->active_threshold - 1 : mca->memcg->active_threshold;
-				else
-					active_threshold_cooled = mca->memcg->active_threshold;
+			
+				check_base_cooling_reset(pginfo, page);
 
-				pginfo->nr_accesses >>= diff;
-				
-				cur_idx = get_idx(pginfo->nr_accesses);
-				mca->memcg->hotness_hg[cur_idx]++;
-				
+				cur_idx = get_idx(pginfo->nr_accesses);							
 				if(cur_idx >= active_threshold_cooled)
 					mca->page_is_hot = 2;
 				else
 					mca->page_is_hot = 1;
 				pginfo->cooling_clock = memcg_cclock;		
 			}
-			spin_unlock(&mca->memcg->access_lock);
 		}
 	}
 

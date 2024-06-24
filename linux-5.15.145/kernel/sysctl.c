@@ -202,7 +202,6 @@ extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int ksampled_trace_period_in_ms;
-extern unsigned int ksampled_sample_ratio_cnt;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
@@ -2958,13 +2957,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "ksampled_trace_period_in_ms",
 		.data		= &ksampled_trace_period_in_ms,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "ksampled_sample_ratio_cnt",
-		.data		= &ksampled_sample_ratio_cnt,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

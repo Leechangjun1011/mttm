@@ -3,7 +3,7 @@
 #define KSAMPLED_CPU		0
 #define LIMIT_TENANTS		10
 #define CORES_PER_SOCKET	24
-#define WORKLOAD_TYPE_CLASSIFICATION_COOLING	4
+#define REGION_DETERMINATION_COOLING	4
 #define SAMPLE_RATE_STABLE_CNT	5
 
 #define MTTM_PEBS_BUFFER_SIZE	32 /* # of pages.(32 -> 128KB) */
@@ -27,12 +27,13 @@
 
 #define KMIGRATED_PERIOD_IN_MS	50
 
+/*
 enum workload_type {
 	NOT_CLASSIFIED = 0,
 	WEAK_HOT = 1,
 	STRONG_HOT = 2,
 	NR_WORKLOAD_TYPE,
-};
+};*/
 
 struct mttm_event {
 	struct perf_event_header header;
@@ -49,6 +50,8 @@ enum eventtype {
 };
 
 #define MTTM_MIN_FREE_PAGES	256 * 10 //10MB
+unsigned long get_anon_rss(struct mem_cgroup *memcg);
+
 extern void check_transhuge_cooling(void *arg, struct page *page);
 extern void check_transhuge_cooling_reset(void *arg, struct page *page);
 extern struct page *get_meta_page(struct page *page);

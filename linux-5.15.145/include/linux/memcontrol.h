@@ -371,9 +371,7 @@ struct mem_cgroup {
 	unsigned long		nr_load;
 	unsigned long		nr_store;
 	unsigned long		nr_local;
-	unsigned long		nr_local_acc;
 	unsigned long		nr_remote;
-	unsigned long		nr_remote_acc;
 	unsigned long		promoted_pages;
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
@@ -382,29 +380,27 @@ struct mem_cgroup {
 	unsigned int		warm_threshold;
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
-	unsigned long		sample_rate[5];
+	unsigned long		interval_sample[5];
 	unsigned long		highest_rate;
 	unsigned long		mean_rate;
-	unsigned int		dram_tolerance_max;
-	unsigned int		dram_tolerance;
-	unsigned int		weak_hot_dram_coefficient;
-	unsigned int		strong_hot_dram_coefficient;
-	unsigned int		ratio_cnt;
-	unsigned long		highest_ratio_mean;
 	unsigned long		stable_cnt;
 	bool			dram_fixed;
 	bool			stable_status;
 	bool			cooled;
 	bool			use_warm;
 	bool			use_mig;
-	bool			dram_determined;
+	bool			region_determined;
 	bool			hg_mismatch;
 	bool			mttm_enabled;
 	unsigned int		dma_chan_start;
-	unsigned int		workload_type;//0 : not identified yet, 1 : weak hot, 2 : strong hot
-	unsigned long		lev2_size;
-	unsigned long		lev3_size;
-	unsigned long		lev4_size;
+	unsigned long		hot_region;
+	unsigned long		cold_region;
+	unsigned long		nr_hot_region_access;
+	unsigned long		nr_cold_region_access;
+	unsigned long		hot_region_access_rate;
+	unsigned long		cold_region_access_rate;
+	unsigned long		hot_region_dram_sensitivity;
+	unsigned long		cold_region_dram_sensitivity;
 	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
 	char			tenant_name[PATH_MAX];

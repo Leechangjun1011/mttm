@@ -5264,9 +5264,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_load = 0;
 	memcg->nr_store = 0;
 	memcg->nr_local = 0;
-	memcg->nr_local_acc = 0;
 	memcg->nr_remote = 0;
-	memcg->nr_remote_acc = 0;
 	memcg->nr_alloc = 0;
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
@@ -5274,12 +5272,12 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	if(use_dram_determination) {
 		memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 		memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
-		memcg->dram_determined = false;
+		memcg->region_determined = false;
 	}
 	else {
 		memcg->cooling_period = MTTM_STABLE_COOLING_PERIOD;
 		memcg->adjust_period = MTTM_STABLE_ADJUST_PERIOD;
-		memcg->dram_determined = true;
+		memcg->region_determined = true;
 	}
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
@@ -5293,24 +5291,24 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	for(i = 0; i < 5; i++) {
-		memcg->sample_rate[i] = 0;
+		memcg->interval_sample[i] = 0;
 	}
-	memcg->dram_tolerance = 0;
-	memcg->dram_tolerance_max = 0;
-	memcg->weak_hot_dram_coefficient = 1;
-	memcg->strong_hot_dram_coefficient = 1;
 	memcg->dram_fixed = false;
 	memcg->highest_rate = 0;
 	memcg->mean_rate = 0;
-	memcg->ratio_cnt = 0;
-	memcg->highest_ratio_mean = 0;
 	memcg->stable_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;
-	memcg->workload_type = NOT_CLASSIFIED;
-	memcg->lev2_size = 0;
-	memcg->lev3_size = 0;
-	memcg->lev4_size = 0;
+
+	memcg->hot_region = 0;
+	memcg->cold_region = 0;
+	memcg->nr_hot_region_access = 0;
+	memcg->nr_cold_region_access = 0;
+	memcg->hot_region_access_rate = 0;
+	memcg->cold_region_access_rate = 0;
+	memcg->hot_region_dram_sensitivity = 0;
+	memcg->cold_region_dram_sensitivity = 0;
+
 	memcg->nr_pingpong = 0;
 	memcg->basepage_xa = NULL;
 #endif

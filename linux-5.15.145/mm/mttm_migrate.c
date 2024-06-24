@@ -853,12 +853,8 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 				struct page *meta_page = get_meta_page(page);
 				unsigned int active_threshold_cooled;
 
-				if(memcg->dram_determined)
-					active_threshold_cooled = (memcg->active_threshold > 1 ) ?
+				active_threshold_cooled = (memcg->active_threshold > 1 ) ?
 							memcg->active_threshold - 1 : memcg->active_threshold;
-				else
-					active_threshold_cooled = memcg->active_threshold;
-
 				check_transhuge_cooling_reset((void *)memcg, page);
 
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
@@ -1157,12 +1153,14 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
 			idx = get_idx(meta_page->nr_accesses);
-			if(idx >= 4)
-				memcg->lev4_size += HPAGE_PMD_NR;
-			if(idx >= 3)
-				memcg->lev3_size += HPAGE_PMD_NR;
-			if(idx >= 2)
-				memcg->lev2_size += HPAGE_PMD_NR;
+			if(idx >= 2) {
+				memcg->hot_region += HPAGE_PMD_NR;
+				memcg->nr_hot_region_access += meta_page->nr_accesses;
+			}
+			else {
+				memcg->cold_region += HPAGE_PMD_NR;
+				memcg->nr_cold_region_access += meta_page->nr_accesses;
+			}
 		}
 		else {
 			pginfo_t *pginfo = NULL;
@@ -1173,17 +1171,19 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 				pginfo = get_pginfo_from_page(page);
 			}
 			if(!pginfo) {
-				list_add(&page->lru, &l_scanned);	
+				list_add(&page->lru, &l_scanned);
 				continue;
 			}
 
 			idx = get_idx(pginfo->nr_accesses);
-			if(idx >= 4)
-				memcg->lev4_size++;
-			if(idx >= 3)
-				memcg->lev3_size++;
-			if(idx >= 2)
-				memcg->lev2_size++;
+			if(idx >= 2) {
+				memcg->hot_region++;
+				memcg->nr_hot_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+			}
+			else {
+				memcg->cold_region++;
+				memcg->nr_cold_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+			}
 		}
 
 		list_add(&page->lru, &l_scanned);
@@ -1251,35 +1251,27 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 }
 
 
-static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_hot_checked,
-				unsigned long *measured_dram_size)
+static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region_checked)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
-	unsigned long hot0, hot1, cold0, cold1;
 	unsigned long tot_pages;
 	unsigned long tot_huge_pages;
-
+	
 	pn0 = memcg->nodeinfo[0];
-	pn1 = memcg->nodeinfo[1];	
+	pn1 = memcg->nodeinfo[1];
+	if(!pn0 || !pn1) 
+		return;
 
-	// Classify workload type
-	if(memcg->workload_type == NOT_CLASSIFIED) {
-		cold0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-				LRU_INACTIVE_ANON, MAX_NR_ZONES);
-		cold1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-				LRU_INACTIVE_ANON, MAX_NR_ZONES);
-		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-				LRU_ACTIVE_ANON, MAX_NR_ZONES);
-		hot1 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-				LRU_ACTIVE_ANON, MAX_NR_ZONES);
-		tot_pages = cold0 + cold1 + hot0 + hot1;
+	// Determine region
+	if(!memcg->region_determined) {
+		tot_pages = get_anon_rss(memcg);
 		tot_huge_pages = tot_pages >> 9;
 
-		if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
-			if(*strong_hot_checked > 0) {
+		//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
+		if(tot_huge_pages > (memcg->cooling_period >> 1)) {
+			if(*region_checked > 0) {
 				// reset
-				*strong_hot_checked = 0;			
-				//pr_info("[%s] Reset checking dram size\n",__func__);
+				*region_checked = 0;			
 			}
 			WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
@@ -1290,47 +1282,30 @@ static void determine_dram_size(struct mem_cgroup *memcg, unsigned int *strong_h
 			return;
 
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
-			(*strong_hot_checked < WORKLOAD_TYPE_CLASSIFICATION_COOLING)) {
+			(*region_checked < REGION_DETERMINATION_COOLING)) {
 
 			scan_hotness_node(NODE_DATA(0), memcg);
 			scan_hotness_node(NODE_DATA(1), memcg);
 
-			(*strong_hot_checked)++;
+			(*region_checked)++;
 		}
 
-		if(*strong_hot_checked >= WORKLOAD_TYPE_CLASSIFICATION_COOLING) {	
-			unsigned long hotness_intensity;
-
-			memcg->lev4_size /= (*strong_hot_checked);
-			memcg->lev3_size /= (*strong_hot_checked);
-			memcg->lev2_size /= (*strong_hot_checked);
-
-			/*pr_info("[%s] Average [lev4 : %lu MB, lev3 : %lu MB, lev2 : %lu MB]. RSS : %lu MB. Cooling period : %lu\n",
-				__func__, memcg->lev4_size >> 8, memcg->lev3_size >> 8,
-				memcg->lev2_size >> 8, tot_pages >> 8, memcg->cooling_period);
-			*/
-			hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
-						2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
-						tot_pages / memcg->lev2_size;
+		if(*region_checked >= REGION_DETERMINATION_COOLING) {
+			memcg->hot_region /= (*region_checked);
+			memcg->cold_region /= (*region_checked);
+			memcg->nr_hot_region_access /= (*region_checked);
+			memcg->nr_cold_region_access /= (*region_checked);
 
 			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
 			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-			if(hotness_intensity > 200) {
-				*measured_dram_size = memcg->lev2_size;	
-				WRITE_ONCE(memcg->workload_type, STRONG_HOT);
-				pr_info("[%s] name : [ %s ]. hotness_intensity : %lu. Workload type : strong_hot. lev2_size : %lu MB\n",
-					__func__, memcg->tenant_name, hotness_intensity, (*measured_dram_size) >> 8);
-			}
-			else {
-				WRITE_ONCE(memcg->workload_type, WEAK_HOT);
-				pr_info("[%s] name : [ %s ]. hotness_intensity : %lu. Workload type : weak_hot\n",
-					__func__, memcg->tenant_name, hotness_intensity);
-			}
-
-			WRITE_ONCE(memcg->dram_determined, true);
+			
+			pr_info("[%s] name : [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
+				__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
+				memcg->nr_hot_region_access, memcg->nr_cold_region_access);
+			
+			WRITE_ONCE(memcg->region_determined, true);
 		}
 	}
-	
 	
 }
 
@@ -1342,8 +1317,7 @@ static int kmigrated(void *p)
 	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
-	unsigned long measured_dram_size = 0;
-	unsigned int strong_hot_checked = 0;
+	unsigned int region_checked = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
 	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
@@ -1386,7 +1360,7 @@ static int kmigrated(void *p)
 		one_manage_cputime = jiffies;
 	
 		if(use_dram_determination) {
-			determine_dram_size(memcg, &strong_hot_checked, &measured_dram_size);
+			determine_region_size(memcg, &region_checked);
 		}
 
 		if(need_lru_cooling(pn0) || need_lru_adjusting(pn0) ||
@@ -1552,17 +1526,14 @@ static int kmigrated(void *p)
 			*/
 			if(use_lru_manage_reduce) {
 				if(interval_manage_cputime >= manage_cputime_threshold && interval_manage_cnt > 1 &&
-					READ_ONCE(memcg->dram_determined)) {
+					READ_ONCE(memcg->region_determined)) {
 					high_manage_cnt++;
 					if(high_manage_cnt >= 2) {
 						high_manage_cnt = 0;
-						if(memcg->dram_determined) {
-							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-							//pr_info("[%s] Manage period doubled. id : %d, Adjust : %lu, Cooling : %lu\n",
-							//	__func__, mem_cgroup_id(memcg), memcg->adjust_period, memcg->cooling_period);
-							
-						}
+						WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+						WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+						//pr_info("[%s] Manage period doubled. id : %d, Adjust : %lu, Cooling : %lu\n",
+						//	__func__, mem_cgroup_id(memcg), memcg->adjust_period, memcg->cooling_period);
 					}	
 				}
 				else {
@@ -1579,7 +1550,7 @@ static int kmigrated(void *p)
 					*/
 					if(high_pingpong_cnt > memcg->threshold_offset) {
 						high_pingpong_cnt = 0;
-						if(memcg->dram_determined) {
+						if(memcg->region_determined) {
 							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
 							WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
 							if(memcg->use_warm)
