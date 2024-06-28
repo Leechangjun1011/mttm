@@ -37,6 +37,7 @@
 #define DMA_CHAN_PER_PAGE	2
 extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
+int use_dma_completion_interrupt = 1;
 #endif
 
 /**
@@ -856,6 +857,13 @@ void copy_huge_page(struct page *dst, struct page *src)
 }
 
 #ifdef CONFIG_MTTM
+
+static void dma_callback(void *param)
+{
+	struct completion *cmp = param;
+	complete(cmp);
+}
+
 void copy_huge_page_dma(struct page *dst, struct page *src)
 {
 	struct dma_async_tx_descriptor *tx[DMA_CHAN_PER_PAGE];
@@ -865,6 +873,8 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	int total_available_chans = DMA_CHAN_PER_PAGE;
 	int i;
 	enum dma_ctrl_flags flag = 0;
+	struct completion cmp;
+	int interrupt_idx, interrupt_copy_chan;
 
 	struct mem_cgroup *memcg = page_memcg(dst);
 	int chan_start;
@@ -881,6 +891,9 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	if(!tx || !cookie || !unmap)
 		goto out;
 	*/
+
+	if(use_dma_completion_interrupt)
+		init_completion(&cmp);
 
 	for(i = 0; i < total_available_chans; i++) {
 		unmap[i] = dmaengine_get_unmap_data(copy_dev[chan_start + i]->dev, 2 * total_available_chans, GFP_NOWAIT);
@@ -914,6 +927,12 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	
 
 	for(i = 0; i < total_available_chans; i++) {
+		if(use_dma_completion_interrupt) {
+			if(i == total_available_chans - 1)
+				flag = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
+			else
+				flag = 0;
+		}
 		tx[i] = copy_dev[chan_start + i]->device_prep_dma_memcpy(copy_chan[chan_start + i],
 						unmap[i]->addr[i + total_available_chans],
 						unmap[i]->addr[i],
@@ -926,6 +945,15 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 			goto unmap_dma;
 		}
 
+		if(use_dma_completion_interrupt) {
+			if(i == total_available_chans - 1) {
+				tx[i]->callback = dma_callback;
+				tx[i]->callback_param = (void *)&cmp;
+				interrupt_idx = i;
+				interrupt_copy_chan = chan_start + i;
+			}
+		}
+
 		cookie[i] = tx[i]->tx_submit(tx[i]);
 		if(dma_submit_error(cookie[i])) {
 			pr_err("%s: submission error at chat %d\n",__func__, i);
@@ -936,10 +964,34 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 		dma_async_issue_pending(copy_chan[chan_start + i]);
 	}
 
-	for(i = 0; i < total_available_chans; i++) {
-		if(dma_sync_wait(copy_chan[chan_start + i], cookie[i]) != DMA_COMPLETE) {
-			ret_val = -6;
-			pr_err("%s: dma does not complete at chan %d\n",__func__, i);
+	if(use_dma_completion_interrupt) {
+		if(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
+					cookie[interrupt_idx], NULL, NULL) != DMA_COMPLETE) {
+			wait_for_completion(&cmp);
+			if(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
+					cookie[interrupt_idx], NULL, NULL) != DMA_COMPLETE) {
+				ret_val = -6;
+				pr_err("%s: dma does not complete at chan %d\n",__func__, i);
+			}
+		}
+
+		for(i = 0; i < total_available_chans; i++) {
+			if(dma_async_is_tx_complete(copy_chan[chan_start + i],
+					cookie[i], NULL, NULL) != DMA_COMPLETE) {
+				if(dma_sync_wait(copy_chan[chan_start + i], cookie[i])
+									!= DMA_COMPLETE) {
+					ret_val = -6;
+					pr_err("%s: dma does not complete at chan %d\n",__func__, i);
+				}
+			}
+		}
+	}
+	else {
+		for(i = 0; i < total_available_chans; i++) {
+			if(dma_sync_wait(copy_chan[chan_start + i], cookie[i]) != DMA_COMPLETE) {
+				ret_val = -6;
+				pr_err("%s: dma does not complete at chan %d\n",__func__, i);
+			}
 		}
 	}
 

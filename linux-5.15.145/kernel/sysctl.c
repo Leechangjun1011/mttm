@@ -205,6 +205,7 @@ extern unsigned int ksampled_trace_period_in_ms;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
+extern unsigned int use_dma_completion_interrupt;
 extern unsigned int use_all_stores;
 extern unsigned int use_xa_basepage;
 #endif
@@ -2883,6 +2884,13 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= 16,
 		.mode		= 0644,
 		.proc_handler	= sysctl_mttm_local_dram,
+	},
+	{
+		.procname	= "use_dma_completion_interrupt",
+		.data		= &use_dma_completion_interrupt,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
 		.procname	= "pebs_sample_period",

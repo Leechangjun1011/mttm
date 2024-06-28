@@ -31,7 +31,7 @@ else
 	CPUSETS="16-23"
 fi
 END
-CPUSETS="0-5"
+CPUSETS="0-7"
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
@@ -41,11 +41,11 @@ if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 15360M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
-       	echo 15360M > ${CGMEM_DIR}/memory.max_at_node0
+       	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
@@ -68,12 +68,12 @@ elif [[ "$2" == "xindex" ]]; then
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 6 --scale-factor 198000 --ops-per-worker=500000000 --slow-exit"
-	echo 15360M > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
-	echo 15360M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"

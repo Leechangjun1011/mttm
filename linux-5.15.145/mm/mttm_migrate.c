@@ -1157,7 +1157,7 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 				memcg->hot_region += HPAGE_PMD_NR;
 				memcg->nr_hot_region_access += meta_page->nr_accesses;
 			}
-			else {
+			else if(idx >= 1) {
 				memcg->cold_region += HPAGE_PMD_NR;
 				memcg->nr_cold_region_access += meta_page->nr_accesses;
 			}
@@ -1180,7 +1180,7 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 				memcg->hot_region++;
 				memcg->nr_hot_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
 			}
-			else {
+			else if(idx >= 1) {
 				memcg->cold_region++;
 				memcg->nr_cold_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
 			}
@@ -1250,7 +1250,6 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 		return false;
 }
 
-
 static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region_checked)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
@@ -1262,21 +1261,20 @@ static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region
 	if(!pn0 || !pn1) 
 		return;
 
-	// Determine region
-	if(!memcg->region_determined) {
-		tot_pages = get_anon_rss(memcg);
-		tot_huge_pages = tot_pages >> 9;
+	tot_pages = get_anon_rss(memcg);
+	tot_huge_pages = tot_pages >> 9;
 
-		//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
-		if(tot_huge_pages > (memcg->cooling_period >> 1)) {
-			if(*region_checked > 0) {
-				// reset
-				*region_checked = 0;			
-			}
-			WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
-			WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
+	//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
+	if(tot_huge_pages > (memcg->cooling_period >> 2)) {
+		if(*region_checked > 0 && use_dram_determination && !memcg->region_determined) {
+			// reset
+			*region_checked = 0;			
 		}
+		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
+		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
+	}
 
+	if(use_dram_determination && !memcg->region_determined) {
 		// Skip when sample rate is not stable
 		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate)
 			return;
@@ -1296,8 +1294,8 @@ static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region
 			memcg->nr_hot_region_access /= (*region_checked);
 			memcg->nr_cold_region_access /= (*region_checked);
 
-			WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-			WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+			//WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+			//WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 			
 			pr_info("[%s] name : [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
 				__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
@@ -1321,7 +1319,8 @@ static int kmigrated(void *p)
 	unsigned int active_lru_overflow_cnt = 0;
 
 	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
-	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong;
+	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong, one_cooling_cputime;
+	unsigned long stamp;
 	unsigned long trace_period = msecs_to_jiffies(10000);
 	unsigned long cur, interval_start;
 	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
@@ -1356,28 +1355,28 @@ static int kmigrated(void *p)
 		pn1 = memcg->nodeinfo[1];
 		if(!pn0 || !pn1) 
 			break;
-
-		one_manage_cputime = jiffies;
 	
-		if(use_dram_determination) {
-			determine_region_size(memcg, &region_checked);
-		}
-
-		if(need_lru_cooling(pn0) || need_lru_adjusting(pn0) ||
-			need_lru_cooling(pn1) || need_lru_adjusting(pn1))
+		determine_region_size(memcg, &region_checked);
+		
+		if(need_lru_adjusting(pn0) || need_lru_adjusting(pn1))
 			interval_manage_cnt++;
+		one_manage_cputime = 0;
+		one_cooling_cputime = 0;
 
 		// Cool & adjust node 0
 		if(need_lru_cooling(pn0)) {
+			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
 			cooling_node(NODE_DATA(0), memcg, &nr_cooled, &nr_still_hot);
 			tot_nr_cooled += nr_cooled;
 			tot_nr_cool_failed += nr_still_hot;
+			one_cooling_cputime += (jiffies - stamp);
 		}
 		else if(need_lru_adjusting(pn0)) {
+			stamp = jiffies;
 			nr_to_active = 0;
-			nr_to_inactive = 0;
+			nr_to_inactive = 0;	
 			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
@@ -1388,18 +1387,22 @@ static int kmigrated(void *p)
 				tot_nr_to_active += nr_to_active;
 				tot_nr_to_inactive += nr_to_inactive;
 			}
+			one_manage_cputime += (jiffies - stamp);
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Cool & adjust node 1
 		if(need_lru_cooling(pn1)) {
+			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
 			cooling_node(NODE_DATA(1), memcg, &nr_cooled, &nr_still_hot);
 			tot_nr_cooled += nr_cooled;
 			tot_nr_cool_failed += nr_still_hot;
+			one_cooling_cputime += (jiffies - stamp);
 		}
 		else if(need_lru_adjusting(pn1)) {
+			stamp = jiffies;
 			nr_to_active = 0;
 			nr_to_inactive = 0;
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
@@ -1412,10 +1415,12 @@ static int kmigrated(void *p)
 				tot_nr_to_active += nr_to_active;
 				tot_nr_to_inactive += nr_to_inactive;
 			}
+			one_manage_cputime += (jiffies - stamp);
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
+		stamp = jiffies;
 		if(active_lru_overflow(memcg)) {
 			// It may not fix the active lru overflow immediately.
 			unsigned long fmem_active, smem_active, nr_active_cur;
@@ -1446,9 +1451,7 @@ static int kmigrated(void *p)
 			interval_manage_cnt++;
 			//pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
 		}
-		
-
-		one_manage_cputime = jiffies - one_manage_cputime;
+		one_manage_cputime += (jiffies - stamp);
 
 		one_mig_cputime = jiffies;
 		one_do_mig_cputime = 0;
@@ -1473,18 +1476,7 @@ static int kmigrated(void *p)
 				if(promotion_denied) {
 				
 				}
-			}
-			/*if(READ_ONCE(memcg->dram_expanded)) {
-				unsigned long promoted_expanded = 0;
-				promote_cputime = 0;
-				promoted_expanded = promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
-				tot_promoted += promoted_expanded;
-				pr_info("[%s] %lu MB promoted due to dram expansion\n",
-					__func__, promoted_expanded >> 8);
-				one_do_mig_cputime += promote_cputime;
-				WRITE_ONCE(memcg->dram_expanded, false);
-			}*/
-
+			}	
 		}
 			
 
@@ -1509,7 +1501,7 @@ static int kmigrated(void *p)
 		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
-		total_cputime += (one_manage_cputime + one_mig_cputime);
+		total_cputime += (one_cooling_cputime + one_manage_cputime + one_mig_cputime);
 		total_mig_cputime += one_mig_cputime;
 		interval_manage_cputime += one_manage_cputime;
 		interval_mig_cputime += one_mig_cputime;
@@ -1526,14 +1518,15 @@ static int kmigrated(void *p)
 			*/
 			if(use_lru_manage_reduce) {
 				if(interval_manage_cputime >= manage_cputime_threshold && interval_manage_cnt > 1 &&
-					READ_ONCE(memcg->region_determined)) {
+					//READ_ONCE(memcg->region_determined) &&
+					(memcg->adjust_period << 1) < memcg->cooling_period) {
 					high_manage_cnt++;
 					if(high_manage_cnt >= 2) {
 						high_manage_cnt = 0;
 						WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-						WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-						//pr_info("[%s] Manage period doubled. id : %d, Adjust : %lu, Cooling : %lu\n",
-						//	__func__, mem_cgroup_id(memcg), memcg->adjust_period, memcg->cooling_period);
+						//WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+						pr_info("[%s] [ %s ] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
+							__func__, memcg->tenant_name, memcg->adjust_period, memcg->cooling_period);
 					}	
 				}
 				else {
@@ -1557,8 +1550,8 @@ static int kmigrated(void *p)
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 							else
 								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-							//pr_info("[%s] Pingpong reduced. id : %d, threshold_offset : %u, active_threshold : %u\n",
-							//	__func__, mem_cgroup_id(memcg), memcg->threshold_offset, memcg->active_threshold);
+							pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
+								__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
 						}
 					}
 				}

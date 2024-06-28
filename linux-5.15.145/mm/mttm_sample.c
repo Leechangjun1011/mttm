@@ -450,8 +450,8 @@ SYSCALL_DEFINE2(mttm_register_pid,
 		}
 	}
 
-	pr_info("[%s] registered pid : %d. name : [ %s ], current_tenants : %d, memcg id : %d, local_dram : %lu MB\n",
-		__func__, pid, memcg->tenant_name, current_tenants, mem_cgroup_id(memcg), (mttm_local_dram / current_tenants) >> 8);
+	pr_info("[%s] registered pid : %d. name : [ %s ], current_tenants : %d, dma_chan_start : %u, local_dram : %lu MB\n",
+		__func__, pid, memcg->tenant_name, current_tenants, memcg->dma_chan_start, (mttm_local_dram / current_tenants) >> 8);
 
 	spin_unlock(&register_lock);
 	
@@ -1196,70 +1196,83 @@ static void ksampled_do_work(void)
 
 }
 
-static void calculate_sample_rate_stat(struct mem_cgroup *memcg, unsigned long interval)
+static void calculate_sample_rate_stat(void)
 {
 	unsigned long mean, std_deviation, sum_sample, variance, mean_rate;
-	int j;
-	for(j = 4; j > 0; j--)
-		memcg->interval_sample[j] = memcg->interval_sample[j-1];
-	memcg->interval_sample[0] = memcg->interval_nr_sampled;
+	int i, j;
+	struct mem_cgroup *memcg;
 
-	// Calculate mean, std_devication
-	sum_sample = 0;
-	for(j = 0; j < 5; j++)
-		sum_sample += memcg->interval_sample[j];
-	mean = sum_sample / 5;
-	variance = 0;
-	for(j = 0; j < 5; j++) {
-		if(memcg->interval_sample[j] > mean)
-			variance += (memcg->interval_sample[j] - mean) * (memcg->interval_sample[j] - mean);
-		else
-			variance += (mean - memcg->interval_sample[j]) * (mean - memcg->interval_sample[j]);
-	}
-	variance = variance / 5;
-	std_deviation = int_sqrt(variance);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			for(j = 4; j > 0; j--)
+				memcg->interval_sample[j] = memcg->interval_sample[j-1];
+			memcg->interval_sample[0] = memcg->interval_nr_sampled;
 
-	if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
-		if(std_deviation >= mean) {
-			if(memcg->stable_cnt > 0) {
-				memcg->stable_cnt = 0;
-				WRITE_ONCE(memcg->stable_status, false);
-				//pr_info("[%s] stable_cnt reset to 0\n",__func__);
+			// Calculate mean, std_devication
+			sum_sample = 0;
+			for(j = 0; j < 5; j++)
+				sum_sample += memcg->interval_sample[j];
+			mean = sum_sample / 5;
+			variance = 0;
+			for(j = 0; j < 5; j++) {
+				if(memcg->interval_sample[j] > mean)
+					variance += (memcg->interval_sample[j] - mean) * (memcg->interval_sample[j] - mean);
+				else
+					variance += (mean - memcg->interval_sample[j]) * (mean - memcg->interval_sample[j]);
 			}
-		}
-		else if(mean > 20) {
-			memcg->stable_cnt++;
-			if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
-				WRITE_ONCE(memcg->stable_status, true);
-			}
-		}
-	}
+			variance = variance / 5;
+			std_deviation = int_sqrt(variance);
 
-	mean_rate = div64_u64(sum_sample, 10);
-
-	if(READ_ONCE(memcg->region_determined) &&
-		READ_ONCE(memcg->stable_status)) {
-		if(memcg->highest_rate < mean_rate) {
-			WRITE_ONCE(memcg->highest_rate, mean_rate);
-			pr_info("[%s] [ %s ] highest rate updated to %lu\n",
-				__func__, memcg->tenant_name, memcg->highest_rate);
-			// Re-calculate dram size of each tenant
-			for(j = 0; j < LIMIT_TENANTS; j++) {
-				struct mem_cgroup *memcg_iter;
-				memcg_iter = READ_ONCE(memcg_list[j]);
-				if(memcg_iter) {
-					WRITE_ONCE(memcg_iter->dram_fixed, false);
+			if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
+				if(std_deviation >= mean) {
+					if(memcg->stable_cnt > 0) {
+						memcg->stable_cnt = 0;
+						WRITE_ONCE(memcg->stable_status, false);
+						//pr_info("[%s] stable_cnt reset to 0\n",__func__);
+					}
+				}
+				else if(mean > 20) {
+					memcg->stable_cnt++;
+					if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
+						WRITE_ONCE(memcg->stable_status, true);
+					}
 				}
 			}
-		}
-		memcg->mean_rate = mean_rate;
-	}
 
-	/*pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
-		__func__, mem_cgroup_id(memcg), jiffies_to_msecs(interval),
-		memcg->nr_local, memcg->nr_remote,
-		memcg->sample_rate[0], mean, std_deviation);
-	*/
+			mean_rate = div64_u64(sum_sample, 10);
+
+			if(READ_ONCE(memcg->region_determined) &&
+				READ_ONCE(memcg->stable_status)) {
+				if(memcg->highest_rate < mean_rate) {
+					WRITE_ONCE(memcg->highest_rate, mean_rate);
+					pr_info("[%s] [ %s ] highest rate updated to %lu\n",
+						__func__, memcg->tenant_name, memcg->highest_rate);
+					if(use_dram_determination) {
+						// Re-calculate dram size of each tenant
+						for(j = 0; j < LIMIT_TENANTS; j++) {
+							struct mem_cgroup *memcg_iter;
+							memcg_iter = READ_ONCE(memcg_list[j]);
+							if(memcg_iter) {
+								WRITE_ONCE(memcg_iter->dram_fixed, false);
+							}
+						}
+					}
+				}
+				memcg->mean_rate = mean_rate;
+			}
+
+			/*pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
+				__func__, mem_cgroup_id(memcg), jiffies_to_msecs(interval),
+				memcg->nr_local, memcg->nr_remote,
+				memcg->sample_rate[0], mean, std_deviation);
+			*/
+
+			memcg->interval_nr_sampled = 0;
+			memcg->nr_local = 0;
+			memcg->nr_remote = 0;	
+		}
+	}
 }
 
 
@@ -1280,24 +1293,31 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 	return cold0 + cold1 + hot0 + hot1;
 }
 
-static void calculate_dram_sensitivity(struct mem_cgroup *memcg)
+static void calculate_dram_sensitivity(void)
 {
-	if(READ_ONCE(memcg->region_determined)) {
-		if(!READ_ONCE(memcg->dram_fixed)) {
-			memcg->hot_region_access_rate = memcg->highest_rate * memcg->nr_hot_region_access /
-							(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
-			memcg->cold_region_access_rate = memcg->highest_rate * memcg->nr_cold_region_access / 
-							(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
-			memcg->hot_region_dram_sensitivity = memcg->hot_region_access_rate * 1000 / (memcg->hot_region >> 8);
-			memcg->cold_region_dram_sensitivity = memcg->cold_region_access_rate * 1000 / (memcg->cold_region >> 8);
+	int i;
+	struct mem_cgroup *memcg;
 
-			pr_info("[%s] [ %s ] highest_rate : %lu, region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
-				__func__, memcg->tenant_name, memcg->highest_rate,
-				memcg->hot_region_access_rate, memcg->cold_region_access_rate,
-				memcg->hot_region_dram_sensitivity, memcg->cold_region_dram_sensitivity);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->region_determined)) {
+				if(!READ_ONCE(memcg->dram_fixed)) {
+					memcg->hot_region_access_rate = memcg->highest_rate * memcg->nr_hot_region_access /
+									(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
+					memcg->cold_region_access_rate = memcg->highest_rate * memcg->nr_cold_region_access / 
+									(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
+					memcg->hot_region_dram_sensitivity = memcg->hot_region_access_rate * 1000 / (memcg->hot_region >> 8);
+					memcg->cold_region_dram_sensitivity = memcg->cold_region_access_rate * 1000 / (memcg->cold_region >> 8);
+
+					pr_info("[%s] [ %s ] highest_rate : %lu, region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
+						__func__, memcg->tenant_name, memcg->highest_rate,
+						memcg->hot_region_access_rate, memcg->cold_region_access_rate,
+						memcg->hot_region_dram_sensitivity, memcg->cold_region_dram_sensitivity);
+				}
+			}
 		}
 	}
-
 }
 
 static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram, bool fixed)
@@ -1413,7 +1433,7 @@ static unsigned long get_tot_dram_sensitivity(void)
 	int i;
 	struct mem_cgroup *memcg;
 	unsigned long tot_dram_sensitivity = 0;
-	// Calculate min dram sensitivity
+
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
@@ -1429,6 +1449,137 @@ static unsigned long get_tot_dram_sensitivity(void)
 	return tot_dram_sensitivity;
 }
 
+static unsigned long get_tot_highest_rate(void)
+{
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long tot_highest_rate = 0;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->region_determined)) {
+				tot_highest_rate += memcg->highest_rate;
+			}
+		}
+	}
+
+	return tot_highest_rate;
+}
+
+static unsigned long hot_region_tolerance(unsigned long highest_rate)
+{
+	unsigned long tolerance = 100 + 50 * (highest_rate / 30000);
+	return min_t(unsigned long, tolerance, 150);
+}
+
+static unsigned long calculate_hot_region_dram_size(struct mem_cgroup *memcg,
+			unsigned long tot_free_dram, unsigned long tot_dram_sensitivity,
+			int (*dram_determined)[2])
+{
+	unsigned long available_dram = tot_free_dram * memcg->hot_region_dram_sensitivity /
+						tot_dram_sensitivity;
+	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
+	int i;
+	struct mem_cgroup *memcg_iter;
+
+	// Calculate remained required dram
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg_iter = READ_ONCE(memcg_list[i]);
+		if(memcg_iter) {
+			if(READ_ONCE(memcg_iter->region_determined) &&
+				memcg_iter->hot_region_dram_sensitivity > 0 &&
+				memcg_iter->cold_region_dram_sensitivity > 0) {
+				if(dram_determined[i][0] == 0) {
+					remained_required_dram += memcg_iter->hot_region;
+				}
+				if(dram_determined[i][1] == 0) {
+					remained_required_dram += memcg_iter->cold_region;
+				}
+			}
+		}
+	}
+	remained_required_dram -= memcg->hot_region;
+
+	if(memcg->hot_region > available_dram && 
+		remained_required_dram < tot_free_dram - available_dram) {
+		// In this case, we can give more than available_dram
+		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
+	}
+
+	return min_t(unsigned long, available_dram + expected_extra_dram,
+			memcg->hot_region/* * hot_region_tolerance(memcg->highest_rate) / 100*/);
+}
+
+static unsigned long calculate_cold_region_dram_size(struct mem_cgroup *memcg,
+			unsigned long tot_free_dram, unsigned long tot_dram_sensitivity,
+			int (*dram_determined)[2])
+{
+	unsigned long available_dram = tot_free_dram * memcg->cold_region_dram_sensitivity /
+						tot_dram_sensitivity;
+	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
+	int i;
+	struct mem_cgroup *memcg_iter;
+
+	// Calculate remained required dram
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg_iter = READ_ONCE(memcg_list[i]);
+		if(memcg_iter) {
+			if(READ_ONCE(memcg_iter->region_determined) &&
+				memcg_iter->hot_region_dram_sensitivity > 0 &&
+				memcg_iter->cold_region_dram_sensitivity > 0) {
+				if(dram_determined[i][0] == 0) {
+					remained_required_dram += memcg_iter->hot_region;
+				}
+				if(dram_determined[i][1] == 0) {
+					remained_required_dram += memcg_iter->cold_region;
+				}
+			}
+		}
+	}
+	remained_required_dram -= memcg->cold_region;
+
+	if(memcg->cold_region > available_dram && 
+		remained_required_dram < tot_free_dram - available_dram) {
+		// In this case, we can give more than available_dram
+		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
+	}
+
+	return min_t(unsigned long, available_dram + expected_extra_dram, memcg->cold_region);
+}
+
+static unsigned long find_highest_dram_sensitivity(int *hs_idx, bool *hot,
+					int (*dram_determined)[2])
+{
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long cur_sensitivity = 0;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->region_determined) &&
+				memcg->hot_region_dram_sensitivity > 0 &&
+				memcg->cold_region_dram_sensitivity > 0) {
+				if(dram_determined[i][0] == 0 &&
+					cur_sensitivity < memcg->hot_region_dram_sensitivity) {
+					cur_sensitivity = memcg->hot_region_dram_sensitivity;
+					*hs_idx = i;
+					*hot = true;
+				}
+				if(dram_determined[i][1] == 0 &&
+					cur_sensitivity < memcg->cold_region_dram_sensitivity) {
+					cur_sensitivity = memcg->cold_region_dram_sensitivity;
+					*hs_idx = i;
+					*hot = false;
+				}
+			}
+		}
+	}
+
+	return cur_sensitivity;
+}
+
 static void distribute_local_dram(void)
 {
 	int i;
@@ -1436,7 +1587,7 @@ static void distribute_local_dram(void)
 	struct mem_cgroup *memcg;
 	bool not_region_determined = false, all_fixed = true;
 	unsigned long tot_dram_sensitivity = 0;
-	int dram_determined[LIMIT_TENANTS][2] = {0,};// 0 : hot, 1 : cold
+	int dram_determined[LIMIT_TENANTS][2] = {0,};// 0 : hot( >= lev 2), 1 : cold (lev 1)
 	unsigned long dram_size[LIMIT_TENANTS][2] = {0,};
 	int hs_idx;
 	bool hot;
@@ -1460,51 +1611,28 @@ static void distribute_local_dram(void)
 	
 	// Distribute local dram to sensitive region first
 	tot_dram_sensitivity = get_tot_dram_sensitivity();
-
 	while(1) {
 		// Find highest sensitivity region
 		cur_sensitivity = 0;
 		hs_idx = 0;
 		hot = false;
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->region_determined) &&
-					memcg->hot_region_dram_sensitivity > 0 &&
-					memcg->cold_region_dram_sensitivity > 0) {
-					if(dram_determined[i][0] == 0 &&
-						cur_sensitivity < memcg->hot_region_dram_sensitivity) {
-						cur_sensitivity = memcg->hot_region_dram_sensitivity;
-						hs_idx = i;
-						hot = true;
-					}
-					if(dram_determined[i][1] == 0 &&
-						cur_sensitivity < memcg->cold_region_dram_sensitivity) {
-						cur_sensitivity = memcg->cold_region_dram_sensitivity;
-						hs_idx = i;
-						hot = false;
-					}
-				}
-			}
-		}
-
+		
+		cur_sensitivity = find_highest_dram_sensitivity(&hs_idx, &hot, dram_determined);
 		if(cur_sensitivity == 0)
 			break;
 
 		// Determine dram size for selected region
 		memcg = READ_ONCE(memcg_list[hs_idx]);
 		if(hot) {
-			dram_size[hs_idx][0] = tot_free_dram * memcg->hot_region_dram_sensitivity /
-						tot_dram_sensitivity;
-			dram_size[hs_idx][0] = min_t(unsigned long, dram_size[hs_idx][0], memcg->hot_region);
+			dram_size[hs_idx][0] = calculate_hot_region_dram_size(memcg, tot_free_dram,
+								tot_dram_sensitivity, dram_determined);
 			dram_determined[hs_idx][0] = 1;
 			tot_free_dram -= dram_size[hs_idx][0];
 			tot_dram_sensitivity -= memcg->hot_region_dram_sensitivity;
 		}
 		else {
-			dram_size[hs_idx][1] = tot_free_dram * memcg->cold_region_dram_sensitivity /
-						tot_dram_sensitivity;
-			dram_size[hs_idx][1] = min_t(unsigned long, dram_size[hs_idx][1], memcg->cold_region);
+			dram_size[hs_idx][1] = calculate_cold_region_dram_size(memcg, tot_free_dram,
+								tot_dram_sensitivity, dram_determined);
 			dram_determined[hs_idx][1] = 1;
 			tot_free_dram -= dram_size[hs_idx][1];
 			tot_dram_sensitivity -= memcg->cold_region_dram_sensitivity;
@@ -1513,6 +1641,30 @@ static void distribute_local_dram(void)
 			__func__, memcg->tenant_name, hot ? "hot" : "cold",
 			hot ? (dram_size[hs_idx][0] >> 8) : (dram_size[hs_idx][1] >> 8));
 	}
+
+	// When extra local DRAM exist
+	// TODO : give extra to 
+	if(tot_free_dram > 0) {
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->region_determined) &&
+					dram_determined[i][0] == 1 &&
+					dram_determined[i][1] == 1) {
+					unsigned long remained_rss = get_anon_rss(memcg)
+								- dram_size[i][0] - dram_size[i][1];
+					unsigned long additional_dram = min_t(unsigned long, remained_rss,
+						tot_free_dram * memcg->highest_rate / get_tot_highest_rate());
+					// Extra local DRAM is added to cold region size
+					dram_size[i][1] += additional_dram;
+					pr_info("[%s] [ %s ] %lu / %lu MB extra dram added\n",
+						__func__, memcg->tenant_name, additional_dram >> 8,
+						tot_free_dram >> 8);
+				}
+			}
+		}
+	}
+
 
 	// Set dram size
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -1549,19 +1701,9 @@ static int ksampled(void *dummy)
 
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
-			for(i = 0; i < LIMIT_TENANTS; i++) {
-				memcg = READ_ONCE(memcg_list[i]);
-				if(memcg) {
-					calculate_sample_rate_stat(memcg, cur - interval_start);
-					
-					if(use_dram_determination)
-						calculate_dram_sensitivity(memcg);	
-
-					memcg->interval_nr_sampled = 0;
-					memcg->nr_local = 0;
-					memcg->nr_remote = 0;	
-				}
-			}
+			calculate_sample_rate_stat();
+			calculate_dram_sensitivity();
+			
 			if(use_dram_determination)
 				distribute_local_dram();
 
@@ -1610,6 +1752,7 @@ static int ksampled_run(void)
 		}
 
 		ksampled_thread = kthread_run_on_cpu(ksampled, NULL, KSAMPLED_CPU, "ksampled");
+		//ksampled_thread = kthread_run(ksampled, NULL, "ksampled");
 		if(IS_ERR(ksampled_thread)) {
 			pr_err("Failed to start ksampled\n");
 			ret = PTR_ERR(ksampled_thread);

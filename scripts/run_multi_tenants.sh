@@ -25,7 +25,7 @@ echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
 echo 30G > /proc/sys/vm/mttm_local_dram_string
-echo 1 > /proc/sys/vm/use_dram_determination
+echo 0 > /proc/sys/vm/use_dram_determination
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 200 > /proc/sys/vm/pingpong_reduce_threshold
@@ -34,6 +34,7 @@ echo 200 > /proc/sys/vm/mig_cputime_threshold
 echo 2000 > /proc/sys/vm/ksampled_trace_period_in_ms
 echo 1 > /proc/sys/vm/check_stable_sample_rate
 echo 1 > /proc/sys/vm/use_dma_migration
+echo 0 > /proc/sys/vm/use_dma_completion_interrupt
 echo 0 > /proc/sys/vm/use_xa_basepage
 echo 0 > /proc/sys/vm/use_all_stores
 echo always > /sys/kernel/mm/transparent_hugepage/enabled

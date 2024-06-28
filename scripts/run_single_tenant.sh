@@ -14,8 +14,6 @@ fi
 CGMEM_DIR=/sys/fs/cgroup/memory/mttm_$1
 cgdelete -g memory:mttm_$1
 cgcreate -g memory:mttm_$1
-#echo 1000000 > ${CGMEM_DIR}/memory.cooling_period
-#echo 200000 > ${CGMEM_DIR}/memory.adjust_period
 echo enabled > ${CGMEM_DIR}/memory.use_mig
 echo enabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
@@ -38,7 +36,7 @@ else
 	CPUSETS="-23"
 fi
 END
-CPUSETS="0-5"
+CPUSETS="0-7"
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
@@ -48,11 +46,15 @@ if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
-	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
+	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
-       	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
+       	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
+	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
@@ -79,12 +81,14 @@ elif [[ "$2" == "btree" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 6 --scale-factor 198000 --ops-per-worker=500000000 --slow-exit"
-	echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+	echo 5433M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
-        echo 7680M > ${CGMEM_DIR}/memory.max_at_node0
+        echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
+	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"

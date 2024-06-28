@@ -5269,15 +5269,16 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
 	memcg->cooling_clock = 0;
+	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
+	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
+		
 	if(use_dram_determination) {
-		memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
-		memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
 		memcg->region_determined = false;
+		memcg->dram_fixed = false;
 	}
 	else {
-		memcg->cooling_period = MTTM_STABLE_COOLING_PERIOD;
-		memcg->adjust_period = MTTM_STABLE_ADJUST_PERIOD;
 		memcg->region_determined = true;
+		memcg->dram_fixed = true;
 	}
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
@@ -5293,7 +5294,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	for(i = 0; i < 5; i++) {
 		memcg->interval_sample[i] = 0;
 	}
-	memcg->dram_fixed = false;
 	memcg->highest_rate = 0;
 	memcg->mean_rate = 0;
 	memcg->stable_cnt = 0;
