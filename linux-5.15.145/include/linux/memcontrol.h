@@ -384,12 +384,17 @@ struct mem_cgroup {
 	unsigned long		highest_rate;
 	unsigned long		mean_rate;
 	unsigned long		stable_cnt;
+	unsigned long		hotness_intensity;
+	unsigned long		lev2_size;
+	unsigned long		lev3_size;
+	unsigned long		lev4_size;
 	bool			dram_fixed;
 	bool			stable_status;
 	bool			cooled;
 	bool			use_warm;
 	bool			use_mig;
 	bool			region_determined;
+	bool			hi_determined;//hotness intensity determined
 	bool			hg_mismatch;
 	bool			mttm_enabled;
 	unsigned int		dma_chan_start;

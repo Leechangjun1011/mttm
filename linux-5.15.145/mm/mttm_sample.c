@@ -29,10 +29,12 @@ int enable_ksampled = 0;
 unsigned long pebs_stable_period = 10007;
 unsigned long pebs_sample_period = 10007;
 unsigned long store_sample_period = 100003;
-unsigned int strong_hot_threshold = 3;
+unsigned long hotness_intensity_threshold = 200;
 unsigned int hotset_size_threshold = 2;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
+unsigned int use_region_separation = 1;
+unsigned int use_hotness_intensity = 0;
 unsigned int use_pingpong_reduce = 1;
 unsigned long pingpong_reduce_threshold = 200;
 unsigned long manage_cputime_threshold = 50;
@@ -752,14 +754,16 @@ void check_transhuge_cooling_reset(void *arg, struct page *page)
 	spin_lock(&memcg->access_lock);
 	meta_page = get_meta_page(page);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	if(use_dram_determination && !memcg->region_determined) {
+	/*if(use_dram_determination) {
 		// Zeroing access count
 		meta_page->nr_accesses = 0;
 	}
 	else if(memcg_cclock > meta_page->cooling_clock) {
 		unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
 		meta_page->nr_accesses >>= diff;
-	}
+	}*/
+	meta_page->nr_accesses = 0;
+
 	meta_page->cooling_clock = memcg_cclock;
 	cur_idx = get_idx(meta_page->nr_accesses);
 	memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
@@ -779,14 +783,16 @@ void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
 
 	spin_lock(&memcg->access_lock);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	if(use_dram_determination && !memcg->region_determined) {
+	/*if(use_dram_determination && !memcg->region_determined) {
 		// Zeroing access count
 		pginfo->nr_accesses = 0;
 	}
 	else if(memcg_cclock > pginfo->cooling_clock) {
 		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
 		pginfo->nr_accesses >>= diff;
-	}
+	}*/
+	pginfo->nr_accesses = 0;
+
 	pginfo->cooling_clock = memcg_cclock;
 	cur_idx = get_idx(pginfo->nr_accesses);
 	memcg->hotness_hg[cur_idx]++;
@@ -1242,7 +1248,7 @@ static void calculate_sample_rate_stat(void)
 
 			mean_rate = div64_u64(sum_sample, 10);
 
-			if(READ_ONCE(memcg->region_determined) &&
+			if(((use_region_separation && READ_ONCE(memcg->region_determined)) || (use_hotness_intensity && READ_ONCE(memcg->hi_determined))) &&
 				READ_ONCE(memcg->stable_status)) {
 				if(memcg->highest_rate < mean_rate) {
 					WRITE_ONCE(memcg->highest_rate, mean_rate);
@@ -1580,7 +1586,8 @@ static unsigned long find_highest_dram_sensitivity(int *hs_idx, bool *hot,
 	return cur_sensitivity;
 }
 
-static void distribute_local_dram(void)
+
+static void distribute_local_dram_region(void)
 {
 	int i;
 	unsigned long required_dram = 0, tot_free_dram = mttm_local_dram;
@@ -1644,7 +1651,7 @@ static void distribute_local_dram(void)
 
 	// When extra local DRAM exist
 	// TODO : give extra to 
-	if(tot_free_dram > 0) {
+	/*if(tot_free_dram > 0) {
 		for(i = 0; i < LIMIT_TENANTS; i++) {
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
@@ -1663,7 +1670,7 @@ static void distribute_local_dram(void)
 				}
 			}
 		}
-	}
+	}*/
 
 
 	// Set dram size
@@ -1681,7 +1688,155 @@ static void distribute_local_dram(void)
 		}
 	}
 
+	if(!not_region_determined)
+		pr_info("[%s] remained DRAM : %lu MB\n",__func__, tot_free_dram >> 8);
+
 }
+
+
+static unsigned long strong_hot_dram_tolerance(struct mem_cgroup *memcg)
+{
+	// TODO Use access pattern instead of rate
+	unsigned long tolerance = 100 + 100 * (memcg->highest_rate / 50000);
+	return min_t(unsigned long, tolerance, 200);
+}
+
+static unsigned long strong_hot_dram_demand(struct mem_cgroup *memcg)
+{
+	return memcg->lev2_size * strong_hot_dram_tolerance(memcg) / 100;
+}
+
+static unsigned long weak_hot_dram_demand(struct mem_cgroup *memcg)
+{
+	unsigned long padding = ((100UL << 20) >> 12);//100MB
+	return (get_anon_rss(memcg) * 100 / 97) + padding;//promotion wmark is 3%
+}
+
+
+static enum workload_type get_workload_type(struct mem_cgroup *memcg)
+{
+	if(READ_ONCE(memcg->hi_determined)) {
+		if(READ_ONCE(memcg->hotness_intensity) >= hotness_intensity_threshold)
+			return STRONG_HOT;
+		else
+			return WEAK_HOT;
+	}
+	else
+		return NOT_CLASSIFIED;
+}
+
+static unsigned long get_dram_demand_hi(struct mem_cgroup *memcg)
+{
+	if(get_workload_type(memcg) == STRONG_HOT)
+		return strong_hot_dram_demand(memcg);
+	else if(get_workload_type(memcg) == WEAK_HOT)
+		return weak_hot_dram_demand(memcg);
+	else
+		return memcg->max_nr_dram_pages;
+}
+
+static unsigned long get_tot_rate(enum workload_type w_type)
+{
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long tot_rate = 0;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined)) {
+				if(get_workload_type(memcg) == w_type)
+					tot_rate += memcg->highest_rate;	
+			}
+		}
+	}
+
+	return tot_rate;
+}
+
+static unsigned long calculate_strong_hot_dram_size(struct mem_cgroup *memcg,
+			unsigned long tot_free_dram, unsigned long tot_rate)
+{
+	unsigned long dram_demand = get_dram_demand_hi(memcg);
+	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
+	return min_t(unsigned long, dram_demand, available_dram);
+}
+
+static unsigned long calculate_weak_hot_dram_size(struct mem_cgroup *memcg,
+			unsigned long tot_free_dram, unsigned long tot_rate)
+{
+	unsigned long dram_demand = get_dram_demand_hi(memcg);
+	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
+
+	return min_t(unsigned long, dram_demand, available_dram);
+}
+
+
+static void distribute_local_dram_hi(void)
+{
+	int i;
+	unsigned long tot_free_dram = mttm_local_dram;
+	unsigned long tot_strong_hot_rate = 0, tot_weak_hot_rate = 0;
+	struct mem_cgroup *memcg;
+	bool not_hi_determined = false, all_fixed = true;
+
+	// Check that not classified workload exist.
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(!READ_ONCE(memcg->hi_determined)) {
+				not_hi_determined = true;
+				tot_free_dram -= memcg->max_nr_dram_pages;
+			}
+			if(!READ_ONCE(memcg->dram_fixed))
+				all_fixed = false;
+		}
+	}
+
+	if(all_fixed)
+		return;
+
+	// Distribute local dram to strong hot first
+	tot_strong_hot_rate = get_tot_rate(STRONG_HOT);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined) &&
+				get_workload_type(memcg) == STRONG_HOT) {
+				unsigned long final_dram = calculate_strong_hot_dram_size(memcg,
+								tot_free_dram, tot_strong_hot_rate);
+				set_dram_size(memcg, final_dram, !not_hi_determined);
+				tot_free_dram -= final_dram;
+				tot_strong_hot_rate -= memcg->highest_rate;
+				pr_info("[%s] [ %s ] strong hot. dram set to %lu MB\n",
+					__func__, memcg->tenant_name, final_dram >> 8);
+			}
+		}
+	}
+
+	// Distribute local dram to weak hot
+	tot_weak_hot_rate = get_tot_rate(WEAK_HOT);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined) &&
+				get_workload_type(memcg) == WEAK_HOT) {
+				unsigned long final_dram = calculate_weak_hot_dram_size(memcg,
+								tot_free_dram, tot_weak_hot_rate);
+				set_dram_size(memcg, final_dram, !not_hi_determined);
+				tot_free_dram -= final_dram;
+				tot_weak_hot_rate -= memcg->highest_rate;
+				pr_info("[%s] [ %s ] weak hot. dram set to %lu MB\n",
+					__func__, memcg->tenant_name, final_dram >> 8);
+			}
+		}
+	}
+
+	if(!not_hi_determined)
+		pr_info("[%s] remained DRAM : %lu MB\n",
+			__func__, tot_free_dram >> 8);
+}
+
 
 static int ksampled(void *dummy)
 {
@@ -1702,10 +1857,16 @@ static int ksampled(void *dummy)
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
 			calculate_sample_rate_stat();
-			calculate_dram_sensitivity();
 			
-			if(use_dram_determination)
-				distribute_local_dram();
+			if(use_dram_determination) {
+				if(use_region_separation) {
+					calculate_dram_sensitivity();
+					distribute_local_dram_region();
+				}
+				else if(use_hotness_intensity) {
+					distribute_local_dram_hi();//hotness_intensity
+				}
+			}
 
 			interval_start = cur;
 		}

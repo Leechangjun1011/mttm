@@ -69,8 +69,8 @@ elif [[ "$2" == "graph500" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
-        BENCH="${BENCH_PATH}/XSBench -t 24 -g 70000 -p 30000000" #g 130000
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 30000000" #g 130000
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
         BENCH="${BENCH_PATH}/build/ycsb_bench --fg 16 --iteration 70"
@@ -82,7 +82,7 @@ elif [[ "$2" == "btree" ]]; then
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
         BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
-	echo 5433M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"

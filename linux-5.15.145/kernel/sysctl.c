@@ -194,14 +194,17 @@ extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
-extern unsigned int strong_hot_threshold;
+extern unsigned long hotness_intensity_threshold;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
+extern unsigned int use_region_separation;
+extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int ksampled_trace_period_in_ms;
+extern unsigned long kmigrated_period_in_ms;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
@@ -2914,11 +2917,11 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
-		.procname	= "strong_hot_threshold",
-		.data		= &strong_hot_threshold,
-		.maxlen		= sizeof(unsigned int),
+		.procname	= "hotness_intensity_threshold",
+		.data		= &hotness_intensity_threshold,
+		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
+		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
 		.procname	= "hotset_size_threshold",
@@ -2930,6 +2933,20 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_dram_determination",
 		.data		= &use_dram_determination,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_region_separation",
+		.data		= &use_region_separation,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_hotness_intensity",
+		.data		= &use_hotness_intensity,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
@@ -2968,6 +2985,13 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "kmigrated_period_in_ms",
+		.data		= &kmigrated_period_in_ms,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
 		.procname	= "check_stable_sample_rate",

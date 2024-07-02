@@ -41,6 +41,8 @@
 #endif
 
 extern unsigned int use_dram_determination;
+extern unsigned int use_region_separation;
+extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
@@ -49,6 +51,8 @@ extern unsigned int use_lru_manage_reduce;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_xa_basepage;
 extern unsigned int hotset_size_threshold;
+
+unsigned long kmigrated_period_in_ms = 1000;
 
 
 static bool need_lru_cooling(struct mem_cgroup_per_node *pn)
@@ -1153,13 +1157,23 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
 			idx = get_idx(meta_page->nr_accesses);
-			if(idx >= 2) {
-				memcg->hot_region += HPAGE_PMD_NR;
-				memcg->nr_hot_region_access += meta_page->nr_accesses;
+			if(use_region_separation) {
+				if(idx >= 2) {
+					memcg->hot_region += HPAGE_PMD_NR;
+					memcg->nr_hot_region_access += meta_page->nr_accesses;
+				}
+				else if(idx == 1) {
+					memcg->cold_region += HPAGE_PMD_NR;
+					memcg->nr_cold_region_access += meta_page->nr_accesses;
+				}
 			}
-			else if(idx >= 1) {
-				memcg->cold_region += HPAGE_PMD_NR;
-				memcg->nr_cold_region_access += meta_page->nr_accesses;
+			else if(use_hotness_intensity) {
+				if(idx >= 2)
+					memcg->lev2_size += HPAGE_PMD_NR;
+				if(idx >= 3)
+					memcg->lev3_size += HPAGE_PMD_NR;
+				if(idx >= 4)
+					memcg->lev4_size += HPAGE_PMD_NR;
 			}
 		}
 		else {
@@ -1176,13 +1190,23 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 			}
 
 			idx = get_idx(pginfo->nr_accesses);
-			if(idx >= 2) {
-				memcg->hot_region++;
-				memcg->nr_hot_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+			if(use_region_separation) {
+				if(idx >= 2) {
+					memcg->hot_region++;
+					memcg->nr_hot_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+				}
+				else if(idx == 1) {
+					memcg->cold_region++;
+					memcg->nr_cold_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+				}
 			}
-			else if(idx >= 1) {
-				memcg->cold_region++;
-				memcg->nr_cold_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+			else if(use_hotness_intensity) {
+				if(idx >= 2)
+					memcg->lev2_size++;
+				if(idx >= 3)
+					memcg->lev3_size++;
+				if(idx >= 4)
+					memcg->lev4_size++;
 			}
 		}
 
@@ -1250,11 +1274,13 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 		return false;
 }
 
-static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region_checked)
+
+static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotness_scanned)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
 	unsigned long tot_pages;
 	unsigned long tot_huge_pages;
+	unsigned int target_cooling = 0;
 	
 	pn0 = memcg->nodeinfo[0];
 	pn1 = memcg->nodeinfo[1];
@@ -1266,42 +1292,66 @@ static void determine_region_size(struct mem_cgroup *memcg, unsigned int *region
 
 	//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
 	if(tot_huge_pages > (memcg->cooling_period >> 2)) {
-		if(*region_checked > 0 && use_dram_determination && !memcg->region_determined) {
+		if(*hotness_scanned > 0 &&
+			use_dram_determination && 
+			((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))){
 			// reset
-			*region_checked = 0;			
+			*hotness_scanned = 0;			
 		}
 		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
 		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
 	}
 
-	if(use_dram_determination && !memcg->region_determined) {
+	if(use_region_separation)
+		target_cooling = REGION_DETERMINATION_COOLING;
+	else if(use_hotness_intensity)
+		target_cooling = WORKLOAD_CLASSIFICATION_COOLING;
+
+	if(use_dram_determination &&
+		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
 		// Skip when sample rate is not stable
 		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate)
 			return;
 
 		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
-			(*region_checked < REGION_DETERMINATION_COOLING)) {
+			(*hotness_scanned < target_cooling)) {
 
 			scan_hotness_node(NODE_DATA(0), memcg);
 			scan_hotness_node(NODE_DATA(1), memcg);
 
-			(*region_checked)++;
+			(*hotness_scanned)++;
 		}
 
-		if(*region_checked >= REGION_DETERMINATION_COOLING) {
-			memcg->hot_region /= (*region_checked);
-			memcg->cold_region /= (*region_checked);
-			memcg->nr_hot_region_access /= (*region_checked);
-			memcg->nr_cold_region_access /= (*region_checked);
+		if(*hotness_scanned >= target_cooling) {
+			if(use_region_separation) {
+				memcg->hot_region /= (*hotness_scanned);
+				memcg->cold_region /= (*hotness_scanned);
+				memcg->nr_hot_region_access /= (*hotness_scanned);
+				memcg->nr_cold_region_access /= (*hotness_scanned);
 
-			//WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-			//WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
-			
-			pr_info("[%s] name : [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
-				__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
-				memcg->nr_hot_region_access, memcg->nr_cold_region_access);
-			
-			WRITE_ONCE(memcg->region_determined, true);
+				//WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
+				//WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
+				
+				pr_info("[%s] name : [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
+					__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
+					memcg->nr_hot_region_access, memcg->nr_cold_region_access);
+				
+				WRITE_ONCE(memcg->region_determined, true);
+			}
+			else if(use_hotness_intensity) {
+				memcg->lev4_size /= (*hotness_scanned);
+				memcg->lev3_size /= (*hotness_scanned);
+				memcg->lev2_size /= (*hotness_scanned);
+				memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
+								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
+								tot_pages / memcg->lev2_size;
+
+				pr_info("[%s] name : [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
+					__func__, memcg->tenant_name, memcg->hotness_intensity,
+					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);
+				
+				WRITE_ONCE(memcg->hi_determined, true);
+			}
 		}
 	}
 	
@@ -1315,7 +1365,7 @@ static int kmigrated(void *p)
 	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
-	unsigned int region_checked = 0;
+	unsigned int hotness_scanned = 0;
 	unsigned int active_lru_overflow_cnt = 0;
 
 	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
@@ -1355,9 +1405,9 @@ static int kmigrated(void *p)
 		pn1 = memcg->nodeinfo[1];
 		if(!pn0 || !pn1) 
 			break;
-	
-		determine_region_size(memcg, &region_checked);
 		
+		analyze_access_pattern(memcg, &hotness_scanned);
+	
 		if(need_lru_adjusting(pn0) || need_lru_adjusting(pn1))
 			interval_manage_cnt++;
 		one_manage_cputime = 0;
@@ -1538,12 +1588,26 @@ static int kmigrated(void *p)
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
 					high_pingpong_cnt++;
-					/*pr_info("[%s] Pinpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
-						__func__, div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
-					*/
+					pr_info("[%s] [ %s ] Pingpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
+						__func__, memcg->tenant_name,
+						div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
+
+					WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
+					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
+					if(memcg->use_warm)
+						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+					else
+						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+					pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
+						__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
+				}
+
+				/*
 					if(high_pingpong_cnt > memcg->threshold_offset) {
 						high_pingpong_cnt = 0;
-						if(memcg->region_determined) {
+						if(!use_dram_determination ||
+							(use_region_separation && READ_ONCE(memcg->region_determined)) ||
+							(use_hotness_intensity && READ_ONCE(memcg->hi_determined))) {
 							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
 							WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
 							if(memcg->use_warm)
@@ -1557,7 +1621,7 @@ static int kmigrated(void *p)
 				}
 				else {
 					high_pingpong_cnt = 0;
-				}	
+				}*/	
 			}
 
 			interval_start = cur;
@@ -1571,7 +1635,7 @@ static int kmigrated(void *p)
 	
 		wait_event_interruptible_timeout(memcg->kmigrated_wait,
 				need_direct_demotion(NODE_DATA(0), memcg),
-				msecs_to_jiffies(KMIGRATED_PERIOD_IN_MS));
+				msecs_to_jiffies(kmigrated_period_in_ms));
 	}
 
 	memcg->promoted_pages = tot_promoted;

@@ -75,7 +75,6 @@
 
 #ifdef CONFIG_MTTM
 extern unsigned int use_dram_determination;
-extern unsigned int strong_hot_threshold;
 #endif
 
 struct cgroup_subsys memory_cgrp_subsys __read_mostly;
@@ -5274,10 +5273,12 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		
 	if(use_dram_determination) {
 		memcg->region_determined = false;
+		memcg->hi_determined = false;
 		memcg->dram_fixed = false;
 	}
 	else {
 		memcg->region_determined = true;
+		memcg->hi_determined = true;
 		memcg->dram_fixed = true;
 	}
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
@@ -5308,6 +5309,11 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cold_region_access_rate = 0;
 	memcg->hot_region_dram_sensitivity = 0;
 	memcg->cold_region_dram_sensitivity = 0;
+
+	memcg->hotness_intensity = 0;
+	memcg->lev2_size = 0;
+	memcg->lev3_size = 0;
+	memcg->lev4_size = 0;
 
 	memcg->nr_pingpong = 0;
 	memcg->basepage_xa = NULL;
