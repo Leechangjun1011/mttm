@@ -163,6 +163,7 @@ struct page {
 		struct {	/* Third tail page of compound page */
 			unsigned long __compound_pad_1;
 			uint32_t nr_accesses;
+			uint32_t prev_accesses;
 			uint32_t cooling_clock;
 			unsigned char promoted;
 			unsigned char demoted;

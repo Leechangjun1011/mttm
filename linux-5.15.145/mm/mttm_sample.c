@@ -129,6 +129,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	initial_hotness = 0; //get_accesses_from_idx(memcg->active_threshold + 1);
 
 	pginfo->nr_accesses = initial_hotness;
+	pginfo->prev_accesses = 0;
 	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock);//do not skip cooling
 	pginfo->promoted = 0;
 	pginfo->demoted = 0;
@@ -153,6 +154,7 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 	int initial_hotness = 0; //memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
 
 	page[3].nr_accesses = initial_hotness;
+	page[3].prev_accesses = 0;
 	SetPageMttm(&page[3]);
 	
 	if(!memcg)
@@ -185,6 +187,7 @@ void copy_transhuge_pginfo(struct page *page, struct page *newpage)
 		return ;
 
 	newpage[3].nr_accesses = page[3].nr_accesses;
+	newpage[3].prev_accesses = page[3].prev_accesses;
 	newpage[3].cooling_clock = page[3].cooling_clock;
 	newpage[3].promoted = page[3].promoted;
 	newpage[3].demoted = page[3].demoted;
@@ -754,13 +757,12 @@ void check_transhuge_cooling_reset(void *arg, struct page *page)
 	spin_lock(&memcg->access_lock);
 	meta_page = get_meta_page(page);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	/*if(use_dram_determination) {
-		// Zeroing access count
-		meta_page->nr_accesses = 0;
-	}
-	else if(memcg_cclock > meta_page->cooling_clock) {
-		unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
-		meta_page->nr_accesses >>= diff;
+	/*
+	if(memcg_cclock > meta_page->cooling_clock) {
+		unsigned int diff = memcg_cclock - meta_page->cooling_clock;
+		unsigned int cooled_accesses = meta_page->nr_accesses >> diff;
+		meta_page->nr_accesses = cooled_accesses;
+		meta_page->prev_accesses = cooled_accesses;
 	}*/
 	meta_page->nr_accesses = 0;
 
@@ -783,13 +785,11 @@ void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
 
 	spin_lock(&memcg->access_lock);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	/*if(use_dram_determination && !memcg->region_determined) {
-		// Zeroing access count
-		pginfo->nr_accesses = 0;
-	}
-	else if(memcg_cclock > pginfo->cooling_clock) {
+	/*if(memcg_cclock > pginfo->cooling_clock) {
 		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
-		pginfo->nr_accesses >>= diff;
+		unsigned int cooled_accesses = pginfo->nr_accesses >> diff;	
+		pginfo->nr_accesses = cooled_accesses;
+		pginfo->prev_accesses = cooled_accesses;
 	}*/
 	pginfo->nr_accesses = 0;
 
@@ -817,9 +817,11 @@ void check_transhuge_cooling(void *arg, struct page *page)
 
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	if(memcg_cclock > meta_page->cooling_clock) {
-		unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
-		meta_page->nr_accesses >>= diff;
+		/*unsigned int diff = memcg_cclock - meta_page->cooling_clock;		
+		meta_page->nr_accesses >>= diff;*/
+		meta_page->nr_accesses = 0;
 	}
+
 	meta_page->cooling_clock = memcg_cclock;
 	cur_idx = get_idx(meta_page->nr_accesses);
 
@@ -850,8 +852,9 @@ void check_base_cooling(pginfo_t *pginfo, struct page *page)
 
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	if(memcg_cclock > pginfo->cooling_clock) {
-		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
-		pginfo->nr_accesses >>= diff;
+		/*unsigned int diff = memcg_cclock - pginfo->cooling_clock;
+		pginfo->nr_accesses >>= diff;*/
+		pginfo->nr_accesses = 0;
 	}
 	pginfo->cooling_clock = memcg_cclock;
 	cur_idx = get_idx(pginfo->nr_accesses);
@@ -929,7 +932,6 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 	pginfo_t *pginfo;
 	struct page *page, *pte_page;
 	int ret = 0;
-	unsigned int prev_accesses;
 
 	pte = pte_offset_map_lock(vma->vm_mm, pmd, address, &ptl);
 	pte_struct = *pte;
@@ -956,7 +958,6 @@ static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 		goto pte_unlock;
 	}
 
-	prev_accesses = pginfo->nr_accesses;
 	update_base_page(vma, page, pginfo, address);
 
 	pte_unmap_unlock(pte, ptl);
@@ -1444,8 +1445,7 @@ static unsigned long get_tot_dram_sensitivity(void)
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined) &&
-				memcg->hot_region_dram_sensitivity > 0 &&
-				memcg->cold_region_dram_sensitivity > 0) {
+				memcg->hot_region_dram_sensitivity > 0) {
 				tot_dram_sensitivity += memcg->cold_region_dram_sensitivity;
 				tot_dram_sensitivity += memcg->hot_region_dram_sensitivity;
 			}
@@ -1565,8 +1565,7 @@ static unsigned long find_highest_dram_sensitivity(int *hs_idx, bool *hot,
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined) &&
-				memcg->hot_region_dram_sensitivity > 0 &&
-				memcg->cold_region_dram_sensitivity > 0) {
+				memcg->hot_region_dram_sensitivity > 0) {
 				if(dram_determined[i][0] == 0 &&
 					cur_sensitivity < memcg->hot_region_dram_sensitivity) {
 					cur_sensitivity = memcg->hot_region_dram_sensitivity;

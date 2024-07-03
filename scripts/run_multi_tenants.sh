@@ -32,7 +32,7 @@ echo 200 > /proc/sys/vm/hotness_intensity_threshold
 
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce
-echo 150 > /proc/sys/vm/pingpong_reduce_threshold
+echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 echo 200 > /proc/sys/vm/mig_cputime_threshold
 echo 50 > /proc/sys/vm/manage_cputime_threshold
 

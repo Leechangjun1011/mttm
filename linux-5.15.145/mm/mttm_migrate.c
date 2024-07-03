@@ -304,10 +304,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				if(memcg->use_warm && (get_idx(meta_page->nr_accesses) >= memcg->warm_threshold))
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
-					meta_page->demoted++;
+					meta_page->demoted = 1;
 					if(meta_page->promoted > 0) {
 						demote_list_pingpong += HPAGE_PMD_NR;
 						memcg->nr_pingpong += HPAGE_PMD_NR;
+						meta_page->promoted = 0;
 					}
 				}
 			}
@@ -328,10 +329,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				if(memcg->use_warm && idx >= memcg->warm_threshold)
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
-					pginfo->demoted++;
+					pginfo->demoted = 1;
 					if(pginfo->promoted > 0) {
 						demote_list_pingpong++;
 						memcg->nr_pingpong++;
+						pginfo->promoted = 0;
 					}
 				}
 			}
@@ -545,10 +547,11 @@ static unsigned long promote_page_list(struct list_head *page_list,
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
 				if(is_active_lru(lru)) {
-					meta_page->promoted++;
+					meta_page->promoted = 1;
 					if(meta_page->demoted > 0) {
 						promote_list_pingpong += HPAGE_PMD_NR;
 						memcg->nr_pingpong += HPAGE_PMD_NR;
+						meta_page->demoted = 0;
 					}
 				}
 			}
@@ -565,10 +568,11 @@ static unsigned long promote_page_list(struct list_head *page_list,
 					goto keep_locked;
 				}
 				if(is_active_lru(lru)) {
-					pginfo->promoted++;
+					pginfo->promoted = 1;
 					if(pginfo->demoted > 0) {
 						promote_list_pingpong++;
 						memcg->nr_pingpong++;
+						pginfo->demoted = 0;
 					}
 				}
 			}
@@ -1275,7 +1279,7 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 }
 
 
-static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotness_scanned)
+static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotness_scanned, bool cooling)
 {
 	struct mem_cgroup_per_node *pn0, *pn1;
 	unsigned long tot_pages;
@@ -1313,9 +1317,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate)
 			return;
 
-		if((need_lru_cooling(pn0) || need_lru_cooling(pn1)) &&
-			(*hotness_scanned < target_cooling)) {
-
+		if(cooling && (*hotness_scanned < target_cooling)) {
 			scan_hotness_node(NODE_DATA(0), memcg);
 			scan_hotness_node(NODE_DATA(1), memcg);
 
@@ -1371,7 +1373,7 @@ static int kmigrated(void *p)
 	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
 	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong, one_cooling_cputime;
 	unsigned long stamp;
-	unsigned long trace_period = msecs_to_jiffies(10000);
+	unsigned long trace_period = msecs_to_jiffies(20000);
 	unsigned long cur, interval_start;
 	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
 	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
@@ -1379,6 +1381,7 @@ static int kmigrated(void *p)
 	unsigned long promote_cputime = 0, promote_pingpong = 0;
 	unsigned int high_manage_cnt = 0, high_pingpong_cnt = 0;
 
+	bool cooling;
 	/*
 	if(!cpumask_empty(cpumask)) {
 		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
@@ -1405,8 +1408,12 @@ static int kmigrated(void *p)
 		pn1 = memcg->nodeinfo[1];
 		if(!pn0 || !pn1) 
 			break;
+
+		cooling = false;
+		if(need_lru_cooling(pn0) || need_lru_cooling(pn1))
+			cooling = true;
 		
-		analyze_access_pattern(memcg, &hotness_scanned);
+		analyze_access_pattern(memcg, &hotness_scanned, cooling);
 	
 		if(need_lru_adjusting(pn0) || need_lru_adjusting(pn1))
 			interval_manage_cnt++;
@@ -1414,7 +1421,7 @@ static int kmigrated(void *p)
 		one_cooling_cputime = 0;
 
 		// Cool & adjust node 0
-		if(need_lru_cooling(pn0)) {
+		if(cooling) {
 			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
@@ -1442,7 +1449,7 @@ static int kmigrated(void *p)
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Cool & adjust node 1
-		if(need_lru_cooling(pn1)) {
+		if(cooling) {
 			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;

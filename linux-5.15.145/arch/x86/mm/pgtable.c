@@ -38,7 +38,7 @@ static void __pte_alloc_pginfo(struct page *page)
 	page->pginfo = kmem_cache_alloc(pginfo_cache, __userpte_alloc_gfp);
 	if(page->pginfo) {
 		SetPageMttm(page);
-		trace_alloc_pginfo((unsigned long)page, (unsigned long)page->pginfo);
+		//trace_alloc_pginfo((unsigned long)page, (unsigned long)page->pginfo);
 	}
 }
 #endif
