@@ -73,7 +73,7 @@ elif [[ "$2" == "xsbench" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
-        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 16 --iteration 70"
+        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "btree" ]]; then
         BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"

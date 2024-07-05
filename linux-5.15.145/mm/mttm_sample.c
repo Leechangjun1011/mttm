@@ -1473,11 +1473,11 @@ static unsigned long get_tot_highest_rate(void)
 	return tot_highest_rate;
 }
 
-static unsigned long hot_region_tolerance(unsigned long highest_rate)
+/*static unsigned long hot_region_tolerance(unsigned long highest_rate)
 {
 	unsigned long tolerance = 100 + 50 * (highest_rate / 30000);
 	return min_t(unsigned long, tolerance, 150);
-}
+}*/
 
 static unsigned long calculate_hot_region_dram_size(struct mem_cgroup *memcg,
 			unsigned long tot_free_dram, unsigned long tot_dram_sensitivity,
@@ -1494,8 +1494,7 @@ static unsigned long calculate_hot_region_dram_size(struct mem_cgroup *memcg,
 		memcg_iter = READ_ONCE(memcg_list[i]);
 		if(memcg_iter) {
 			if(READ_ONCE(memcg_iter->region_determined) &&
-				memcg_iter->hot_region_dram_sensitivity > 0 &&
-				memcg_iter->cold_region_dram_sensitivity > 0) {
+				memcg_iter->hot_region_dram_sensitivity > 0) {
 				if(dram_determined[i][0] == 0) {
 					remained_required_dram += memcg_iter->hot_region;
 				}
@@ -1532,8 +1531,7 @@ static unsigned long calculate_cold_region_dram_size(struct mem_cgroup *memcg,
 		memcg_iter = READ_ONCE(memcg_list[i]);
 		if(memcg_iter) {
 			if(READ_ONCE(memcg_iter->region_determined) &&
-				memcg_iter->hot_region_dram_sensitivity > 0 &&
-				memcg_iter->cold_region_dram_sensitivity > 0) {
+				memcg_iter->hot_region_dram_sensitivity > 0) {
 				if(dram_determined[i][0] == 0) {
 					remained_required_dram += memcg_iter->hot_region;
 				}
@@ -1695,9 +1693,15 @@ static void distribute_local_dram_region(void)
 
 static unsigned long strong_hot_dram_tolerance(struct mem_cgroup *memcg)
 {
-	// TODO Use access pattern instead of rate
-	unsigned long tolerance = 100 + 100 * (memcg->highest_rate / 50000);
-	return min_t(unsigned long, tolerance, 200);
+	unsigned long tolerance;
+	unsigned long rss_over_lev2 = get_anon_rss(memcg) * 100 / memcg->lev2_size;
+	unsigned long max_tolerance = min_t(unsigned long, 100 + rss_over_lev2 / 10, 250);
+
+	tolerance = 100 + 1000000 / memcg->hotness_intensity;
+	pr_info("[%s] [ %s ] tolerance : %lu, max_tolerance : %lu\n",
+		__func__, memcg->tenant_name, tolerance, max_tolerance);
+
+	return min_t(unsigned long, tolerance, max_tolerance);
 }
 
 static unsigned long strong_hot_dram_demand(struct mem_cgroup *memcg)
@@ -1754,30 +1758,106 @@ static unsigned long get_tot_rate(enum workload_type w_type)
 }
 
 static unsigned long calculate_strong_hot_dram_size(struct mem_cgroup *memcg,
-			unsigned long tot_free_dram, unsigned long tot_rate)
+			unsigned long tot_free_dram, unsigned long tot_rate,
+			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
 	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
-	return min_t(unsigned long, dram_demand, available_dram);
+	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
+	int i;
+	struct mem_cgroup *memcg_iter;
+
+	// Calculate remained required dram
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg_iter = READ_ONCE(memcg_list[i]);
+		if(memcg_iter) {
+			if(READ_ONCE(memcg_iter->hi_determined) &&
+				get_workload_type(memcg) == STRONG_HOT) {
+				if(dram_determined[i] == 0) {
+					remained_required_dram += get_dram_demand_hi(memcg_iter);
+				}
+			}
+		}
+	}
+	remained_required_dram -= dram_demand;
+
+	if(dram_demand > available_dram && 
+		remained_required_dram < tot_free_dram - available_dram) {
+		// In this case, we can give more than available_dram
+		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
+	}
+
+	return min_t(unsigned long, available_dram + expected_extra_dram, dram_demand);
 }
 
 static unsigned long calculate_weak_hot_dram_size(struct mem_cgroup *memcg,
-			unsigned long tot_free_dram, unsigned long tot_rate)
+			unsigned long tot_free_dram, unsigned long tot_rate,
+			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
 	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
+	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
+	int i;
+	struct mem_cgroup *memcg_iter;
 
-	return min_t(unsigned long, dram_demand, available_dram);
+	// Calculate remained required dram
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg_iter = READ_ONCE(memcg_list[i]);
+		if(memcg_iter) {
+			if(READ_ONCE(memcg_iter->hi_determined) &&
+				get_workload_type(memcg) == WEAK_HOT) {
+				if(dram_determined[i] == 0) {
+					remained_required_dram += get_dram_demand_hi(memcg_iter);
+				}
+			}
+		}
+	}
+	remained_required_dram -= dram_demand;
+
+	if(dram_demand > available_dram && 
+		remained_required_dram < tot_free_dram - available_dram) {
+		// In this case, we can give more than available_dram
+		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
+	}
+
+	return min_t(unsigned long, available_dram + expected_extra_dram, dram_demand);
+}
+
+static unsigned long find_highest_access_rate(int *idx, int *dram_determined,
+						enum workload_type w_type)
+{
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long cur_highest_rate = 0;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined) &&
+				get_workload_type(memcg) == w_type) {
+				if(dram_determined[i] == 0 &&
+					cur_highest_rate < memcg->highest_rate) {
+					cur_highest_rate = memcg->highest_rate;
+					*idx = i;
+				}
+			}
+		}
+	}
+
+	return cur_highest_rate;
 }
 
 
 static void distribute_local_dram_hi(void)
 {
-	int i;
+	int i, idx;
 	unsigned long tot_free_dram = mttm_local_dram;
 	unsigned long tot_strong_hot_rate = 0, tot_weak_hot_rate = 0;
 	struct mem_cgroup *memcg;
 	bool not_hi_determined = false, all_fixed = true;
+	unsigned long cur_highest_rate = 0;
+	int dram_determined[LIMIT_TENANTS] = {0,};
+	unsigned long dram_size[LIMIT_TENANTS] = {0,};
 
 	// Check that not classified workload exist.
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -1795,38 +1875,63 @@ static void distribute_local_dram_hi(void)
 	if(all_fixed)
 		return;
 
-	// Distribute local dram to strong hot first
+
+	// Distribute local dram to strong hot which has higher access rate first
 	tot_strong_hot_rate = get_tot_rate(STRONG_HOT);
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined) &&
-				get_workload_type(memcg) == STRONG_HOT) {
-				unsigned long final_dram = calculate_strong_hot_dram_size(memcg,
-								tot_free_dram, tot_strong_hot_rate);
-				set_dram_size(memcg, final_dram, !not_hi_determined);
-				tot_free_dram -= final_dram;
-				tot_strong_hot_rate -= memcg->highest_rate;
-				pr_info("[%s] [ %s ] strong hot. dram set to %lu MB\n",
-					__func__, memcg->tenant_name, final_dram >> 8);
-			}
-		}
+	while(1) {
+		// Find tenant with highest access rate 
+		cur_highest_rate = 0;
+		idx = 0;
+		
+		cur_highest_rate = find_highest_access_rate(&idx, dram_determined, STRONG_HOT);
+		if(cur_highest_rate == 0)
+			break;
+
+		// Determine dram size 
+		memcg = READ_ONCE(memcg_list[idx]);
+		dram_size[idx] = calculate_strong_hot_dram_size(memcg, tot_free_dram,
+							tot_strong_hot_rate, dram_determined);
+		dram_determined[idx] = 1;
+		tot_free_dram -= dram_size[idx];
+		tot_strong_hot_rate -= memcg->highest_rate;
+
+		pr_info("[%s] [ %s ] strong hot. dram set to %lu MB\n",
+			__func__, memcg->tenant_name, dram_size[idx] >> 8);
+
 	}
 
-	// Distribute local dram to weak hot
+	// Distribute local dram to weak hot which has higher access rate first
 	tot_weak_hot_rate = get_tot_rate(WEAK_HOT);
+	while(1) {
+		// Find tenant with highest access rate 
+		cur_highest_rate = 0;
+		idx = 0;
+		
+		cur_highest_rate = find_highest_access_rate(&idx, dram_determined, WEAK_HOT);
+		if(cur_highest_rate == 0)
+			break;
+
+		// Determine dram size 
+		memcg = READ_ONCE(memcg_list[idx]);
+		
+		dram_size[idx] = calculate_weak_hot_dram_size(memcg, tot_free_dram,
+							tot_weak_hot_rate, dram_determined);
+		dram_determined[idx] = 1;
+		tot_free_dram -= dram_size[idx];
+		tot_weak_hot_rate -= memcg->highest_rate;
+
+		pr_info("[%s] [ %s ] weak hot. dram set to %lu MB\n",
+			__func__, memcg->tenant_name, dram_size[idx] >> 8);
+
+	}
+
+
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			if(READ_ONCE(memcg->hi_determined) &&
-				get_workload_type(memcg) == WEAK_HOT) {
-				unsigned long final_dram = calculate_weak_hot_dram_size(memcg,
-								tot_free_dram, tot_weak_hot_rate);
-				set_dram_size(memcg, final_dram, !not_hi_determined);
-				tot_free_dram -= final_dram;
-				tot_weak_hot_rate -= memcg->highest_rate;
-				pr_info("[%s] [ %s ] weak hot. dram set to %lu MB\n",
-					__func__, memcg->tenant_name, final_dram >> 8);
+				dram_determined[i] == 1) {
+				set_dram_size(memcg, dram_size[i], !not_hi_determined);
 			}
 		}
 	}
@@ -1844,7 +1949,6 @@ static int ksampled(void *dummy)
 	unsigned long interval_start;
 	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
 	struct mem_cgroup *memcg;
-	int i;
 
 	total_time = jiffies;
 	interval_start = jiffies;

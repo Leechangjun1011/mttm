@@ -5311,6 +5311,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cold_region_dram_sensitivity = 0;
 
 	memcg->hotness_intensity = 0;
+	memcg->lev1_size = 0;
 	memcg->lev2_size = 0;
 	memcg->lev3_size = 0;
 	memcg->lev4_size = 0;

@@ -1172,6 +1172,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 				}
 			}
 			else if(use_hotness_intensity) {
+				if(idx == 1)
+					memcg->lev1_size += HPAGE_PMD_NR;
 				if(idx >= 2)
 					memcg->lev2_size += HPAGE_PMD_NR;
 				if(idx >= 3)
@@ -1205,6 +1207,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 				}
 			}
 			else if(use_hotness_intensity) {
+				if(idx == 1)
+					memcg->lev1_size++;
 				if(idx >= 2)
 					memcg->lev2_size++;
 				if(idx >= 3)
@@ -1344,6 +1348,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev4_size /= (*hotness_scanned);
 				memcg->lev3_size /= (*hotness_scanned);
 				memcg->lev2_size /= (*hotness_scanned);
+				memcg->lev1_size /= (*hotness_scanned);
 				memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 								tot_pages / memcg->lev2_size;
