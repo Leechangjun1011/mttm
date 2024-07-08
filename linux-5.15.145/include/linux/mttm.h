@@ -1,6 +1,7 @@
 #include <uapi/linux/perf_event.h>
 
 #define KSAMPLED_CPU		0
+#define KPTSCAND_CPU		0
 #define LIMIT_TENANTS		10
 #define CORES_PER_SOCKET	24
 #define REGION_DETERMINATION_COOLING	3

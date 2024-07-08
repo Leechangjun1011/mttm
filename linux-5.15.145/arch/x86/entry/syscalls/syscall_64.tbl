@@ -372,6 +372,8 @@
 448	common	process_mrelease	sys_process_mrelease
 449	common	mttm_register_pid	sys_mttm_register_pid
 450	common	mttm_unregister_pid	sys_mttm_unregister_pid
+451	common	vtmm_register_pid	sys_vtmm_register_pid
+452	common	vtmm_unregister_pid	sys_vtmm_unregister_pid
 
 #
 # Due to a historical design error, certain syscalls are numbered differently

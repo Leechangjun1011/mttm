@@ -190,6 +190,7 @@ static int max_extfrag_threshold = 1000;
 
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
+extern int enable_kptscand;
 extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
@@ -2878,6 +2879,15 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= sysctl_enable_ksampled,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "enable_kptscand",
+		.data		= &enable_kptscand,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_enable_kptscand,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},

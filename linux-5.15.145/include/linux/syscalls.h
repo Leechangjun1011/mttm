@@ -946,6 +946,8 @@ asmlinkage long sys_perf_event_open(
 		pid_t pid, int cpu, int group_fd, unsigned long flags);
 asmlinkage long sys_mttm_register_pid(pid_t pid, const char __user * u_name);
 asmlinkage long sys_mttm_unregister_pid(pid_t pid);
+asmlinkage long sys_vtmm_register_pid(const char __user * u_name);
+asmlinkage long sys_vtmm_unregister_pid(pid_t pid);
 
 asmlinkage long sys_accept4(int, struct sockaddr __user *, int __user *, int);
 asmlinkage long sys_recvmmsg(int fd, struct mmsghdr __user *msg,

@@ -5290,6 +5290,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->use_mig = true;
 	memcg->hg_mismatch = false;
 	memcg->mttm_enabled = false;
+	memcg->vtmm_enabled = false;
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;
 	for(i = 0; i < 5; i++) {

@@ -78,6 +78,8 @@ int sysctl_schedstats(struct ctl_table *table, int write, void *buffer,
 #ifdef CONFIG_MTTM
 extern int sysctl_enable_ksampled(struct ctl_table *table, int write, void *buffer,
 				size_t *lenp, loff_t *ppos);
+extern int sysctl_enable_kptscand(struct ctl_table *table, int write, void *buffer,
+				size_t *lenp, loff_t *ppos);
 extern int sysctl_mttm_local_dram(struct ctl_table *table, int write, void *buffer,
 				size_t *lenp, loff_t *ppos);
 #endif

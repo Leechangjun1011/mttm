@@ -57,6 +57,9 @@ struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
 
+extern int enabled_kptscand;
+extern struct task_struct *kptscand_thread;
+
 
 bool node_is_toptier(int nid)
 {
@@ -431,7 +434,7 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	memcg->mttm_enabled = true;
 	if(kmigrated_init(memcg))
 		pr_info("[%s] failed to start kmigrated\n",__func__);
-
+	
 	if(use_dma_migration) {
 		memcg->dma_chan_start = current_tenants * DMA_CHAN_PER_PAGE;
 		if(memcg->dma_chan_start + DMA_CHAN_PER_PAGE > NUM_AVAIL_DMA_CHAN)
@@ -493,8 +496,8 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 
 	spin_unlock(&register_lock);
 
-	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, memcg id : %d\n",
-		__func__, pid, memcg->tenant_name, current_tenants, mem_cgroup_id(memcg));
+	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d\n",
+		__func__, pid, memcg->tenant_name, current_tenants);
 	return 0;
 }
 
@@ -1955,7 +1958,6 @@ static int ksampled(void *dummy)
 	while(!kthread_should_stop()) {
 		one_cputime = jiffies;
 		ksampled_do_work();
-		total_cputime += (jiffies - one_cputime);
 
 		cur = jiffies;
 		if(cur - interval_start >= trace_period) {
@@ -1973,7 +1975,7 @@ static int ksampled(void *dummy)
 
 			interval_start = cur;
 		}
-
+		total_cputime += (jiffies - one_cputime);
 		schedule_timeout_interruptible(sleep_timeout);
 	}
 	total_time = jiffies - total_time;

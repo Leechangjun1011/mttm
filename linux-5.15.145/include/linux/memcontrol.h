@@ -398,6 +398,7 @@ struct mem_cgroup {
 	bool			hi_determined;//hotness intensity determined
 	bool			hg_mismatch;
 	bool			mttm_enabled;
+	bool			vtmm_enabled;
 	unsigned int		dma_chan_start;
 	unsigned long		hot_region;
 	unsigned long		cold_region;
