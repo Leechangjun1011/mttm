@@ -100,7 +100,7 @@ SYSCALL_DEFINE1(vtmm_register_pid,
                         memcg->dma_chan_start = 0;
         }
 
-        memcg_list[current_tenants] = memcg;
+        WRITE_ONCE(memcg_list[current_tenants], memcg);
         current_tenants++;
 
         copy_from_user(name, u_name, strnlen_user(u_name, PATH_MAX));
@@ -138,6 +138,13 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 
 	memcg->vtmm_enabled = false;
 
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+                if(READ_ONCE(memcg_list[i]) == memcg) {
+                        WRITE_ONCE(memcg_list[i], NULL);
+                        break;
+                }
+        }
+
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_destroy(memcg->ml_queue[i]);
 		kfree(memcg->ml_queue[i]);
@@ -147,13 +154,6 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 		kfree(memcg->page_bucket[i]);
 		kfree(memcg->bucket_lock[i]);
 	}
-
-        for(i = 0; i < LIMIT_TENANTS; i++) {
-                if(READ_ONCE(memcg_list[i]) == memcg) {
-                        WRITE_ONCE(memcg_list[i], NULL);
-                        break;
-                }
-        }
 
         // Re-distribute local DRAM
         for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -193,6 +193,8 @@ static int kptscand(void *dummy)
 				xa_for_each(memcg->ml_queue[0], index, vp) {
 					nr_xa_pages++;
 				}
+			
+
 				list_for_each(lh, memcg->page_bucket[0]) {
 					nr_list_pages++;
 				}
@@ -223,7 +225,9 @@ static int kptscand_run(void)
 		if(!memcg_list)
 			memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
 
+		pr_info("[%s] try kthread run\n",__func__);
 		kptscand_thread = kthread_run_on_cpu(kptscand, NULL, KPTSCAND_CPU, "kptscand");
+		pr_info("[%s] kthread run done\n",__func__);
 		if(IS_ERR(kptscand_thread)) {
 			pr_err("Failed to start kptscand\n");
 			ret = PTR_ERR(kptscand_thread);
@@ -268,7 +272,10 @@ static void kptscand_stop(void)
 		kptscand_thread = NULL;
 	}
 
-	kfree(memcg_list);
+	if(memcg_list) {
+		kfree(memcg_list);
+		memcg_list = NULL;
+	}
 
 	if(use_dma_migration) {
 		for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
