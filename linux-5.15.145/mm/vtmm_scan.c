@@ -23,10 +23,11 @@
 #include "internal.h"
 #include <linux/mttm.h>
 #include <linux/xarray.h>
+#include <linux/vtmm.h>
 
 int enable_kptscand = 0;
 extern int current_tenants;
-extern spinlock_t register_lock;
+DEFINE_SPINLOCK(vtmm_register_lock);
 struct task_struct *kptscand_thread = NULL;
 
 #define NUM_AVAIL_DMA_CHAN	16
@@ -39,20 +40,58 @@ extern struct mem_cgroup **memcg_list;
 extern unsigned int use_dram_determination;
 extern unsigned long mttm_local_dram;
 
+struct vtmm_page *get_vtmm_page(struct xarray *xa, struct page *page)
+{
+	return (struct vtmm_page *)xa_load(xa, page_to_pfn(page));
+}
+
+void uncharge_vtmm_page(struct page *page, struct mem_cgroup *memcg)
+{
+	struct vtmm_page *vp = NULL;
+	int i;
+	if(!memcg)
+		return;
+	if(!memcg->vtmm_enabled)
+		return;
+
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
+		if(vp) {
+			spin_lock(memcg->bucket_lock[i]);
+			list_del(&vp->list);
+			spin_unlock(memcg->bucket_lock[i]);
+			kmem_cache_free(vtmm_page_cache, vp);
+			break;
+		}
+	}
+
+}
+
 SYSCALL_DEFINE1(vtmm_register_pid,
                 const char __user *, u_name)
 {
         int i; 
         struct mem_cgroup *memcg = mem_cgroup_from_task(current);
         char name[PATH_MAX];
-        spin_lock(&register_lock);
+        spin_lock(&vtmm_register_lock);
 
         if(current_tenants == LIMIT_TENANTS) {
                 pr_info("[%s] Can't register tenant due to limit\n",__func__);
-                spin_unlock(&register_lock);
+                spin_unlock(&vtmm_register_lock);
                 return 0;
         } 
- 
+
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		memcg->ml_queue[i] = kmalloc(sizeof(struct xarray), GFP_KERNEL);
+		xa_init(memcg->ml_queue[i]);
+	}	
+ 	for(i = 0; i < BUCKET_MAX; i++) {
+		memcg->page_bucket[i] = kmalloc(sizeof(struct list_head), GFP_KERNEL);
+		INIT_LIST_HEAD(memcg->page_bucket[i]);
+		memcg->bucket_lock[i] = kmalloc(sizeof(spinlock_t), GFP_KERNEL);
+		spin_lock_init(memcg->bucket_lock[i]);
+	}
+
 	memcg->vtmm_enabled = true;
 
         if(use_dma_migration) {
@@ -81,7 +120,7 @@ SYSCALL_DEFINE1(vtmm_register_pid,
         pr_info("[%s] name : [ %s ], current_tenants : %d, dma_chan_start : %u, local_dram : %lu MB\n",
                 __func__, memcg->tenant_name, current_tenants, memcg->dma_chan_start, (mttm_local_dram / current_tenants) >> 8);
 
-        spin_unlock(&register_lock);
+        spin_unlock(&vtmm_register_lock);
 
         return 0;
 }
@@ -92,10 +131,22 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 {
         int i;
         struct mem_cgroup *memcg = mem_cgroup_from_task(current);
-        spin_lock(&register_lock);
+        spin_lock(&vtmm_register_lock);
 
         current_tenants--;
 //        kmigrated_stop(memcg); 
+
+	memcg->vtmm_enabled = false;
+
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		xa_destroy(memcg->ml_queue[i]);
+		kfree(memcg->ml_queue[i]);
+	}
+
+	for(i = 0; i < BUCKET_MAX; i++) {
+		kfree(memcg->page_bucket[i]);
+		kfree(memcg->bucket_lock[i]);
+	}
 
         for(i = 0; i < LIMIT_TENANTS; i++) {
                 if(READ_ONCE(memcg_list[i]) == memcg) {
@@ -111,7 +162,7 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
                 }
         }
 
-        spin_unlock(&register_lock);
+        spin_unlock(&vtmm_register_lock);
 
         pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d\n",
                 __func__, pid, memcg->tenant_name, current_tenants);
@@ -133,8 +184,22 @@ static int kptscand(void *dummy)
 		for(i = 0; i < LIMIT_TENANTS; i++) {
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
-				pr_info("[%s] [ %s ]\n",
-					__func__, memcg->tenant_name);
+				unsigned long nr_xa_pages = 0;
+				unsigned long index;
+				struct vtmm_page *vp;
+				unsigned long nr_list_pages = 0;
+				struct list_head *lh;
+
+				xa_for_each(memcg->ml_queue[0], index, vp) {
+					nr_xa_pages++;
+				}
+				list_for_each(lh, memcg->page_bucket[0]) {
+					nr_list_pages++;
+				}
+
+				pr_info("[%s] [ %s ] xa_size : %lu (%lu MB), list_size : %lu (%lu MB)\n",
+					__func__, memcg->tenant_name,
+					nr_xa_pages, nr_xa_pages >> 8, nr_list_pages, nr_list_pages >> 8);
 			}
 		}
 

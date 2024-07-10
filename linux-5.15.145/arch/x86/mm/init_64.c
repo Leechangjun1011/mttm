@@ -60,6 +60,11 @@
 
 #include "ident_map.c"
 
+#ifdef CONFIG_MTTM
+#include <linux/vtmm.h>
+#endif
+
+
 #define DEFINE_POPULATE(fname, type1, type2, init)		\
 static inline void fname##_init(struct mm_struct *mm,		\
 		type1##_t *arg1, type2##_t *arg2, bool init)	\
@@ -1729,6 +1734,18 @@ static int __init pginfo_cache_xa_init(void)
 	return 0;
 }
 core_initcall(pginfo_cache_xa_init);
+
+struct kmem_cache *vtmm_page_cache;
+static int __init vtmm_page_cache_init(void)
+{
+	vtmm_page_cache = kmem_cache_create("vtmm_page",
+					sizeof(struct vtmm_page),
+					sizeof(struct vtmm_page),
+					SLAB_PANIC,
+					NULL);
+	return 0;
+}
+core_initcall(vtmm_page_cache_init);
 
 #endif
 

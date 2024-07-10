@@ -88,6 +88,7 @@
 
 #ifdef CONFIG_MTTM
 #include <linux/mttm.h>
+#include <linux/vtmm.h>
 #endif
 
 #if defined(LAST_CPUPID_NOT_IN_PAGE_FLAGS) && !defined(CONFIG_COMPILE_TEST)
@@ -1379,6 +1380,7 @@ again:
 			}
 #ifdef CONFIG_MTTM
 			uncharge_mttm_pte(pte, get_mem_cgroup_from_mm(vma->vm_mm), page);
+			uncharge_vtmm_page(page, get_mem_cgroup_from_mm(vma->vm_mm));
 #endif
 			rss[mm_counter(page)]--;
 			page_remove_rmap(page, false);
@@ -3840,6 +3842,28 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 			}
 		}
 	}
+
+	do {
+		struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
+		if(memcg->vtmm_enabled) {
+			unsigned long index = page_to_pfn(page);
+			struct vtmm_page *vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
+			if(vp) {
+				int xa_ret;
+				xa_lock(memcg->ml_queue[0]);
+				xa_ret = __xa_insert(memcg->ml_queue[0],
+						index, (void *)vp, GFP_KERNEL);
+				xa_unlock(memcg->ml_queue[0]);
+				if(xa_ret)
+					kmem_cache_free(vtmm_page_cache, vp);
+				else {
+					spin_lock(memcg->bucket_lock[0]);
+					list_add_tail(&vp->list, memcg->page_bucket[0]);
+					spin_unlock(memcg->bucket_lock[0]);
+				}
+			}
+		}
+	} while (0);
 #endif
 
 	/*

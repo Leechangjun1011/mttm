@@ -5319,6 +5319,13 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 
 	memcg->nr_pingpong = 0;
 	memcg->basepage_xa = NULL;
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		memcg->ml_queue[i] = NULL;
+	}
+	for(i = 0; i < BUCKET_MAX; i++) {
+		memcg->page_bucket[i] = NULL;
+		memcg->bucket_lock[i] = NULL;
+	}
 #endif
 	idr_replace(&mem_cgroup_idr, memcg, memcg->id.id);
 	return memcg;

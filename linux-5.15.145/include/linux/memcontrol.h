@@ -22,6 +22,10 @@
 #include <linux/writeback.h>
 #include <linux/page-flags.h>
 
+#ifdef CONFIG_MTTM
+#include <linux/vtmm.h>
+#endif
+
 struct mem_cgroup;
 struct obj_cgroup;
 struct page;
@@ -410,6 +414,10 @@ struct mem_cgroup {
 	unsigned long		cold_region_dram_sensitivity;
 	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
+
+	struct xarray		*ml_queue[ML_QUEUE_MAX];
+	struct list_head	*page_bucket[BUCKET_MAX];
+	spinlock_t		*bucket_lock[BUCKET_MAX];
 	char			tenant_name[PATH_MAX];
 #endif
 	struct mem_cgroup_per_node *nodeinfo[];
