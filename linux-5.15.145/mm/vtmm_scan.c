@@ -45,6 +45,69 @@ struct vtmm_page *get_vtmm_page(struct xarray *xa, struct page *page)
 	return (struct vtmm_page *)xa_load(xa, page_to_pfn(page));
 }
 
+void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page)
+{
+	unsigned long index = page_to_pfn(page);
+	struct vtmm_page *vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
+	if(vp) {
+		int xa_ret;
+
+		vp->read_count = 0;
+		vp->write_count = 0;
+		vp->remained_dnd_time = 0;
+		vp->is_thp = true;
+		vp->addr = index;
+
+		xa_lock(memcg->ml_queue[0]);
+		xa_ret = __xa_insert(memcg->ml_queue[0], index,
+					(void *)vp, GFP_KERNEL);
+		xa_unlock(memcg->ml_queue[0]);
+		if(xa_ret)
+			kmem_cache_free(vtmm_page_cache, vp);
+		else {
+			spin_lock(memcg->bucket_lock[0]);
+			list_add_tail(&vp->list, memcg->page_bucket[0]);
+			spin_unlock(memcg->bucket_lock[0]);
+		}
+	}
+
+}
+
+
+void prep_transhuge_page_for_vtmm(struct vm_area_struct *vma, struct page *page)
+{
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
+
+	prep_transhuge_page(page);
+	if(memcg) {
+		if(memcg->vtmm_enabled)	
+			__prep_transhuge_page_for_vtmm(memcg, page);
+	}
+}
+
+
+void uncharge_vtmm_transhuge_page(struct page *page, struct mem_cgroup *memcg)
+{
+	struct vtmm_page *vp = NULL;
+	int i;
+	if(!memcg)
+		return;
+	if(!memcg->vtmm_enabled)
+		return;
+
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
+		if(vp) {
+			spin_lock(memcg->bucket_lock[i]);
+			list_del(&vp->list);
+			spin_unlock(memcg->bucket_lock[i]);
+			kmem_cache_free(vtmm_page_cache, vp);
+			break;
+		}
+	}
+}
+
+
 void uncharge_vtmm_page(struct page *page, struct mem_cgroup *memcg)
 {
 	struct vtmm_page *vp = NULL;
@@ -184,24 +247,31 @@ static int kptscand(void *dummy)
 		for(i = 0; i < LIMIT_TENANTS; i++) {
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
-				unsigned long nr_xa_pages = 0;
+				unsigned long nr_xa_pages = 0, nr_xa_basepages = 0;
 				unsigned long index;
 				struct vtmm_page *vp;
-				unsigned long nr_list_pages = 0;
-				struct list_head *lh;
+				unsigned long nr_list_pages = 0, nr_list_basepages = 0;
 
 				xa_for_each(memcg->ml_queue[0], index, vp) {
+					if(vp->is_thp)
+						nr_xa_basepages += HPAGE_PMD_NR;
+					else
+						nr_xa_basepages++;
 					nr_xa_pages++;
 				}
 			
 
-				list_for_each(lh, memcg->page_bucket[0]) {
+				list_for_each_entry(vp, memcg->page_bucket[0], list) {
+					if(vp->is_thp)
+						nr_list_basepages += HPAGE_PMD_NR;
+					else
+						nr_list_basepages++;
 					nr_list_pages++;
 				}
 
 				pr_info("[%s] [ %s ] xa_size : %lu (%lu MB), list_size : %lu (%lu MB)\n",
 					__func__, memcg->tenant_name,
-					nr_xa_pages, nr_xa_pages >> 8, nr_list_pages, nr_list_pages >> 8);
+					nr_xa_pages, nr_xa_basepages >> 8, nr_list_pages, nr_list_basepages >> 8);
 			}
 		}
 
@@ -225,9 +295,7 @@ static int kptscand_run(void)
 		if(!memcg_list)
 			memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
 
-		pr_info("[%s] try kthread run\n",__func__);
 		kptscand_thread = kthread_run_on_cpu(kptscand, NULL, KPTSCAND_CPU, "kptscand");
-		pr_info("[%s] kthread run done\n",__func__);
 		if(IS_ERR(kptscand_thread)) {
 			pr_err("Failed to start kptscand\n");
 			ret = PTR_ERR(kptscand_thread);

@@ -3850,6 +3850,13 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 			struct vtmm_page *vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
 			if(vp) {
 				int xa_ret;
+
+				vp->read_count = 0;
+				vp->write_count = 0;
+				vp->remained_dnd_time = 0;
+				vp->is_thp = false;
+				vp->addr = index;
+
 				xa_lock(memcg->ml_queue[0]);
 				xa_ret = __xa_insert(memcg->ml_queue[0],
 						index, (void *)vp, GFP_KERNEL);

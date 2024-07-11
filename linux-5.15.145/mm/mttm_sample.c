@@ -215,6 +215,8 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 
 	if(!memcg)
 		return;
+	if(!memcg->mttm_enabled)
+		return;
 
 	pte_page = virt_to_page((unsigned long)pte);
 	if(!PageMttm(pte_page))
@@ -248,6 +250,8 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 	unsigned int idx;
 
 	if(!memcg)
+		return;
+	if(!memcg->mttm_enabled)
 		return;
 
 	page = compound_head(page);
@@ -813,6 +817,8 @@ void check_transhuge_cooling(void *arg, struct page *page)
 
 	if(!memcg)
 		return;
+	if(!memcg->mttm_enabled)
+		return;
 
 	spin_lock(&memcg->access_lock);
 	meta_page = get_meta_page(page);
@@ -840,7 +846,6 @@ void check_transhuge_cooling(void *arg, struct page *page)
 }
 
 
-// It should modify hotness_hg since it is invoked at cooling_node
 void check_base_cooling(pginfo_t *pginfo, struct page *page)
 {
 	struct mem_cgroup *memcg = page_memcg(page);
@@ -848,6 +853,8 @@ void check_base_cooling(pginfo_t *pginfo, struct page *page)
 	unsigned long prev_idx, cur_idx;
 
 	if(!memcg)
+		return;
+	if(!memcg->mttm_enabled)
 		return;
 
 	spin_lock(&memcg->access_lock);
