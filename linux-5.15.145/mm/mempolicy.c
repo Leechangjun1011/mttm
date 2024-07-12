@@ -109,6 +109,7 @@
 #include "internal.h"
 #ifdef CONFIG_MTTM
 #include <linux/mttm.h>
+#include <linux/vtmm.h>
 #endif
 /* Internal flags */
 #define MPOL_MF_DISCONTIG_OK (MPOL_MF_INTERNAL << 0)	/* Skip checks for continuous vmas */
@@ -2126,6 +2127,14 @@ struct page *alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 				WRITE_ONCE(memcg->nodeinfo[orig_nid]->need_demotion, true);
 				kmigrated_wakeup(memcg);
 			}
+		}
+		else if(memcg->use_mig && memcg->vtmm_enabled) {
+			if((orig_nid != nid) ||
+			(max_nr_pages <= (get_nr_lru_pages_node(memcg, pgdat) + get_memcg_demotion_wmark(max_nr_pages)))) {
+				WRITE_ONCE(memcg->nodeinfo[orig_nid]->need_demotion, true);
+				vtmm_kmigrated_wakeup(memcg);
+			}
+
 		}
 
 		mpol_cond_put(pol);

@@ -40,10 +40,61 @@ extern struct mem_cgroup **memcg_list;
 extern unsigned int use_dram_determination;
 extern unsigned long mttm_local_dram;
 
-struct vtmm_page *get_vtmm_page(struct xarray *xa, struct page *page)
+struct vtmm_page *get_vtmm_page(struct mem_cgroup *memcg, struct page *page)
 {
-	return (struct vtmm_page *)xa_load(xa, page_to_pfn(page));
+	int i;
+	struct vtmm_page *vp = NULL;
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(page));
+		if(vp)
+			break;
+	}
+	return vp;
 }
+
+struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, int *lev)
+{
+	int i;
+	struct vtmm_page *vp = NULL;
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		vp = (struct vtmm_page *)xa_erase(memcg->ml_queue[i], page_to_pfn(page));
+		if(vp)
+			break;
+	}
+
+	if(lev)
+		*lev = i;
+
+	return vp;
+}
+
+
+void copy_transhuge_vtmm_page(struct page *page, struct page *newpage)
+{
+	struct mem_cgroup *memcg = page_memcg(page);
+	struct vtmm_page *vp = NULL;
+
+	VM_BUG_ON_PAGE(!PageCompound(page), page);
+	VM_BUG_ON_PAGE(!PageCompound(newpage), newpage);
+
+	page = compound_head(page);
+	newpage = compound_head(newpage);
+
+	if(!memcg->vtmm_enabled)
+		return;
+
+	vp = get_vtmm_page(memcg, page);
+
+	if(!vp) {
+		pr_err("[%s] null vp\n",__func__);
+		return;
+	}
+
+	vp->addr = page_to_pfn(newpage);
+	
+	return;
+}
+
 
 void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page)
 {
@@ -180,6 +231,9 @@ SYSCALL_DEFINE1(vtmm_register_pid,
                 }
         }
 
+	if(vtmm_kmigrated_init(memcg))
+		pr_info("[%s] failed to start vtmm_kmigrated\n",__func__);
+
         pr_info("[%s] name : [ %s ], current_tenants : %d, dma_chan_start : %u, local_dram : %lu MB\n",
                 __func__, memcg->tenant_name, current_tenants, memcg->dma_chan_start, (mttm_local_dram / current_tenants) >> 8);
 
@@ -197,7 +251,7 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
         spin_lock(&vtmm_register_lock);
 
         current_tenants--;
-//        kmigrated_stop(memcg); 
+        vtmm_kmigrated_stop(memcg); 
 
 	memcg->vtmm_enabled = false;
 

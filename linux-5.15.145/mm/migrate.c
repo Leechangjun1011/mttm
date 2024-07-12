@@ -52,6 +52,7 @@
 #include <linux/memory.h>
 #ifdef CONFIG_MTTM
 #include <linux/mttm.h>
+#include <linux/vtmm.h>
 #include <trace/events/mttm.h>
 #endif
 
@@ -265,12 +266,11 @@ static bool remove_migration_pte(struct page *page, struct vm_area_struct *vma,
 			pginfo_t *pginfo;
 
 			if(!memcg)
-				goto out_cooling_check;
-			
-			pte_page = virt_to_page((unsigned long)pvmw.pte);
-			if(!PageMttm(pte_page))
 				goto out_cooling_check;	
 
+			pte_page = virt_to_page((unsigned long)pvmw.pte);
+			if(!PageMttm(pte_page))
+				goto out_cooling_check;
 			pginfo = get_pginfo_from_pte(pvmw.pte);
 			if(!pginfo)
 				goto out_cooling_check;
@@ -636,8 +636,10 @@ void migrate_page_states(struct page *newpage, struct page *page)
 
 	copy_page_owner(page, newpage);
 #ifdef CONFIG_MTTM
-	if(PageTransHuge(page))
+	if(PageTransHuge(page)) {
 		copy_transhuge_pginfo(page, newpage);
+		copy_transhuge_vtmm_page(page, newpage);
+	}
 #endif
 	if (!PageHuge(page))
 		mem_cgroup_migrate(page, newpage);
@@ -1274,6 +1276,13 @@ static int unmap_and_move(new_page_t get_new_page,
 						pr_err("[%s] xa_insert fail. No free memory\n",__func__);
 					
 				}
+			}
+		}
+		else if(memcg->vtmm_enabled) {
+			int lev;
+			struct vtmm_page *old_vp = get_vtmm_page(memcg, page);
+			if(old_vp) {
+				old_vp->addr = page_to_pfn(newpage);
 			}
 		}
 #endif

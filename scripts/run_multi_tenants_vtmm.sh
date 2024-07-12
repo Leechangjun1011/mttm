@@ -27,7 +27,7 @@ echo 0 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
-echo always > /sys/kernel/mm/transparent_hugepage/enabled
+#echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
 sudo sysctl vm.enable_kptscand=0
 sudo sysctl vm.enable_kptscand=1
@@ -48,6 +48,6 @@ do
 done
 wait
 
-echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+#echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl vm.enable_kptscand=0
 

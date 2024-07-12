@@ -87,7 +87,7 @@ unsigned long get_memcg_promotion_wmark(unsigned long max_nr_pages)
 	return ret;
 }
 
-static unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg)
+unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg)
 {
 	struct lruvec *lruvec;
 	unsigned long lruvec_size;
@@ -98,7 +98,7 @@ static unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *me
 	return lruvec_size;
 }
 
-static bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg)
+bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg)
 {
 	return READ_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion);
 }
@@ -248,13 +248,14 @@ static unsigned long migrate_page_list(struct list_head *migrate_list, pg_data_t
 			MIGRATE_ASYNC, MR_NUMA_MISPLACED, &nr_succeeded);
 	one_mig_cputime = jiffies - one_mig_cputime;
 
+	/*
 	if(!list_empty(migrate_list)) {
 		struct list_head *p;
 		unsigned int nr_fail = 0;
 		list_for_each(p, migrate_list)
 			nr_fail++;
 		//pr_info("[%s] migration fail : %u\n",__func__, nr_fail);
-	}
+	}*/
 
 	if(mig_cputime)
 		*mig_cputime = one_mig_cputime;
@@ -354,7 +355,7 @@ keep:
 		list_splice(&demote_pages, page_list);
 	list_splice(&ret_pages, page_list);
 
-	trace_shrink_page_list(nr_taken, nr_demotion_cand, nr_reclaimed);
+	//trace_shrink_page_list(nr_taken, nr_demotion_cand, nr_reclaimed);
 
 	if(demote_pingpong)
 		*demote_pingpong = demote_list_pingpong;
@@ -1367,9 +1368,6 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 
 static int kmigrated(void *p)
 {
-	//TODO : cpu affinity
-	//int kmigrated_cpu = 2;
-	//const struct cpumask *cpumask = cpumask_of(kmigrated_cpu);
 	struct mem_cgroup *memcg = (struct mem_cgroup *)p;
 	unsigned long tot_promoted = 0, tot_demoted = 0;
 	unsigned int hotness_scanned = 0;
@@ -1387,11 +1385,7 @@ static int kmigrated(void *p)
 	unsigned int high_manage_cnt = 0, high_pingpong_cnt = 0;
 
 	bool cooling;
-	/*
-	if(!cpumask_empty(cpumask)) {
-		set_cpus_allowed_ptr(memcg->kmigrated, cpumask);
-		pr_info("[%s] kmigrated bind to cpu%d\n",__func__, kmigrated_cpu);
-	}*/
+
 	total_time = jiffies;
 	interval_start = jiffies;
 
