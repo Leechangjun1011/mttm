@@ -4,6 +4,7 @@
 
 #include <linux/kthread.h>
 #include <linux/sched.h>
+#include <linux/hugetlb.h>
 #include <linux/perf_event.h>
 #include <linux/memcontrol.h>
 #include <linux/mempolicy.h>
@@ -20,10 +21,13 @@
 
 #include <trace/events/mttm.h>
 #include "../kernel/events/internal.h"
-#include "internal.h"
 #include <linux/mttm.h>
 #include <linux/xarray.h>
+#include <linux/rmap.h>
 #include <linux/vtmm.h>
+#include <asm/tlb.h>
+
+#include "internal.h"
 
 int enable_kptscand = 0;
 extern int current_tenants;
@@ -66,6 +70,24 @@ struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, i
 		*lev = i;
 
 	return vp;
+}
+
+unsigned int page_degree_idx(struct vtmm_page *vp)
+{
+	unsigned int page_degree = 2 * vp->read_count + 3 * vp->write_count;
+	return min_t(unsigned int, page_degree / 5, BUCKET_MAX - 1);
+}
+
+void move_vtmm_page_bucket(struct mem_cgroup *memcg, struct vtmm_page *vp,
+				unsigned int from, unsigned int to)
+{
+	spin_lock(memcg->bucket_lock[from]);
+	list_del(&vp->list);
+	spin_unlock(memcg->bucket_lock[from]);
+
+	spin_lock(memcg->bucket_lock[to]);
+	list_add_tail(&vp->list, memcg->page_bucket[to]);
+	spin_unlock(memcg->bucket_lock[to]);
 }
 
 
@@ -206,6 +228,7 @@ SYSCALL_DEFINE1(vtmm_register_pid,
 		spin_lock_init(memcg->bucket_lock[i]);
 	}
 
+	memcg->vtmm_mm = current->mm;
 	memcg->vtmm_enabled = true;
 
         if(use_dma_migration) {
@@ -286,47 +309,164 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
         return 0;
 }
 
+static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int lev,
+			struct mem_cgroup *memcg)
+{
+	struct page *page;
+	spinlock_t *ptl;
+	pmd_t *pmd = NULL;
+	pte_t *pte = NULL;
+	int accessed = 0, dirty = 0;
+	struct vm_area_struct *vma = NULL;
+	unsigned long va = 0;
+	unsigned long prev_degree_idx = page_degree_idx(vp);
+	unsigned long cur_degree_idx;
 
+	//TODO vp count bitmap
+	// Get pte for basepage, pmd for hugepage
+	page = pfn_to_page(pfn);
+	if(vp->is_thp) {
+		pmd = get_pmd_from_vtmm_page(page, &vma, &va);
+		if(pmd) {
+			ptl = pmd_lock(memcg->vtmm_mm, pmd);
+			if(pmd_present(*pmd)) {
+				accessed = pmd_young(*pmd);
+				dirty = pmd_dirty(*pmd);
+				if(accessed || dirty) {
+					if(accessed) {
+						pmd_mkold(*pmd);
+						vp->read_count++;
+					}
+					if(dirty) {
+						pmd_mkclean(*pmd);
+						vp->write_count++;
+					}
+					flush_cache_range(vma, va, va + HPAGE_SIZE);
+					flush_tlb_range(vma, va, va + HPAGE_SIZE);
+				}
+			}
+			spin_unlock(ptl);
+		}
+	}
+	else {
+		pte = get_pte_from_vtmm_page(page, &vma, &va, &pmd);
+		if(pte) {
+			ptl = pte_lockptr(memcg->vtmm_mm, pmd);
+			spin_lock(ptl);
+			if(pte_present(*pte)) {
+				accessed = pte_young(*pte);
+				dirty = pte_dirty(*pte);
+				if(accessed || dirty) {
+					if(accessed) {
+						pte_mkold(*pte);
+						vp->read_count++;
+					}
+					if(dirty) {
+						pte_mkclean(*pte);
+						vp->write_count++;
+					}
+					flush_cache_range(vma, va, va + PAGE_SIZE);
+					flush_tlb_range(vma, va, va + PAGE_SIZE);
+				}
+			}
+			spin_unlock(ptl);
+		}
+	}
+
+	cur_degree_idx = page_degree_idx(vp);
+	if(prev_degree_idx != cur_degree_idx) {
+		move_vtmm_page_bucket(memcg, vp, prev_degree_idx, cur_degree_idx);
+	}
+
+}
+
+static void scan_ml_queue(struct mem_cgroup *memcg)
+{
+	int i;
+	unsigned long pfn;
+	struct vtmm_page *vp;
+
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		xa_for_each(memcg->ml_queue[i], pfn, vp) {
+			scan_ad_bit(pfn, vp, (unsigned int)i, memcg);
+			/*if(vp->remained_dnd_time == 0)
+				scan_ad_bit(pfn, vp, (unsigned int)i);
+			else if(vp->remained_dnd_time > 0)
+				vp->remained_dnd_time--;
+			*/
+			
+		}
+	}
+
+}
+
+static void kptscand_do_work(void)
+{
+	int i;
+	struct mem_cgroup *memcg;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			scan_ml_queue(memcg);
+
+		}
+	}
+
+}
 
 static int kptscand(void *dummy)
 {
-	unsigned long sleep_timeout = msecs_to_jiffies(5000);
+	unsigned long sleep_timeout = msecs_to_jiffies(600);
 	unsigned long total_time, total_cputime = 0, one_cputime;
+	unsigned long cur, trace_period = msecs_to_jiffies(5000);
 	struct mem_cgroup *memcg;
 	int i;
 
 	total_time = jiffies;
+	cur = jiffies;
 	while(!kthread_should_stop()) {
 		one_cputime = jiffies;
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				unsigned long nr_xa_pages = 0, nr_xa_basepages = 0;
-				unsigned long index;
-				struct vtmm_page *vp;
-				unsigned long nr_list_pages = 0, nr_list_basepages = 0;
 
-				xa_for_each(memcg->ml_queue[0], index, vp) {
-					if(vp->is_thp)
-						nr_xa_basepages += HPAGE_PMD_NR;
-					else
-						nr_xa_basepages++;
-					nr_xa_pages++;
+		kptscand_do_work();
+
+		if(jiffies - cur >= trace_period) {
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				memcg = READ_ONCE(memcg_list[i]);
+				if(memcg) {
+					unsigned long nr_xa_pages = 0, nr_xa_basepages = 0;
+					unsigned long index;
+					struct vtmm_page *vp;
+					unsigned long nr_list_pages = 0, nr_list_basepages = 0;
+					int j;
+
+					xa_for_each(memcg->ml_queue[0], index, vp) {
+						if(vp->is_thp)
+							nr_xa_basepages += HPAGE_PMD_NR;
+						else
+							nr_xa_basepages++;
+						nr_xa_pages++;
+					}
+					pr_info("[%s] [ %s ] xa_size : %lu (%lu MB)\n",
+						__func__, memcg->tenant_name, nr_xa_pages, nr_xa_basepages >> 8);
+				
+					for(j = 0; j < BUCKET_MAX; j++) {
+						nr_list_basepages = 0;
+						nr_list_pages = 0;
+						list_for_each_entry(vp, memcg->page_bucket[j], list) {
+							if(vp->is_thp)
+								nr_list_basepages += HPAGE_PMD_NR;
+							else
+								nr_list_basepages++;
+							nr_list_pages++;
+						}
+						pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
+							__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
+					}
 				}
-			
-
-				list_for_each_entry(vp, memcg->page_bucket[0], list) {
-					if(vp->is_thp)
-						nr_list_basepages += HPAGE_PMD_NR;
-					else
-						nr_list_basepages++;
-					nr_list_pages++;
-				}
-
-				pr_info("[%s] [ %s ] xa_size : %lu (%lu MB), list_size : %lu (%lu MB)\n",
-					__func__, memcg->tenant_name,
-					nr_xa_pages, nr_xa_basepages >> 8, nr_list_pages, nr_list_basepages >> 8);
 			}
+
+			cur = jiffies;
 		}
 
 		total_cputime += (jiffies - one_cputime);

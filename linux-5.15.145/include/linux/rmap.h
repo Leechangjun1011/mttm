@@ -199,6 +199,8 @@ int cooling_page(struct page *page, struct mem_cgroup *memcg);
 int page_check_hotness(struct page *page, struct mem_cgroup *memcg);
 int get_pginfo_idx(struct page *page);
 pginfo_t *get_pginfo_from_page(struct page *page);
+pmd_t *get_pmd_from_vtmm_page(struct page *page, struct vm_area_struct **vma, unsigned long *va);
+pte_t *get_pte_from_vtmm_page(struct page *page, struct vm_area_struct **vma, unsigned long *va, pmd_t **pmd);
 #endif
 
 void try_to_migrate(struct page *page, enum ttu_flags flags);

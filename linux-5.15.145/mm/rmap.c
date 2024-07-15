@@ -77,6 +77,7 @@
 #ifdef CONFIG_MTTM
 #include <linux/random.h>
 #include <linux/mttm.h>
+#include <linux/vtmm.h>
 #include <trace/events/mttm.h>
 #endif
 #include <asm/tlbflush.h>
@@ -1177,6 +1178,127 @@ pginfo_t *get_pginfo_from_page(struct page *page)
 
 	rmap_walk(page, &rwc);
 	return mra.pginfo;
+}
+
+struct vtmm_rmap_arg {
+	pmd_t *pmd;
+	pte_t *pte;
+	struct vm_area_struct *vma;
+	unsigned long va;
+};
+
+static bool get_pmd_from_vtmm_page_one(struct page *page, struct vm_area_struct *vma,
+					unsigned long address, void *arg)
+{
+	struct vtmm_rmap_arg *vra = (struct vtmm_rmap_arg *)arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pmd) {
+			vra->pmd = pvmw.pmd;
+			vra->vma = pvmw.vma;
+			vra->va = pvmw.address;
+		}
+	}
+
+	return true;
+}
+
+
+static bool get_pte_from_vtmm_page_one(struct page *page, struct vm_area_struct *vma,
+					unsigned long address, void *arg)
+{
+	struct vtmm_rmap_arg *vra = (struct vtmm_rmap_arg *)arg;
+	struct page_vma_mapped_walk pvmw = {
+		.page = page,
+		.vma = vma,
+		.address = address,
+	};
+
+	while(page_vma_mapped_walk(&pvmw)) {
+		address = pvmw.address;
+		page = pvmw.page;
+
+		if(pvmw.pte) {	
+			vra->pte = pvmw.pte;
+			vra->pmd = pvmw.pmd;
+			vra->vma = pvmw.vma;
+			vra->va = pvmw.address;
+		}
+		else if(pvmw.pmd)
+			vra->pte = NULL;
+	}
+
+	return true;
+}
+
+pmd_t *get_pmd_from_vtmm_page(struct page *page, struct vm_area_struct **vma,
+				unsigned long *va)
+{
+	struct vtmm_rmap_arg vra = {
+		.pmd = NULL,
+		.pte = NULL,
+		.vma = NULL,
+		.va = 0,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = get_pmd_from_vtmm_page_one,
+		.arg = (void *)&vra,
+	};
+
+	if(!PageAnon(page) || PageKsm(page))
+		return NULL;
+	if(!PageTransHuge(page))
+		return NULL;
+	if(!page_mapped(page))
+		return NULL;
+
+	rmap_walk(page, &rwc);
+
+	if(vma)
+		*vma = vra.vma;
+	if(va)
+		*va = vra.va;
+	return vra.pmd;
+}
+
+pte_t *get_pte_from_vtmm_page(struct page *page, struct vm_area_struct **vma,
+				unsigned long *va, pmd_t **pmd)
+{
+	struct vtmm_rmap_arg vra = {
+		.pmd = NULL,
+		.pte = NULL,
+		.vma = NULL,
+		.va = 0,
+	};
+	struct rmap_walk_control rwc = {
+		.rmap_one = get_pte_from_vtmm_page_one,
+		.arg = (void *)&vra,
+	};
+
+	if(!PageAnon(page) || PageKsm(page))
+		return NULL;
+	if(PageTransHuge(page))
+		return NULL;
+	if(!page_mapped(page))
+		return NULL;
+
+	rmap_walk(page, &rwc);
+
+	if(vma)
+		*vma = vra.vma;
+	if(va)
+		*va = vra.va;
+	if(pmd)
+		*pmd = vra.pmd;
+	return vra.pte;
 }
 
 

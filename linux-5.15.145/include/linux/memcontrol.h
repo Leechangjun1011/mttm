@@ -403,6 +403,7 @@ struct mem_cgroup {
 	bool			hg_mismatch;
 	bool			mttm_enabled;
 	bool			vtmm_enabled;
+	struct mm_struct	*vtmm_mm;
 	unsigned int		dma_chan_start;
 	unsigned long		hot_region;
 	unsigned long		cold_region;
