@@ -3849,19 +3849,21 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 			unsigned long index = page_to_pfn(page);
 			struct vtmm_page *vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
 			if(vp) {
-				int xa_ret;
-
+				void *xa_ret;
+				/*
 				vp->read_count = 0;
 				vp->write_count = 0;
+				*/
+				bitmap_zero(&vp->read_count, BITMAP_MAX);
+				bitmap_zero(&vp->write_count, BITMAP_MAX);
+
 				vp->remained_dnd_time = 0;
 				vp->is_thp = false;
 				vp->addr = index;
 
-				xa_lock(memcg->ml_queue[0]);
-				xa_ret = __xa_insert(memcg->ml_queue[0],
+				xa_ret = xa_store(memcg->ml_queue[0],
 						index, (void *)vp, GFP_KERNEL);
-				xa_unlock(memcg->ml_queue[0]);
-				if(xa_ret)
+				if(xa_err(xa_ret))
 					kmem_cache_free(vtmm_page_cache, vp);
 				else {
 					spin_lock(memcg->bucket_lock[0]);

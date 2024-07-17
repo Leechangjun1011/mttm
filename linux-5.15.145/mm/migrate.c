@@ -638,7 +638,7 @@ void migrate_page_states(struct page *newpage, struct page *page)
 #ifdef CONFIG_MTTM
 	if(PageTransHuge(page)) {
 		copy_transhuge_pginfo(page, newpage);
-		copy_transhuge_vtmm_page(page, newpage);
+		//copy_transhuge_vtmm_page(page, newpage);
 	}
 #endif
 	if (!PageHuge(page))
@@ -1279,11 +1279,7 @@ static int unmap_and_move(new_page_t get_new_page,
 			}
 		}
 		else if(memcg->vtmm_enabled) {
-			int lev;
-			struct vtmm_page *old_vp = get_vtmm_page(memcg, page);
-			if(old_vp) {
-				old_vp->addr = page_to_pfn(newpage);
-			}
+			cmpxchg_vtmm_page(memcg, page, newpage);
 		}
 #endif
 	}

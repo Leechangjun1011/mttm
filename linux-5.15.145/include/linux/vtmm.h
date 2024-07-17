@@ -5,7 +5,7 @@
 
 #define ML_QUEUE_MAX	16
 #define BUCKET_MAX	20
-
+#define BITMAP_MAX	20
 
 struct vtmm_page {
 	/*
@@ -14,14 +14,15 @@ struct vtmm_page {
 	- remained dnd time
 	- list head
 	*/
-	__u64 read_count;
-	__u64 write_count;
+	unsigned long read_count;
+	unsigned long write_count;
 	unsigned int remained_dnd_time;
 	bool is_thp;
 	struct list_head list;
 	__u64 addr;
 };
 
+void cmpxchg_vtmm_page(struct mem_cgroup *memcg, struct page *old_page, struct page *new_page);
 struct vtmm_page *get_vtmm_page(struct mem_cgroup *memcg, struct page *page);
 struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, int *lev);
 

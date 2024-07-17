@@ -416,6 +416,7 @@ struct mem_cgroup {
 	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
 
+	unsigned long		nr_vtmm_page_xchg;
 	struct xarray		*ml_queue[ML_QUEUE_MAX];
 	struct list_head	*page_bucket[BUCKET_MAX];
 	spinlock_t		*bucket_lock[BUCKET_MAX];

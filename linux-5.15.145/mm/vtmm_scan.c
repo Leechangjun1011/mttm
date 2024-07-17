@@ -74,7 +74,8 @@ struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, i
 
 unsigned int page_degree_idx(struct vtmm_page *vp)
 {
-	unsigned int page_degree = 2 * vp->read_count + 3 * vp->write_count;
+	unsigned int page_degree = 2 * bitmap_weight(&vp->read_count, BITMAP_MAX) +
+					3 * bitmap_weight(&vp->write_count, BITMAP_MAX);
 	return min_t(unsigned int, page_degree / 5, BUCKET_MAX - 1);
 }
 
@@ -88,6 +89,74 @@ void move_vtmm_page_bucket(struct mem_cgroup *memcg, struct vtmm_page *vp,
 	spin_lock(memcg->bucket_lock[to]);
 	list_add_tail(&vp->list, memcg->page_bucket[to]);
 	spin_unlock(memcg->bucket_lock[to]);
+}
+
+void cmpxchg_vtmm_page(struct mem_cgroup *memcg, struct page *old_page, struct page *new_page)
+{
+	int i;
+	struct vtmm_page *old_vp = NULL;
+	for(i = 0; i < ML_QUEUE_MAX; i++) {
+		old_vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(old_page));
+		if(old_vp)
+			break;
+	}
+
+	if(old_vp) {
+		struct vtmm_page *new_vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
+		void *xa_ret;
+
+		if(new_vp) {	
+			bitmap_copy(&new_vp->read_count, &old_vp->read_count, BITMAP_MAX);
+			bitmap_copy(&new_vp->write_count, &old_vp->write_count, BITMAP_MAX);
+			new_vp->remained_dnd_time = old_vp->remained_dnd_time;
+			new_vp->is_thp = old_vp->is_thp;
+			new_vp->addr = page_to_pfn(new_page);
+		}
+		else {
+			unsigned int old_lev = page_degree_idx(old_vp);
+	
+			spin_lock(memcg->bucket_lock[old_lev]);
+			list_del(&old_vp->list);
+			spin_unlock(memcg->bucket_lock[old_lev]);
+
+			xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
+			kmem_cache_free(vtmm_page_cache, old_vp);
+			//pr_err("[%s] failed to alloc new_vp\n",__func__);
+			return;
+		}
+
+		xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
+		xa_ret = xa_store(memcg->ml_queue[i], page_to_pfn(new_page), (void *)new_vp, GFP_KERNEL);
+		if(!xa_err(xa_ret)) {//xchg success
+			unsigned int old_lev = page_degree_idx(old_vp);
+			unsigned int new_lev = page_degree_idx(new_vp);
+
+			spin_lock(memcg->bucket_lock[old_lev]);
+			list_del(&old_vp->list);
+			spin_unlock(memcg->bucket_lock[old_lev]);
+			
+			spin_lock(memcg->bucket_lock[new_lev]);
+			list_add_tail(&new_vp->list, memcg->page_bucket[new_lev]);
+			spin_unlock(memcg->bucket_lock[new_lev]);
+
+			kmem_cache_free(vtmm_page_cache, old_vp);
+			memcg->nr_vtmm_page_xchg++;
+			return;
+		}
+		else {
+			unsigned int old_lev = page_degree_idx(old_vp);
+	
+			spin_lock(memcg->bucket_lock[old_lev]);
+			list_del(&old_vp->list);
+			spin_unlock(memcg->bucket_lock[old_lev]);
+			xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
+
+			kmem_cache_free(vtmm_page_cache, new_vp);
+			kmem_cache_free(vtmm_page_cache, old_vp);
+			//pr_err("[%s] failed to xchg. %d\n",__func__, xa_err(xa_ret));
+		}
+	}
+
 }
 
 
@@ -123,19 +192,20 @@ void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page)
 	unsigned long index = page_to_pfn(page);
 	struct vtmm_page *vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
 	if(vp) {
-		int xa_ret;
+		void *xa_ret = NULL;
 
+		/*
 		vp->read_count = 0;
 		vp->write_count = 0;
+		*/
+		bitmap_zero(&vp->read_count, BITMAP_MAX);
+		bitmap_zero(&vp->write_count, BITMAP_MAX);
 		vp->remained_dnd_time = 0;
 		vp->is_thp = true;
 		vp->addr = index;
 
-		xa_lock(memcg->ml_queue[0]);
-		xa_ret = __xa_insert(memcg->ml_queue[0], index,
-					(void *)vp, GFP_KERNEL);
-		xa_unlock(memcg->ml_queue[0]);
-		if(xa_ret)
+		xa_ret = xa_store(memcg->ml_queue[0], index, (void *)vp, GFP_KERNEL);	
+		if(xa_err(xa_ret))
 			kmem_cache_free(vtmm_page_cache, vp);
 		else {
 			spin_lock(memcg->bucket_lock[0]);
@@ -171,9 +241,10 @@ void uncharge_vtmm_transhuge_page(struct page *page, struct mem_cgroup *memcg)
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
 		if(vp) {
-			spin_lock(memcg->bucket_lock[i]);
+			unsigned int lev = page_degree_idx(vp);
+			spin_lock(memcg->bucket_lock[lev]);
 			list_del(&vp->list);
-			spin_unlock(memcg->bucket_lock[i]);
+			spin_unlock(memcg->bucket_lock[lev]);
 			kmem_cache_free(vtmm_page_cache, vp);
 			break;
 		}
@@ -193,9 +264,10 @@ void uncharge_vtmm_page(struct page *page, struct mem_cgroup *memcg)
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
 		if(vp) {
-			spin_lock(memcg->bucket_lock[i]);
+			unsigned int lev = page_degree_idx(vp);
+			spin_lock(memcg->bucket_lock[lev]);
 			list_del(&vp->list);
-			spin_unlock(memcg->bucket_lock[i]);
+			spin_unlock(memcg->bucket_lock[lev]);
 			kmem_cache_free(vtmm_page_cache, vp);
 			break;
 		}
@@ -271,6 +343,7 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 {
         int i;
         struct mem_cgroup *memcg = mem_cgroup_from_task(current);
+
         spin_lock(&vtmm_register_lock);
 
         current_tenants--;
@@ -322,7 +395,6 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 	unsigned long prev_degree_idx = page_degree_idx(vp);
 	unsigned long cur_degree_idx;
 
-	//TODO vp count bitmap
 	// Get pte for basepage, pmd for hugepage
 	page = pfn_to_page(pfn);
 	if(vp->is_thp) {
@@ -335,11 +407,17 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 				if(accessed || dirty) {
 					if(accessed) {
 						pmd_mkold(*pmd);
-						vp->read_count++;
+						//vp->read_count++;
+						bitmap_shift_left(&vp->read_count, &vp->read_count,
+									1, BITMAP_MAX);
+						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
 						pmd_mkclean(*pmd);
-						vp->write_count++;
+						//vp->write_count++;
+						bitmap_shift_left(&vp->write_count, &vp->write_count,
+									1, BITMAP_MAX);
+						set_bit(0, &vp->write_count);
 					}
 					flush_cache_range(vma, va, va + HPAGE_SIZE);
 					flush_tlb_range(vma, va, va + HPAGE_SIZE);
@@ -359,11 +437,17 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 				if(accessed || dirty) {
 					if(accessed) {
 						pte_mkold(*pte);
-						vp->read_count++;
+						//vp->read_count++;
+						bitmap_shift_left(&vp->read_count, &vp->read_count,
+									1, BITMAP_MAX);
+						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
 						pte_mkclean(*pte);
-						vp->write_count++;
+						//vp->write_count++;
+						bitmap_shift_left(&vp->write_count, &vp->write_count,
+									1, BITMAP_MAX);
+						set_bit(0, &vp->write_count);
 					}
 					flush_cache_range(vma, va, va + PAGE_SIZE);
 					flush_tlb_range(vma, va, va + PAGE_SIZE);
@@ -419,7 +503,7 @@ static int kptscand(void *dummy)
 {
 	unsigned long sleep_timeout = msecs_to_jiffies(600);
 	unsigned long total_time, total_cputime = 0, one_cputime;
-	unsigned long cur, trace_period = msecs_to_jiffies(5000);
+	unsigned long cur, trace_period = msecs_to_jiffies(10000);
 	struct mem_cgroup *memcg;
 	int i;
 
@@ -449,7 +533,8 @@ static int kptscand(void *dummy)
 					}
 					pr_info("[%s] [ %s ] xa_size : %lu (%lu MB)\n",
 						__func__, memcg->tenant_name, nr_xa_pages, nr_xa_basepages >> 8);
-				
+					pr_info("[%s] [ %s] nr_vtmm_page_xchg : %lu\n",
+						__func__, memcg->tenant_name, memcg->nr_vtmm_page_xchg);
 					for(j = 0; j < BUCKET_MAX; j++) {
 						nr_list_basepages = 0;
 						nr_list_pages = 0;
