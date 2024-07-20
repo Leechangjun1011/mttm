@@ -419,14 +419,13 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 	unsigned long va = 0;
 	unsigned long prev_degree_idx = page_degree_idx(vp);
 	unsigned long cur_degree_idx;
-
-	if(vp->remained_dnd_time > 0) {
-		vp->remained_dnd_time--;
-		return;
-	}
+	
 	if(vp->skip_scan) {
 		vp->skip_scan = false;
 		return;
+	}
+	if(vp->remained_dnd_time > 0) {
+		vp->remained_dnd_time--;
 	}
 
 	// Get pte for basepage, pmd for hugepage
@@ -440,27 +439,30 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 				dirty = pmd_dirty(*pmd);
 				if(accessed || dirty) {//accessed
 					if(accessed) {
-						pmd_mkold(*pmd);
+						if(vp->remained_dnd_time == 0)
+							pmd_mkold(*pmd);
 						//vp->read_count++;
 						bitmap_shift_left(&vp->read_count, &vp->read_count,
 									1, BITMAP_MAX);
 						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
-						pmd_mkclean(*pmd);
+						if(vp->remained_dnd_time == 0)
+							pmd_mkclean(*pmd);
 						//vp->write_count++;
 						bitmap_shift_left(&vp->write_count, &vp->write_count,
 									1, BITMAP_MAX);
 						set_bit(0, &vp->write_count);
 					}
-
-					flush_cache_range(vma, va, va + HPAGE_SIZE);
-					flush_tlb_range(vma, va, va + HPAGE_SIZE);
-					
-					promote_ml_queue(memcg, vp);
+					if(vp->remained_dnd_time == 0) {
+						flush_cache_range(vma, va, va + HPAGE_SIZE);
+						flush_tlb_range(vma, va, va + HPAGE_SIZE);
+						promote_ml_queue(memcg, vp);
+					}
 				}
 				else {//not accessed
-					demote_ml_queue(memcg, vp);
+					if(vp->remained_dnd_time == 0)
+						demote_ml_queue(memcg, vp);
 				}
 			}
 			spin_unlock(ptl);
@@ -476,26 +478,30 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 				dirty = pte_dirty(*pte);
 				if(accessed || dirty) {
 					if(accessed) {
-						pte_mkold(*pte);
+						if(vp->remained_dnd_time == 0)
+							pte_mkold(*pte);
 						//vp->read_count++;
 						bitmap_shift_left(&vp->read_count, &vp->read_count,
 									1, BITMAP_MAX);
 						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
-						pte_mkclean(*pte);
+						if(vp->remained_dnd_time == 0)
+							pte_mkclean(*pte);
 						//vp->write_count++;
 						bitmap_shift_left(&vp->write_count, &vp->write_count,
 									1, BITMAP_MAX);
 						set_bit(0, &vp->write_count);
 					}
-					flush_cache_range(vma, va, va + PAGE_SIZE);
-					flush_tlb_range(vma, va, va + PAGE_SIZE);
-
-					promote_ml_queue(memcg, vp);
+					if(vp->remained_dnd_time == 0) {
+						flush_cache_range(vma, va, va + PAGE_SIZE);
+						flush_tlb_range(vma, va, va + PAGE_SIZE);
+						promote_ml_queue(memcg, vp);
+					}
 				}
 				else {//not accessed
-					demote_ml_queue(memcg, vp);
+					if(vp->remained_dnd_time == 0)
+						demote_ml_queue(memcg, vp);
 				}
 			}
 			spin_unlock(ptl);
@@ -576,8 +582,9 @@ static int kptscand(void *dummy)
 							nr_xa_pages++;
 						}
 						nr_xa_tot += nr_xa_basepages;
-						pr_info("[%s] [ %s ] ML QUEUE %d. pages : %lu MB\n",
-							__func__, memcg->tenant_name, j, nr_xa_basepages >> 8);
+						if(nr_xa_basepages >> 8)
+							pr_info("[%s] [ %s ] ML QUEUE %d. pages : %lu MB\n",
+								__func__, memcg->tenant_name, j, nr_xa_basepages >> 8);
 					}
 					pr_info("[%s] [ %s ] tot pages : %lu MB\n",
 						__func__, memcg->tenant_name, nr_xa_tot >> 8);
@@ -592,8 +599,9 @@ static int kptscand(void *dummy)
 								nr_list_basepages++;
 							nr_list_pages++;
 						}
-						pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
-							__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
+						if(nr_list_basepages >> 8)
+							pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
+								__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
 					}
 				}
 			}
