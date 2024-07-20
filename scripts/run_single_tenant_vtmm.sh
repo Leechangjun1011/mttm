@@ -45,13 +45,14 @@ if [[ "$2" == "gapbs-bc" ]]; then
         BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 3" #12
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
-	#echo disabled > ${CGMEM_DIR}/memory.use_mig
+	#echo enabled > ${CGMEM_DIR}/memory.use_mig
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 3" #8
        	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+	#echo enabled > ${CGMEM_DIR}/memory.use_mig
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-cc_sv" ]]; then

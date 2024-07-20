@@ -17,8 +17,10 @@ struct vtmm_page {
 	unsigned long read_count;
 	unsigned long write_count;
 	unsigned int remained_dnd_time;
+	unsigned int ml_queue_lev;
+	bool skip_scan;
 	bool is_thp;
-	struct list_head list;
+	struct list_head list;//for page bucket
 	__u64 addr;
 };
 

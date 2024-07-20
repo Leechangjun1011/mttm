@@ -50,13 +50,15 @@ struct vtmm_page *get_vtmm_page(struct mem_cgroup *memcg, struct page *page)
 	struct vtmm_page *vp = NULL;
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(page));
-		if(vp)
+		if(vp) {
 			break;
+		}
 	}
+	
 	return vp;
 }
 
-struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, int *lev)
+/*struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, int *lev)
 {
 	int i;
 	struct vtmm_page *vp = NULL;
@@ -70,7 +72,7 @@ struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, i
 		*lev = i;
 
 	return vp;
-}
+}*/
 
 unsigned int page_degree_idx(struct vtmm_page *vp)
 {
@@ -95,66 +97,40 @@ void cmpxchg_vtmm_page(struct mem_cgroup *memcg, struct page *old_page, struct p
 {
 	int i;
 	struct vtmm_page *old_vp = NULL;
+	if(!PageAnon(old_page) || !PageAnon(new_page))
+		return;
+
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		old_vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(old_page));
-		if(old_vp)
+		if(old_vp) {
+			unsigned int old_lev;
+			old_lev = page_degree_idx(old_vp);
+			xa_store(memcg->ml_queue[i], old_vp->addr, NULL, GFP_KERNEL);
+
+			spin_lock(memcg->bucket_lock[old_lev]);
+			list_del(&old_vp->list);
+			spin_unlock(memcg->bucket_lock[old_lev]);
 			break;
+		}
 	}
 
 	if(old_vp) {
-		struct vtmm_page *new_vp = kmem_cache_alloc(vtmm_page_cache, GFP_KERNEL);
-		void *xa_ret;
-
-		if(new_vp) {	
-			bitmap_copy(&new_vp->read_count, &old_vp->read_count, BITMAP_MAX);
-			bitmap_copy(&new_vp->write_count, &old_vp->write_count, BITMAP_MAX);
-			new_vp->remained_dnd_time = old_vp->remained_dnd_time;
-			new_vp->is_thp = old_vp->is_thp;
-			new_vp->addr = page_to_pfn(new_page);
-		}
-		else {
-			unsigned int old_lev = page_degree_idx(old_vp);
-	
-			spin_lock(memcg->bucket_lock[old_lev]);
-			list_del(&old_vp->list);
-			spin_unlock(memcg->bucket_lock[old_lev]);
-
-			xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
+		void *xa_store_ret;
+		
+		old_vp->addr = page_to_pfn(new_page);
+		xa_store_ret = xa_store(memcg->ml_queue[i], old_vp->addr, (void *)old_vp, GFP_KERNEL);
+		if(xa_err(xa_store_ret)) {
 			kmem_cache_free(vtmm_page_cache, old_vp);
-			//pr_err("[%s] failed to alloc new_vp\n",__func__);
 			return;
 		}
-
-		xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
-		xa_ret = xa_store(memcg->ml_queue[i], page_to_pfn(new_page), (void *)new_vp, GFP_KERNEL);
-		if(!xa_err(xa_ret)) {//xchg success
-			unsigned int old_lev = page_degree_idx(old_vp);
-			unsigned int new_lev = page_degree_idx(new_vp);
-
-			spin_lock(memcg->bucket_lock[old_lev]);
-			list_del(&old_vp->list);
-			spin_unlock(memcg->bucket_lock[old_lev]);
+		else {
+			unsigned int lev = page_degree_idx(old_vp);
 			
-			spin_lock(memcg->bucket_lock[new_lev]);
-			list_add_tail(&new_vp->list, memcg->page_bucket[new_lev]);
-			spin_unlock(memcg->bucket_lock[new_lev]);
-
-			kmem_cache_free(vtmm_page_cache, old_vp);
-			memcg->nr_vtmm_page_xchg++;
+			spin_lock(memcg->bucket_lock[lev]);
+			list_add_tail(&old_vp->list, memcg->page_bucket[lev]);
+			spin_unlock(memcg->bucket_lock[lev]);
 			return;
-		}
-		else {
-			unsigned int old_lev = page_degree_idx(old_vp);
-	
-			spin_lock(memcg->bucket_lock[old_lev]);
-			list_del(&old_vp->list);
-			spin_unlock(memcg->bucket_lock[old_lev]);
-			xa_erase(memcg->ml_queue[i], page_to_pfn(old_page));
-
-			kmem_cache_free(vtmm_page_cache, new_vp);
-			kmem_cache_free(vtmm_page_cache, old_vp);
-			//pr_err("[%s] failed to xchg. %d\n",__func__, xa_err(xa_ret));
-		}
+		}	
 	}
 
 }
@@ -201,6 +177,7 @@ void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page)
 		bitmap_zero(&vp->read_count, BITMAP_MAX);
 		bitmap_zero(&vp->write_count, BITMAP_MAX);
 		vp->remained_dnd_time = 0;
+		vp->ml_queue_lev = 0;
 		vp->is_thp = true;
 		vp->addr = index;
 
@@ -239,9 +216,11 @@ void uncharge_vtmm_transhuge_page(struct page *page, struct mem_cgroup *memcg)
 		return;
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
-		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
+		vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(page));		
 		if(vp) {
 			unsigned int lev = page_degree_idx(vp);
+			xa_store(memcg->ml_queue[i], vp->addr, NULL, GFP_KERNEL);
+
 			spin_lock(memcg->bucket_lock[lev]);
 			list_del(&vp->list);
 			spin_unlock(memcg->bucket_lock[lev]);
@@ -262,9 +241,11 @@ void uncharge_vtmm_page(struct page *page, struct mem_cgroup *memcg)
 		return;
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
-		vp = xa_erase(memcg->ml_queue[i], page_to_pfn(page));
+		vp = (struct vtmm_page *)xa_load(memcg->ml_queue[i], page_to_pfn(page));		
 		if(vp) {
 			unsigned int lev = page_degree_idx(vp);
+			xa_store(memcg->ml_queue[i], vp->addr, NULL, GFP_KERNEL);
+
 			spin_lock(memcg->bucket_lock[lev]);
 			list_del(&vp->list);
 			spin_unlock(memcg->bucket_lock[lev]);
@@ -382,8 +363,52 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
         return 0;
 }
 
+static void promote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
+{
+	void *xa_ret;
+	if(vp->ml_queue_lev < ML_QUEUE_MAX - 1) {
+		xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
+
+		if(xa_ret && !xa_is_err(xa_ret)) {
+			vp->ml_queue_lev++;
+			vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
+			vp->skip_scan = true;
+			xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
+				(void *)vp, GFP_KERNEL);
+		}
+	}
+	else {
+		vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
+	}
+}
+
+
+static void demote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
+{
+	void *xa_ret;
+	if(vp->ml_queue_lev > 0) {
+		xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
+
+		if(xa_ret && !xa_is_err(xa_ret)) {
+			vp->ml_queue_lev--;	
+			if(vp->ml_queue_lev > 0)
+				vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
+			else
+				vp->remained_dnd_time = 0;
+
+			xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
+				(void *)vp, GFP_KERNEL);
+		}
+	}
+	else {
+		vp->remained_dnd_time = 0;
+	}
+}
+
+
 static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int lev,
-			struct mem_cgroup *memcg)
+			struct mem_cgroup *memcg,
+			struct list_head *promotion_list, struct list_head *demotion_list)
 {
 	struct page *page;
 	spinlock_t *ptl;
@@ -395,6 +420,15 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 	unsigned long prev_degree_idx = page_degree_idx(vp);
 	unsigned long cur_degree_idx;
 
+	if(vp->remained_dnd_time > 0) {
+		vp->remained_dnd_time--;
+		return;
+	}
+	if(vp->skip_scan) {
+		vp->skip_scan = false;
+		return;
+	}
+
 	// Get pte for basepage, pmd for hugepage
 	page = pfn_to_page(pfn);
 	if(vp->is_thp) {
@@ -404,7 +438,7 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 			if(pmd_present(*pmd)) {
 				accessed = pmd_young(*pmd);
 				dirty = pmd_dirty(*pmd);
-				if(accessed || dirty) {
+				if(accessed || dirty) {//accessed
 					if(accessed) {
 						pmd_mkold(*pmd);
 						//vp->read_count++;
@@ -419,8 +453,14 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 									1, BITMAP_MAX);
 						set_bit(0, &vp->write_count);
 					}
+
 					flush_cache_range(vma, va, va + HPAGE_SIZE);
 					flush_tlb_range(vma, va, va + HPAGE_SIZE);
+					
+					promote_ml_queue(memcg, vp);
+				}
+				else {//not accessed
+					demote_ml_queue(memcg, vp);
 				}
 			}
 			spin_unlock(ptl);
@@ -451,6 +491,11 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 					}
 					flush_cache_range(vma, va, va + PAGE_SIZE);
 					flush_tlb_range(vma, va, va + PAGE_SIZE);
+
+					promote_ml_queue(memcg, vp);
+				}
+				else {//not accessed
+					demote_ml_queue(memcg, vp);
 				}
 			}
 			spin_unlock(ptl);
@@ -468,20 +513,16 @@ static void scan_ml_queue(struct mem_cgroup *memcg)
 {
 	int i;
 	unsigned long pfn;
-	struct vtmm_page *vp;
+	struct vtmm_page *vp, *tmp;
+	LIST_HEAD(promotion_list);//move pages to higher queue
+	LIST_HEAD(demotion_list);//to lower queue
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_for_each(memcg->ml_queue[i], pfn, vp) {
-			scan_ad_bit(pfn, vp, (unsigned int)i, memcg);
-			/*if(vp->remained_dnd_time == 0)
-				scan_ad_bit(pfn, vp, (unsigned int)i);
-			else if(vp->remained_dnd_time > 0)
-				vp->remained_dnd_time--;
-			*/
-			
+			scan_ad_bit(pfn, vp, (unsigned int)i, memcg, &promotion_list, &demotion_list);	
 		}
 	}
-
+	
 }
 
 static void kptscand_do_work(void)
@@ -518,23 +559,29 @@ static int kptscand(void *dummy)
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
-					unsigned long nr_xa_pages = 0, nr_xa_basepages = 0;
+					unsigned long nr_xa_pages = 0, nr_xa_basepages = 0, nr_xa_tot = 0;
 					unsigned long index;
 					struct vtmm_page *vp;
 					unsigned long nr_list_pages = 0, nr_list_basepages = 0;
 					int j;
 
-					xa_for_each(memcg->ml_queue[0], index, vp) {
-						if(vp->is_thp)
-							nr_xa_basepages += HPAGE_PMD_NR;
-						else
-							nr_xa_basepages++;
-						nr_xa_pages++;
+					for(j = 0; j < ML_QUEUE_MAX; j++) {
+						nr_xa_basepages = 0;
+						nr_xa_pages = 0;
+						xa_for_each(memcg->ml_queue[j], index, vp) {
+							if(vp->is_thp)
+								nr_xa_basepages += HPAGE_PMD_NR;
+							else
+								nr_xa_basepages++;
+							nr_xa_pages++;
+						}
+						nr_xa_tot += nr_xa_basepages;
+						pr_info("[%s] [ %s ] ML QUEUE %d. pages : %lu MB\n",
+							__func__, memcg->tenant_name, j, nr_xa_basepages >> 8);
 					}
-					pr_info("[%s] [ %s ] xa_size : %lu (%lu MB)\n",
-						__func__, memcg->tenant_name, nr_xa_pages, nr_xa_basepages >> 8);
-					pr_info("[%s] [ %s] nr_vtmm_page_xchg : %lu\n",
-						__func__, memcg->tenant_name, memcg->nr_vtmm_page_xchg);
+					pr_info("[%s] [ %s ] tot pages : %lu MB\n",
+						__func__, memcg->tenant_name, nr_xa_tot >> 8);
+
 					for(j = 0; j < BUCKET_MAX; j++) {
 						nr_list_basepages = 0;
 						nr_list_pages = 0;

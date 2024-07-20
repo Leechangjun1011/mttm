@@ -3858,6 +3858,7 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 				bitmap_zero(&vp->write_count, BITMAP_MAX);
 
 				vp->remained_dnd_time = 0;
+				vp->ml_queue_lev = 0;
 				vp->is_thp = false;
 				vp->addr = index;
 

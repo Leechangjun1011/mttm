@@ -5322,7 +5322,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_pingpong = 0;
 	memcg->basepage_xa = NULL;
 
-	memcg->nr_vtmm_page_xchg = 0;
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		memcg->ml_queue[i] = NULL;
 	}
