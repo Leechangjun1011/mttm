@@ -66,6 +66,7 @@ extern void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg);
 extern void check_base_cooling(pginfo_t *pginfo, struct page *page);
 extern void check_base_cooling_reset(pginfo_t *pginfo, struct page *page);
 
+void set_lru_adjusting(struct mem_cgroup *memcg, bool inc_thres);
 extern void move_page_to_active_lru(struct page *page);
 extern void move_page_to_inactive_lru(struct page *page);
 extern unsigned long get_memcg_demotion_wmark(unsigned long max_nr_pages);

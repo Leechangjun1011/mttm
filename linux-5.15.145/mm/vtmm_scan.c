@@ -437,21 +437,21 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 			if(pmd_present(*pmd)) {
 				accessed = pmd_young(*pmd);
 				dirty = pmd_dirty(*pmd);
+				bitmap_shift_left(&vp->read_count, &vp->read_count,
+							1, BITMAP_MAX);
+				bitmap_shift_left(&vp->write_count, &vp->write_count,
+							1, BITMAP_MAX);
 				if(accessed || dirty) {//accessed
 					if(accessed) {
 						if(vp->remained_dnd_time == 0)
 							pmd_mkold(*pmd);
 						//vp->read_count++;
-						bitmap_shift_left(&vp->read_count, &vp->read_count,
-									1, BITMAP_MAX);
 						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
 						if(vp->remained_dnd_time == 0)
 							pmd_mkclean(*pmd);
 						//vp->write_count++;
-						bitmap_shift_left(&vp->write_count, &vp->write_count,
-									1, BITMAP_MAX);
 						set_bit(0, &vp->write_count);
 					}
 					if(vp->remained_dnd_time == 0) {
@@ -476,21 +476,21 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 			if(pte_present(*pte)) {
 				accessed = pte_young(*pte);
 				dirty = pte_dirty(*pte);
+				bitmap_shift_left(&vp->read_count, &vp->read_count,
+							1, BITMAP_MAX);
+				bitmap_shift_left(&vp->write_count, &vp->write_count,
+							1, BITMAP_MAX);
 				if(accessed || dirty) {
 					if(accessed) {
 						if(vp->remained_dnd_time == 0)
 							pte_mkold(*pte);
 						//vp->read_count++;
-						bitmap_shift_left(&vp->read_count, &vp->read_count,
-									1, BITMAP_MAX);
 						set_bit(0, &vp->read_count);
 					}
 					if(dirty) {
 						if(vp->remained_dnd_time == 0)
 							pte_mkclean(*pte);
 						//vp->write_count++;
-						bitmap_shift_left(&vp->write_count, &vp->write_count,
-									1, BITMAP_MAX);
 						set_bit(0, &vp->write_count);
 					}
 					if(vp->remained_dnd_time == 0) {
@@ -512,6 +512,10 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp, unsigned int le
 	if(prev_degree_idx != cur_degree_idx) {
 		move_vtmm_page_bucket(memcg, vp, prev_degree_idx, cur_degree_idx);
 	}
+	if(cur_degree_idx >= memcg->active_threshold)
+		move_page_to_active_lru(page);
+	else if(PageActive(page))
+		move_page_to_inactive_lru(page);
 
 }
 
@@ -531,6 +535,55 @@ static void scan_ml_queue(struct mem_cgroup *memcg)
 	
 }
 
+static unsigned long get_nr_bucket_pages(struct list_head *page_bucket)
+{
+	unsigned long nr_pages = 0;
+	struct vtmm_page *vp;
+
+	list_for_each_entry(vp, page_bucket, list) {
+		if(vp->is_thp)
+			nr_pages += HPAGE_PMD_NR;
+		else
+			nr_pages ++;
+	}
+
+	return nr_pages;
+}
+
+
+static void determine_active_threshold(struct mem_cgroup *memcg)
+{
+	unsigned long nr_active = 0;
+        unsigned long max_nr_pages = memcg->max_nr_dram_pages -
+                get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+        int idx_hot;
+
+        if(READ_ONCE(memcg->hg_mismatch)) {
+                set_lru_adjusting(memcg, true);
+                return;
+        }
+
+
+        for(idx_hot = BUCKET_MAX - 1; idx_hot >= 0; idx_hot--) {
+                unsigned long nr_pages = get_nr_bucket_pages(memcg->page_bucket[idx_hot]);
+                if(nr_active + nr_pages > max_nr_pages)
+                        break;
+                nr_active += nr_pages;
+        }
+        if(idx_hot != BUCKET_MAX - 1)
+                idx_hot++;
+
+
+	if(idx_hot < MTTM_INIT_THRESHOLD) {
+                idx_hot = MTTM_INIT_THRESHOLD;
+        }
+
+	WRITE_ONCE(memcg->active_threshold, idx_hot); 
+        set_lru_adjusting(memcg, true);
+
+}
+
+
 static void kptscand_do_work(void)
 {
 	int i;
@@ -540,7 +593,7 @@ static void kptscand_do_work(void)
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			scan_ml_queue(memcg);
-
+			determine_active_threshold(memcg);
 		}
 	}
 
@@ -569,6 +622,7 @@ static int kptscand(void *dummy)
 					unsigned long index;
 					struct vtmm_page *vp;
 					unsigned long nr_list_pages = 0, nr_list_basepages = 0;
+					unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
 					int j;
 
 					for(j = 0; j < ML_QUEUE_MAX; j++) {
@@ -586,8 +640,19 @@ static int kptscand(void *dummy)
 							pr_info("[%s] [ %s ] ML QUEUE %d. pages : %lu MB\n",
 								__func__, memcg->tenant_name, j, nr_xa_basepages >> 8);
 					}
-					pr_info("[%s] [ %s ] tot pages : %lu MB\n",
-						__func__, memcg->tenant_name, nr_xa_tot >> 8);
+					nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+								LRU_ACTIVE_ANON, MAX_NR_ZONES) +
+							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+								LRU_ACTIVE_ANON, MAX_NR_ZONES);
+					nr_cold_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+								LRU_INACTIVE_ANON, MAX_NR_ZONES) +
+							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+								LRU_INACTIVE_ANON, MAX_NR_ZONES);
+
+					pr_info("[%s] [ %s ] tot pages : %lu MB (hot : %lu MB, cold : %lu MB, threshold : %u). max_nr_dram_pages : %lu MB\n",
+						__func__, memcg->tenant_name, nr_xa_tot >> 8,
+						nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
+						memcg->max_nr_dram_pages >> 8);
 
 					for(j = 0; j < BUCKET_MAX; j++) {
 						nr_list_basepages = 0;
