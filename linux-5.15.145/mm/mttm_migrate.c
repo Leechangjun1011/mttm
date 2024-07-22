@@ -684,7 +684,7 @@ static unsigned long node_free_pages(pg_data_t *pgdat)
 	return (unsigned long)total;
 }
 
-static bool promotion_available(int target_nid, struct mem_cgroup *memcg,
+bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 						unsigned long *nr_to_promote)
 {
 	pg_data_t *pgdat;

@@ -20,6 +20,8 @@ struct vtmm_page {
 	unsigned int ml_queue_lev;
 	bool skip_scan;
 	bool is_thp;
+	bool promoted;
+	bool demoted;
 	struct list_head list;//for page bucket
 	__u64 addr;
 };

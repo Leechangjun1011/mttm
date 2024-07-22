@@ -179,6 +179,8 @@ void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page)
 		vp->remained_dnd_time = 0;
 		vp->ml_queue_lev = 0;
 		vp->is_thp = true;
+		vp->promoted = false;
+		vp->demoted = false;
 		vp->addr = index;
 
 		xa_ret = xa_store(memcg->ml_queue[0], index, (void *)vp, GFP_KERNEL);	
@@ -556,13 +558,7 @@ static void determine_active_threshold(struct mem_cgroup *memcg)
 	unsigned long nr_active = 0;
         unsigned long max_nr_pages = memcg->max_nr_dram_pages -
                 get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
-        int idx_hot;
-
-        if(READ_ONCE(memcg->hg_mismatch)) {
-                set_lru_adjusting(memcg, true);
-                return;
-        }
-
+        int idx_hot; 
 
         for(idx_hot = BUCKET_MAX - 1; idx_hot >= 0; idx_hot--) {
                 unsigned long nr_pages = get_nr_bucket_pages(memcg->page_bucket[idx_hot]);
@@ -578,8 +574,7 @@ static void determine_active_threshold(struct mem_cgroup *memcg)
                 idx_hot = MTTM_INIT_THRESHOLD;
         }
 
-	WRITE_ONCE(memcg->active_threshold, idx_hot); 
-        set_lru_adjusting(memcg, true);
+	WRITE_ONCE(memcg->active_threshold, idx_hot);
 
 }
 

@@ -73,6 +73,7 @@ extern unsigned long get_memcg_demotion_wmark(unsigned long max_nr_pages);
 extern unsigned long get_memcg_promotion_wmark(unsigned long max_nr_pages);
 extern bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg);
 extern unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg);
+bool promotion_available(int nid, struct mem_cgroup *memcg, unsigned long *nr);
 
 extern unsigned int get_idx(unsigned long num);
 extern void mttm_mm_init(struct mm_struct *mm);

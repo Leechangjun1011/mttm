@@ -3860,6 +3860,8 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 				vp->remained_dnd_time = 0;
 				vp->ml_queue_lev = 0;
 				vp->is_thp = false;
+				vp->promoted = false;
+				vp->demoted = false;
 				vp->addr = index;
 
 				xa_ret = xa_store(memcg->ml_queue[0],
