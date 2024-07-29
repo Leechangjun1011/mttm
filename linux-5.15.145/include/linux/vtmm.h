@@ -3,7 +3,7 @@
 
 #include <linux/list.h>
 
-#define ML_QUEUE_MAX	16
+#define ML_QUEUE_MAX	8
 #define BUCKET_MAX	20
 #define BITMAP_MAX	20
 
@@ -16,6 +16,7 @@ struct vtmm_page {
 	*/
 	unsigned long read_count;
 	unsigned long write_count;
+	unsigned long va;
 	unsigned int remained_dnd_time;
 	unsigned int ml_queue_lev;
 	bool skip_scan;
@@ -32,8 +33,8 @@ struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, i
 
 void uncharge_vtmm_page(struct page *page, struct mem_cgroup *memcg);
 void uncharge_vtmm_transhuge_page(struct page *page, struct mem_cgroup *memcg);
-void prep_transhuge_page_for_vtmm(struct vm_area_struct *vma, struct page *page);
-void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page);
+void prep_transhuge_page_for_vtmm(struct vm_area_struct *vma, struct page *page, unsigned long haddr);
+void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page, unsigned long haddr);
 void copy_transhuge_vtmm_page(struct page *page, struct page *newpage);
 
 int vtmm_kmigrated_init(struct mem_cgroup *memcg);

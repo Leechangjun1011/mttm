@@ -404,6 +404,7 @@ struct mem_cgroup {
 	bool			mttm_enabled;
 	bool			vtmm_enabled;
 	struct mm_struct	*vtmm_mm;
+	pid_t			vtmm_pid;
 	unsigned int		dma_chan_start;
 	unsigned long		hot_region;
 	unsigned long		cold_region;
@@ -416,6 +417,7 @@ struct mem_cgroup {
 	unsigned long		nr_pingpong;
 	struct xarray		*basepage_xa;
 
+	unsigned long		vtmm_init_dram_size;
 	struct xarray		*ml_queue[ML_QUEUE_MAX];
 	struct list_head	*page_bucket[BUCKET_MAX];
 	spinlock_t		*bucket_lock[BUCKET_MAX];

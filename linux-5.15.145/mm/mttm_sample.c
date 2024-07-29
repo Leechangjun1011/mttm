@@ -1086,8 +1086,9 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	
 	ret = __update_pginfo(vma, address);
 
-	if(ret == 0) // invalid record
+	if(ret == 0) { // invalid record
 		goto mmap_unlock;
+	}
 	else {
 		memcg->nr_sampled++;
 		memcg->interval_nr_sampled++;

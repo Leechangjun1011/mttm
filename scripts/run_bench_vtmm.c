@@ -26,9 +26,9 @@ double elapsed(struct timeval *starttime, struct timeval *endtime)
   return tv_to_double(diff);
 }
 
-long vtmm_register_pid(const char *name)
+long vtmm_register_pid(pid_t pid, const char *name)
 {
-	return syscall(451, name);
+	return syscall(451, pid, name);
 }
 
 long vtmm_unregister_pid(pid_t pid)
@@ -58,7 +58,7 @@ int main(int argc, char** argv)
 	}
 
 	gettimeofday(&start, NULL);
-	vtmm_register_pid(clean_name);
+	vtmm_register_pid(getpid(), clean_name);
 	printf("pid : %d registered, name : %s\n",getpid(), clean_name);
 
 	pid = fork();

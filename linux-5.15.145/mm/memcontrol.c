@@ -5292,6 +5292,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->mttm_enabled = false;
 	memcg->vtmm_enabled = false;
 	memcg->vtmm_mm = NULL;
+	memcg->vtmm_pid = 0;
+	memcg->vtmm_init_dram_size = 0;
 
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;

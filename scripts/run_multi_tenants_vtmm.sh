@@ -23,7 +23,7 @@ fi
 echo 1 > /proc/sys/vm/drop_caches
 
 echo 30G > /proc/sys/vm/mttm_local_dram_string
-echo 0 > /proc/sys/vm/use_dram_determination
+echo 1 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt

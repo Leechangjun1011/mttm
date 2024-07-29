@@ -267,6 +267,8 @@ static bool remove_migration_pte(struct page *page, struct vm_area_struct *vma,
 
 			if(!memcg)
 				goto out_cooling_check;	
+			if(!memcg->mttm_enabled)
+				goto out_cooling_check;
 
 			pte_page = virt_to_page((unsigned long)pvmw.pte);
 			if(!PageMttm(pte_page))

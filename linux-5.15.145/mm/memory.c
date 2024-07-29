@@ -3856,7 +3856,8 @@ static vm_fault_t do_anonymous_page(struct vm_fault *vmf)
 				*/
 				bitmap_zero(&vp->read_count, BITMAP_MAX);
 				bitmap_zero(&vp->write_count, BITMAP_MAX);
-
+				
+				vp->va = vmf->address;
 				vp->remained_dnd_time = 0;
 				vp->ml_queue_lev = 0;
 				vp->is_thp = false;
@@ -4559,10 +4560,10 @@ out_map:
 	goto out;
 }
 
-static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf)
+static inline vm_fault_t create_huge_pmd(struct vm_fault *vmf, unsigned long address)
 {
 	if (vma_is_anonymous(vmf->vma))
-		return do_huge_pmd_anonymous_page(vmf);
+		return do_huge_pmd_anonymous_page(vmf, address);
 	if (vmf->vma->vm_ops->huge_fault)
 		return vmf->vma->vm_ops->huge_fault(vmf, PE_SIZE_PMD);
 	return VM_FAULT_FALLBACK;
@@ -4798,9 +4799,10 @@ retry_pud:
 		goto retry_pud;
 
 	if (pmd_none(*vmf.pmd) && __transparent_hugepage_enabled(vma)) {
-		ret = create_huge_pmd(&vmf);
-		if (!(ret & VM_FAULT_FALLBACK))
+		ret = create_huge_pmd(&vmf, address);
+		if (!(ret & VM_FAULT_FALLBACK)) {
 			return ret;
+		}
 	} else {
 		vmf.orig_pmd = *vmf.pmd;
 

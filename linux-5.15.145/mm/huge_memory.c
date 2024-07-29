@@ -725,7 +725,7 @@ static void set_huge_zero_page(pgtable_t pgtable, struct mm_struct *mm,
 	mm_inc_nr_ptes(mm);
 }
 
-vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
+vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf, unsigned long address)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	gfp_t gfp;
@@ -784,10 +784,11 @@ vm_fault_t do_huge_pmd_anonymous_page(struct vm_fault *vmf)
 		return VM_FAULT_FALLBACK;
 	}
 #ifdef CONFIG_MTTM
-	if(vma->vm_mm->mttm_enabled)
+	if(vma->vm_mm->mttm_enabled) {
 		prep_transhuge_page_for_mttm(vma, page);
-	else {
-		prep_transhuge_page_for_vtmm(vma, page);
+	}
+	else {	
+		prep_transhuge_page_for_vtmm(vma, page, address);
 	}
 #else
 	prep_transhuge_page(page);
