@@ -44,6 +44,7 @@ extern struct mem_cgroup **memcg_list;
 extern unsigned int use_dram_determination;
 extern unsigned long mttm_local_dram;
 
+unsigned int kptscand_period_in_us = 600000;
 
 struct vtmm_page *get_vtmm_page(struct mem_cgroup *memcg, struct page *page)
 {
@@ -409,8 +410,7 @@ static void demote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
 
 
 static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
-			struct mem_cgroup *memcg,
-			unsigned long *pud_done, unsigned long *pmd_done)
+			struct mem_cgroup *memcg)
 {
 	struct page *page;
 	spinlock_t *ptl;
@@ -466,7 +466,6 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 						flush_tlb_range(vma, va, va + HPAGE_SIZE);
 						promote_ml_queue(memcg, vp);
 					}
-					*pud_done = (*pud_done) + 1;
 				}
 				else {//not accessed
 					if(vp->remained_dnd_time == 0)
@@ -507,8 +506,7 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 						flush_cache_range(vma, va, va + PAGE_SIZE);
 						flush_tlb_range(vma, va, va + PAGE_SIZE);
 						promote_ml_queue(memcg, vp);
-					}
-					*pmd_done = (*pmd_done) + 1;
+					}	
 				}
 				else {//not accessed
 					if(vp->remained_dnd_time == 0)
@@ -641,30 +639,14 @@ static void scan_ml_queue(struct mem_cgroup *memcg)
 	int i;
 	unsigned long pfn;
 	struct vtmm_page *vp;	
-	unsigned long mm_done = 0, vma_done = 0, pgd_done = 0, p4d_done = 0, pud_done = 0, pmd_done = 0;
-	unsigned long scan_done = 0;
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_for_each(memcg->ml_queue[i], pfn, vp) {
-			scan_ad_bit(pfn, vp, memcg, &pud_done, &pmd_done);
+			scan_ad_bit(pfn, vp, memcg);
 			//scan_ad_bit_va(vp, memcg, mm, &mm_done, &vma_done,
 			//		&pgd_done, &p4d_done, &pud_done, &pmd_done, &scan_done);
 		}
 	}
-	/*list_for_each_entry(vp, memcg->page_bucket[0], list) {
-		if(vp->is_thp) {
-			scan_ad_bit_va(vp, memcg, mm, &mm_done, &vma_done,
-					&pgd_done, &p4d_done, &pud_done, &pmd_done, &scan_done);
-		}
-	}*/
-
-	
-	/*pr_info("[%s] accessed : %lu, pgd_done : %lu, p4d_done : %lu, pud_done : %lu, pmd_done : %lu, scan_done : %lu\n",
-		__func__, mm_done, pgd_done, p4d_done, pud_done, pmd_done, scan_done);
-	*/
-	//pr_info("[%s] hpage accessed : %lu, basepage accessed : %lu\n",
-	//	__func__, pud_done, pmd_done);
-	
 
 }
 
@@ -674,6 +656,25 @@ static unsigned long get_nr_bucket_pages(struct list_head *page_bucket)
 	struct vtmm_page *vp;
 
 	list_for_each_entry(vp, page_bucket, list) {
+		if(vp->is_thp)
+			nr_pages += HPAGE_PMD_NR;
+		else
+			nr_pages ++;
+	}
+
+	return nr_pages;
+}
+
+static unsigned long get_nr_bucket_hot_pages(struct list_head *page_bucket)
+{
+	unsigned long nr_pages = 0;
+	struct vtmm_page *vp;
+	
+	list_for_each_entry(vp, page_bucket, list) {
+		unsigned int page_access = bitmap_weight(&vp->read_count, BITMAP_MAX) +
+					bitmap_weight(&vp->write_count, BITMAP_MAX);
+		if(page_access < 3)
+			continue;
 		if(vp->is_thp)
 			nr_pages += HPAGE_PMD_NR;
 		else
@@ -720,31 +721,40 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
 }
 
 
-static void determine_local_dram(struct mem_cgroup *memcg, unsigned long *available_dram)
+static void determine_local_dram(struct mem_cgroup *memcg,
+				unsigned long *available_dram, int tenant_idx)
 {
 	// Select top 80% hotest page with page degree >= 3
 	unsigned long nr_hot = 0;
-	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
-				get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+	unsigned long cur_rss = get_anon_rss(memcg);
 	int idx_hot;
 	unsigned long lower_limit = memcg->vtmm_init_dram_size * 75 / 100;
 	unsigned long upper_limit = memcg->vtmm_init_dram_size * 125 / 100;
+	int remained_tenant = 0, i;
 
 	if(!use_dram_determination)
 		return;
 	if(memcg->vtmm_init_dram_size == 0)
 		return;
 
-	for(idx_hot = BUCKET_MAX - 1; idx_hot >= 1; idx_hot--) {
-		unsigned long nr_pages = get_nr_bucket_pages(memcg->page_bucket[idx_hot]);
-		if(nr_hot + nr_pages > (8 * max_nr_pages / 10))
-			break;
-		nr_hot += nr_pages;
+	if(cur_rss - get_nr_bucket_pages(memcg->page_bucket[0]) >= 8 * cur_rss / 10) {
+		nr_hot = 8 * cur_rss / 10;
 	}
+	else {
+		unsigned long nr_hot_zero = get_nr_bucket_hot_pages(memcg->page_bucket[0]);
+		nr_hot = cur_rss - get_nr_bucket_pages(memcg->page_bucket[0]) + nr_hot_zero;
+		nr_hot = min_t(unsigned long, nr_hot, 8 * cur_rss / 10);
+	}	
 
 	nr_hot = min_t(unsigned long, upper_limit, nr_hot);
 	nr_hot = max_t(unsigned long, lower_limit, nr_hot);
 	nr_hot = min_t(unsigned long, nr_hot, *available_dram);
+
+	for(i = tenant_idx + 1; i < LIMIT_TENANTS; i++) {
+		remained_tenant++;
+	}
+	nr_hot = min_t(unsigned long, nr_hot,
+			(*available_dram) - remained_tenant * memcg->vtmm_init_dram_size);
 
 	set_dram_size(memcg, nr_hot);
 	*available_dram = (*available_dram) - nr_hot;
@@ -761,7 +771,7 @@ static void kptscand_do_work(void)
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			scan_ml_queue(memcg);
-			determine_local_dram(memcg, &tot_local_dram);
+			determine_local_dram(memcg, &tot_local_dram, i);
 			determine_active_threshold(memcg);
 		}
 	}
@@ -770,7 +780,7 @@ static void kptscand_do_work(void)
 
 static int kptscand(void *dummy)
 {
-	unsigned long sleep_timeout = msecs_to_jiffies(600);
+	unsigned long sleep_timeout = usecs_to_jiffies(kptscand_period_in_us);
 	unsigned long total_time, total_cputime = 0, one_cputime;
 	unsigned long cur, trace_period = msecs_to_jiffies(10000);
 	struct mem_cgroup *memcg;
@@ -825,7 +835,7 @@ static int kptscand(void *dummy)
 						nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
 						memcg->max_nr_dram_pages >> 8);
 
-					/*
+					
 					for(j = 0; j < BUCKET_MAX; j++) {
 						nr_list_basepages = 0;
 						nr_list_pages = 0;
@@ -839,7 +849,7 @@ static int kptscand(void *dummy)
 						if(nr_list_basepages >> 8)
 							pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
 								__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
-					}*/
+					}
 					
 				}
 			}

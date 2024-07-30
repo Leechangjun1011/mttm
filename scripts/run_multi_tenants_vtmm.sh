@@ -27,6 +27,7 @@ echo 1 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
+echo 600000 > /proc/sys/vm/kptscand_period_in_us
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
 sudo sysctl vm.enable_kptscand=0

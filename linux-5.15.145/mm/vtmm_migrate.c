@@ -224,7 +224,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				vp = get_vtmm_page(memcg, page);
 				if(!vp)
 					goto keep_locked;
-				BUG_ON(!vp->is_thp);
+				//BUG_ON(!vp->is_thp);
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					vp->demoted = true;
 					if(vp->promoted) {
@@ -240,7 +240,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				vp = get_vtmm_page(memcg, page);
 				if(!vp)
 					goto keep_locked;
-				BUG_ON(vp->is_thp);
+				//BUG_ON(vp->is_thp);
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					vp->demoted = true;
 					if(vp->promoted) {

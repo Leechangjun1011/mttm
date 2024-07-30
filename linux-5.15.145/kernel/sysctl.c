@@ -212,6 +212,7 @@ extern unsigned int use_dma_migration;
 extern unsigned int use_dma_completion_interrupt;
 extern unsigned int use_all_stores;
 extern unsigned int use_xa_basepage;
+extern unsigned int kptscand_period_in_us;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2890,6 +2891,13 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= sysctl_enable_kptscand,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "kptscand_period_in_us",
+		.data		= &kptscand_period_in_us,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
 		.procname	= "mttm_local_dram_string",
