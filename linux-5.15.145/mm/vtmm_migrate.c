@@ -554,7 +554,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
         int target_nid = 0;
         unsigned long promote_lruvec_pingpong = 0, promote_one_lruvec_pingpong = 0;
 
-        if(!promotion_available(target_nid, memcg, &nr_to_promote))
+        if(!promotion_available(target_nid, memcg, &nr_to_promote, false))
                 return 0;
 
         nr_to_promote = min(nr_to_promote, lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));

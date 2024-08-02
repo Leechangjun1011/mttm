@@ -87,6 +87,17 @@ unsigned long get_memcg_promotion_wmark(unsigned long max_nr_pages)
 	return ret;
 }
 
+unsigned long get_memcg_promotion_expanded_wmark(unsigned long max_nr_pages)
+{
+	unsigned long ret;
+	ret = max_nr_pages * 5 / 100;
+	if(ret < MAX_WMARK_LOWER_LIMIT)
+		return MAX_WMARK_LOWER_LIMIT;
+	else if(ret > MAX_WMARK_UPPER_LIMIT)
+		return MAX_WMARK_UPPER_LIMIT;
+	return ret;
+}
+
 unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg)
 {
 	struct lruvec *lruvec;
@@ -685,7 +696,7 @@ static unsigned long node_free_pages(pg_data_t *pgdat)
 }
 
 bool promotion_available(int target_nid, struct mem_cgroup *memcg,
-						unsigned long *nr_to_promote)
+			unsigned long *nr_to_promote, bool expanded)
 {
 	pg_data_t *pgdat;
 	unsigned long max_nr_pages, cur_nr_pages;
@@ -704,7 +715,10 @@ bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 	nr_isolated = node_page_state(pgdat, NR_ISOLATED_ANON) +
 			node_page_state(pgdat, NR_ISOLATED_FILE);
 
-	fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages);
+	if(expanded)
+		fmem_min_wmark = get_memcg_promotion_expanded_wmark(max_nr_pages);
+	else
+		fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages);
 
 	if(max_nr_pages == ULONG_MAX) {
 		*nr_to_promote = node_free_pages(pgdat);
@@ -729,7 +743,7 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bo
 	unsigned long promote_lruvec_cputime = 0, promote_one_lruvec_cputime = 0;
 	unsigned long promote_lruvec_pingpong = 0, promote_one_lruvec_pingpong = 0;
 
-	if(!promotion_available(target_nid, memcg, &nr_to_promote))
+	if(!promotion_available(target_nid, memcg, &nr_to_promote, false))
 		return 0;
 	if(promotion_denied)
 		*promotion_denied = false;
@@ -767,7 +781,11 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 	int target_nid = 0;
 	unsigned long promote_lruvec_cputime = 0, promote_one_lruvec_cputime = 0;
 
-	if(!promotion_available(target_nid, memcg, &nr_to_promote)) {
+	if(!promotion_available(target_nid, memcg, &nr_to_promote, true)) {
+		WRITE_ONCE(memcg->dram_expanded, false);
+		pr_err("[%s] [ %s ] promote node expanded failed. dram : %lu MB, node0 lru : %lu MB\n",
+			__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8,
+			get_nr_lru_pages_node(memcg, NODE_DATA(0)) >> 8);
 		return 0;
 	}
 
@@ -783,6 +801,10 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 			break;
 		priority--;
 	} while (priority);
+
+	if(!promotion_available(target_nid, memcg, &nr_to_promote, true)) {
+		WRITE_ONCE(memcg->dram_expanded, false);
+	}
 
 	if(promote_cputime)
 		*promote_cputime = promote_lruvec_cputime;
@@ -1319,8 +1341,19 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	if(use_dram_determination &&
 		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
 		// Skip when sample rate is not stable
-		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate)
+		if(!READ_ONCE(memcg->stable_status) && check_stable_sample_rate) {
+			*hotness_scanned = 0;
+			memcg->hot_region = 0;
+			memcg->cold_region = 0;
+			memcg->nr_hot_region_access = 0;
+			memcg->nr_cold_region_access = 0;
+
+			memcg->lev4_size = 0;
+			memcg->lev3_size = 0;
+			memcg->lev2_size = 0;
+			memcg->lev1_size = 0;
 			return;
+		}
 
 		if(cooling && (*hotness_scanned < target_cooling)) {
 			scan_hotness_node(NODE_DATA(0), memcg);
@@ -1529,10 +1562,16 @@ static int kmigrated(void *p)
 				tot_promoted += promote_node(NODE_DATA(1), memcg, &promotion_denied, &promote_cputime, &promote_pingpong);
 				one_do_mig_cputime += promote_cputime;
 				one_pingpong += promote_pingpong;
-				if(promotion_denied) {
-				
-				}
-			}	
+			}
+
+			if(READ_ONCE(memcg->dram_expanded)) {
+				unsigned long expanded_promoted = 0;
+				promote_cputime = 0;
+				expanded_promoted = promote_node_expanded(NODE_DATA(1), memcg, &promote_cputime);
+				one_do_mig_cputime += promote_cputime;
+	
+			}
+
 		}
 			
 

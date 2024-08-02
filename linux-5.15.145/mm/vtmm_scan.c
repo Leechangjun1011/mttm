@@ -436,6 +436,9 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 	if(vp->is_thp) {
 		pmd = get_pmd_from_vtmm_page(page, &vma, &va);
 		if(pmd) {
+			if(!pmd_large(*pmd)) {
+				return;
+			}
 			ptl = pmd_lock(memcg->vtmm_mm, pmd);
 			if(pmd_present(*pmd)) {
 				accessed = pmd_young(*pmd);
@@ -478,6 +481,8 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 	else {
 		pte = get_pte_from_vtmm_page(page, &vma, &va, &pmd);
 		if(pte) {
+			if(pmd_large(*pmd))
+				return;
 			ptl = pte_lockptr(memcg->vtmm_mm, pmd);
 			spin_lock(ptl);
 			if(pte_present(*pte)) {
@@ -698,9 +703,7 @@ static void determine_active_threshold(struct mem_cgroup *memcg)
                         break;
                 nr_active += nr_pages;
         }
-        if(idx_hot != BUCKET_MAX - 1)
-                idx_hot++;
-
+        idx_hot++;
 
 	if(idx_hot < MTTM_INIT_THRESHOLD) {
                 idx_hot = MTTM_INIT_THRESHOLD;

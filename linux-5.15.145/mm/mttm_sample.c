@@ -36,6 +36,7 @@ unsigned int use_dram_determination = 1;
 unsigned int use_region_separation = 1;
 unsigned int use_hotness_intensity = 0;
 unsigned int use_pingpong_reduce = 1;
+unsigned int print_sample_rate = 0;
 unsigned long pingpong_reduce_threshold = 200;
 unsigned long manage_cputime_threshold = 50;
 unsigned long mig_cputime_threshold = 200;
@@ -500,8 +501,8 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 
 	spin_unlock(&register_lock);
 
-	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d\n",
-		__func__, pid, memcg->tenant_name, current_tenants);
+	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total sample : %lu\n",
+		__func__, pid, memcg->tenant_name, current_tenants, memcg->nr_sampled);
 	return 0;
 }
 
@@ -1240,8 +1241,13 @@ static void calculate_sample_rate_stat(void)
 					variance += (mean - memcg->interval_sample[j]) * (mean - memcg->interval_sample[j]);
 			}
 			variance = variance / 5;
-			std_deviation = int_sqrt(variance);
+			std_deviation = int_sqrt(variance);	
 
+			mean_rate = div64_u64(sum_sample, 10);
+			if(print_sample_rate) {
+				pr_info("[%s] [ %s ] mean_rate : %lu\n",
+					__func__, memcg->tenant_name, mean_rate);
+			}
 			if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
 				if(std_deviation >= mean) {
 					if(memcg->stable_cnt > 0) {
@@ -1250,15 +1256,36 @@ static void calculate_sample_rate_stat(void)
 						//pr_info("[%s] stable_cnt reset to 0\n",__func__);
 					}
 				}
-				else if(mean > 20) {
+				else if(mean_rate > 50) {
 					memcg->stable_cnt++;
 					if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
 						WRITE_ONCE(memcg->stable_status, true);
+						pr_info("[%s] [ %s ] stable. mean_rate : %lu\n",
+							__func__, memcg->tenant_name, mean_rate);
 					}
 				}
 			}
+			else {
+				if(memcg->highest_rate < mean_rate)
+					WRITE_ONCE(memcg->highest_rate, mean_rate);
 
-			mean_rate = div64_u64(sum_sample, 10);
+				if(memcg->highest_rate / 100 > mean_rate &&
+					mean_rate > 50) {
+					// access rate changed a lot
+					memcg->stable_cnt = 0;
+					WRITE_ONCE(memcg->highest_rate, mean_rate);
+					if(use_dram_determination) {
+						WRITE_ONCE(memcg->dram_fixed, false);
+						WRITE_ONCE(memcg->region_determined, false);
+						WRITE_ONCE(memcg->hi_determined, false);
+					}
+					pr_info("[%s] [ %s ] highest rate reset to %lu\n",
+						__func__, memcg->tenant_name, mean_rate);
+				}
+
+
+			}
+
 
 			if(((use_region_separation && READ_ONCE(memcg->region_determined)) || (use_hotness_intensity && READ_ONCE(memcg->hi_determined))) &&
 				READ_ONCE(memcg->stable_status)) {
@@ -1277,6 +1304,7 @@ static void calculate_sample_rate_stat(void)
 						}
 					}
 				}
+				
 				memcg->mean_rate = mean_rate;
 			}
 
@@ -1347,6 +1375,10 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram,
 	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
 		get_memcg_demotion_wmark(required_dram) > required_dram)
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+	else if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
+		get_nr_lru_pages_node(memcg, NODE_DATA(0)))
+		WRITE_ONCE(memcg->dram_expanded, true);
+
 }
 
 #if 0
@@ -2004,7 +2036,8 @@ static int ksampled_run(void)
 			pfe[cpu] = kzalloc(sizeof(struct perf_event *) * NR_EVENTTYPE, GFP_KERNEL);
 		}
 
-		memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
+		if(!memcg_list)
+			memcg_list = kzalloc(sizeof(struct mem_cgroup *) * LIMIT_TENANTS, GFP_KERNEL);
 		
 		for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 			for(event = 0; event < NR_EVENTTYPE; event++) {
@@ -2080,8 +2113,10 @@ static void ksampled_stop(void)
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++)
 		kfree(pfe[cpu]);
 	kfree(pfe);
-	kfree(memcg_list);
-
+	if(memcg_list) {
+		kfree(memcg_list);
+		memcg_list = NULL;
+	}
 	if(use_dma_migration) {
 		for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
 			if(copy_chan[i]) {

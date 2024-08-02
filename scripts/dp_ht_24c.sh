@@ -37,7 +37,9 @@ elif [[ "$1" == "large" ]]; then
 	TOP_MLP=512-256-1
 	EMBS='128,1000000,170,180'
 	if [[ "$2" == "low" ]]; then
-		NUM_BATCH=30 #120
+		NUM_BATCH=40 #120
+	elif [[ "$2" == "mid" ]]; then
+		NUM_BATCH=60 #120
 	fi
 fi
 

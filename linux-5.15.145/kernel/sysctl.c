@@ -201,6 +201,7 @@ extern unsigned int use_dram_determination;
 extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
+extern unsigned int print_sample_rate;
 extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
@@ -2933,6 +2934,13 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "print_sample_rate",
+		.data		= &print_sample_rate,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
 		.procname	= "hotness_intensity_threshold",

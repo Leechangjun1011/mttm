@@ -5281,6 +5281,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->hi_determined = true;
 		memcg->dram_fixed = true;
 	}
+	memcg->dram_expanded = false;
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
 

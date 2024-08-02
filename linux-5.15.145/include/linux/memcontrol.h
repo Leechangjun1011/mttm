@@ -394,6 +394,7 @@ struct mem_cgroup {
 	unsigned long		lev3_size;
 	unsigned long		lev4_size;
 	bool			dram_fixed;
+	bool			dram_expanded;
 	bool			stable_status;
 	bool			cooled;
 	bool			use_warm;
