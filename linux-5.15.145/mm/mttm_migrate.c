@@ -783,9 +783,10 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 
 	if(!promotion_available(target_nid, memcg, &nr_to_promote, true)) {
 		WRITE_ONCE(memcg->dram_expanded, false);
-		pr_err("[%s] [ %s ] promote node expanded failed. dram : %lu MB, node0 lru : %lu MB\n",
+		/*pr_err("[%s] [ %s ] promote node expanded failed. dram : %lu MB, node0 lru : %lu MB\n",
 			__func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8,
 			get_nr_lru_pages_node(memcg, NODE_DATA(0)) >> 8);
+		*/
 		return 0;
 	}
 

@@ -576,6 +576,40 @@ static unsigned long promote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 
 }
 
+static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *memcg)
+{
+        struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+        unsigned long nr_to_promote, nr_promoted = 0;
+        enum lru_list lru = LRU_INACTIVE_ANON;//promote inactive when dram expanded
+        short priority = DEF_PRIORITY;
+        int target_nid = 0;
+
+        if(!promotion_available(target_nid, memcg, &nr_to_promote, true)) {
+                WRITE_ONCE(memcg->dram_expanded, false);
+                /*pr_err("[%s] [ %s ] promote node expanded failed. dram : %lu MB, node0 lru : %lu MB\n",
+                        __func__, memcg->tenant_name, memcg->max_nr_dram_pages >> 8,
+                        get_nr_lru_pages_node(memcg, NODE_DATA(0)) >> 8);
+                */
+		return 0;
+        }
+
+        nr_to_promote = min(nr_to_promote, lruvec_lru_size(lruvec, lru, MAX_NR_ZONES));
+
+        do {
+                nr_promoted += promote_lruvec(nr_to_promote, priority,
+                                        pgdat, lruvec, lru, NULL);
+                if(nr_promoted >= nr_to_promote)
+                        break;
+                priority--;
+        } while (priority);
+
+        if(!promotion_available(target_nid, memcg, &nr_to_promote, true)) {
+                WRITE_ONCE(memcg->dram_expanded, false);
+        }
+
+        return nr_promoted;
+}
+
 
 static void vtmm_kmigrated_do_work(struct mem_cgroup *memcg,
 				unsigned long *demoted, unsigned long *promoted,
@@ -601,8 +635,13 @@ static void vtmm_kmigrated_do_work(struct mem_cgroup *memcg,
 
 		if(nr_promotion_target(NODE_DATA(1), memcg)) {
 			tot_promoted += promote_node(NODE_DATA(1), memcg, promote_pingpong);
-
 		}
+
+		if(READ_ONCE(memcg->dram_expanded)) {
+			unsigned long expanded_promoted = 0;
+			expanded_promoted = promote_node_expanded(NODE_DATA(1), memcg);
+		}
+
 	}
 
 	if(demoted)

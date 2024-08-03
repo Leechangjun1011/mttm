@@ -721,6 +721,9 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
         if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
                 get_memcg_demotion_wmark(required_dram) > required_dram)
                 WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+	else if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
+		get_nr_lru_pages_node(memcg, NODE_DATA(0)))
+		WRITE_ONCE(memcg->dram_expanded, true);
 }
 
 
