@@ -883,10 +883,10 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
-				unsigned int active_threshold_cooled;
+				unsigned int active_threshold_cooled = MTTM_INIT_THRESHOLD;
 
-				active_threshold_cooled = (memcg->active_threshold > 1 ) ?
-							memcg->active_threshold - 1 : memcg->active_threshold;
+				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
+							memcg->active_threshold - 1 : memcg->active_threshold;*/
 				check_transhuge_cooling_reset((void *)memcg, page);
 
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)

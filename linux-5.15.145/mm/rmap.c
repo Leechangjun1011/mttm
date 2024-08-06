@@ -951,10 +951,10 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 
 			memcg_cclock = READ_ONCE(mca->memcg->cooling_clock);
 			if(memcg_cclock > pginfo->cooling_clock) {
-				unsigned int active_threshold_cooled;
+				unsigned int active_threshold_cooled = MTTM_INIT_THRESHOLD;
 
-				active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
-						mca->memcg->active_threshold - 1 : mca->memcg->active_threshold;
+				/*active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
+						mca->memcg->active_threshold - 1 : mca->memcg->active_threshold;*/
 			
 				check_base_cooling_reset(pginfo, page);
 

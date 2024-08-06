@@ -4,10 +4,10 @@ BENCH_DIR=/home/cjlee/CXL-emulation.code/workloads
 # Only called by run_multi_tenants.sh
 #1st input : order of tenant
 #2nd input : workload
-
-if [ $# -ne 2 ]
+#3rd input : config
+if [ $# -lt 2 ]
 then
-        echo "2 input required"
+        echo "more than 2 input required"
         exit 0
 fi
 
@@ -60,11 +60,19 @@ elif [[ "$2" == "graph500" ]]; then
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
-        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000" #(p, 30000000) (config 2 : 35000000) (p,25000000)
+	if [[ "$3" == "config3" ]]; then
+	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000" #(p, 30000000) (config 2 : 35000000) (p,25000000)
+	else
+		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
+	fi
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
-        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30" #(35)
+	if [[ "$3" == "config3" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
+	else
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
+	fi
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"

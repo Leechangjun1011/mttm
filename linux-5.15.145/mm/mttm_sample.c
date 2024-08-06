@@ -1248,7 +1248,9 @@ static void calculate_sample_rate_stat(void)
 				pr_info("[%s] [ %s ] mean_rate : %lu\n",
 					__func__, memcg->tenant_name, mean_rate);
 			}
+
 			if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT) {
+				// access rate still not stable
 				if(std_deviation >= mean) {
 					if(memcg->stable_cnt > 0) {
 						memcg->stable_cnt = 0;
@@ -1266,12 +1268,10 @@ static void calculate_sample_rate_stat(void)
 				}
 			}
 			else {
-				if(memcg->highest_rate < mean_rate)
-					WRITE_ONCE(memcg->highest_rate, mean_rate);
-
+				// access rate has been stable but changed.
 				if(memcg->highest_rate / 100 > mean_rate &&
 					mean_rate > 50) {
-					// access rate changed a lot
+					// access rate decreased a lot
 					memcg->stable_cnt = 0;
 					WRITE_ONCE(memcg->highest_rate, mean_rate);
 					if(use_dram_determination) {
@@ -1282,31 +1282,30 @@ static void calculate_sample_rate_stat(void)
 					pr_info("[%s] [ %s ] highest rate reset to %lu\n",
 						__func__, memcg->tenant_name, mean_rate);
 				}
-
-
-			}
-
-
-			if(((use_region_separation && READ_ONCE(memcg->region_determined)) || (use_hotness_intensity && READ_ONCE(memcg->hi_determined))) &&
-				READ_ONCE(memcg->stable_status)) {
-				if(memcg->highest_rate < mean_rate) {
-					WRITE_ONCE(memcg->highest_rate, mean_rate);
-					pr_info("[%s] [ %s ] highest rate updated to %lu\n",
-						__func__, memcg->tenant_name, memcg->highest_rate);
-					if(use_dram_determination) {
-						// Re-calculate dram size of each tenant
-						for(j = 0; j < LIMIT_TENANTS; j++) {
-							struct mem_cgroup *memcg_iter;
-							memcg_iter = READ_ONCE(memcg_list[j]);
-							if(memcg_iter) {
-								WRITE_ONCE(memcg_iter->dram_fixed, false);
+				
+				else if((use_region_separation && READ_ONCE(memcg->region_determined))
+					|| (use_hotness_intensity && READ_ONCE(memcg->hi_determined))) {
+					if((memcg->highest_rate * 3 / 2) < mean_rate) {
+						// access rate increased more than 50% of highest
+						WRITE_ONCE(memcg->highest_rate, mean_rate);
+						pr_info("[%s] [ %s ] highest rate updated to %lu\n",
+							__func__, memcg->tenant_name, memcg->highest_rate);
+						if(use_dram_determination) {
+							// Re-calculate dram size of each tenant
+							for(j = 0; j < LIMIT_TENANTS; j++) {
+								struct mem_cgroup *memcg_iter;
+								memcg_iter = READ_ONCE(memcg_list[j]);
+								if(memcg_iter) {
+									WRITE_ONCE(memcg_iter->dram_fixed, false);
+								}
 							}
 						}
 					}
+					
+					memcg->mean_rate = mean_rate;
 				}
-				
-				memcg->mean_rate = mean_rate;
-			}
+
+			}	
 
 			/*pr_info("[%s] memcg id : %d, interval : %u ms, sample [local:%lu, remote:%lu] rate : %lu (samples/s), mean : %lu, std_dev : %lu\n",
 				__func__, mem_cgroup_id(memcg), jiffies_to_msecs(interval),
@@ -1349,15 +1348,15 @@ static void calculate_dram_sensitivity(void)
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined)) {
 				if(!READ_ONCE(memcg->dram_fixed)) {
-					memcg->hot_region_access_rate = memcg->highest_rate * memcg->nr_hot_region_access /
+					memcg->hot_region_access_rate = memcg->mean_rate * memcg->nr_hot_region_access /
 									(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
-					memcg->cold_region_access_rate = memcg->highest_rate * memcg->nr_cold_region_access / 
+					memcg->cold_region_access_rate = memcg->mean_rate * memcg->nr_cold_region_access / 
 									(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
 					memcg->hot_region_dram_sensitivity = memcg->hot_region_access_rate * 1000 / (memcg->hot_region >> 8);
 					memcg->cold_region_dram_sensitivity = memcg->cold_region_access_rate * 1000 / (memcg->cold_region >> 8);
 
-					pr_info("[%s] [ %s ] highest_rate : %lu, region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
-						__func__, memcg->tenant_name, memcg->highest_rate,
+					pr_info("[%s] [ %s ] mean_rate : %lu, region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
+						__func__, memcg->tenant_name, memcg->mean_rate,
 						memcg->hot_region_access_rate, memcg->cold_region_access_rate,
 						memcg->hot_region_dram_sensitivity, memcg->cold_region_dram_sensitivity);
 				}
@@ -1497,7 +1496,7 @@ static unsigned long get_tot_dram_sensitivity(void)
 
 	return tot_dram_sensitivity;
 }
-
+/*
 static unsigned long get_tot_highest_rate(void)
 {
 	int i;
@@ -1515,7 +1514,7 @@ static unsigned long get_tot_highest_rate(void)
 
 	return tot_highest_rate;
 }
-
+*/
 /*static unsigned long hot_region_tolerance(unsigned long highest_rate)
 {
 	unsigned long tolerance = 100 + 50 * (highest_rate / 30000);
@@ -1792,7 +1791,7 @@ static unsigned long get_tot_rate(enum workload_type w_type)
 		if(memcg) {
 			if(READ_ONCE(memcg->hi_determined)) {
 				if(get_workload_type(memcg) == w_type)
-					tot_rate += memcg->highest_rate;	
+					tot_rate += memcg->mean_rate;	
 			}
 		}
 	}
@@ -1805,7 +1804,7 @@ static unsigned long calculate_strong_hot_dram_size(struct mem_cgroup *memcg,
 			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
+	unsigned long available_dram = tot_free_dram * memcg->mean_rate / tot_rate;
 	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
 	int i;
 	struct mem_cgroup *memcg_iter;
@@ -1838,7 +1837,7 @@ static unsigned long calculate_weak_hot_dram_size(struct mem_cgroup *memcg,
 			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long available_dram = tot_free_dram * memcg->highest_rate / tot_rate;
+	unsigned long available_dram = tot_free_dram * memcg->mean_rate / tot_rate;
 	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
 	int i;
 	struct mem_cgroup *memcg_iter;
@@ -1879,8 +1878,8 @@ static unsigned long find_highest_access_rate(int *idx, int *dram_determined,
 			if(READ_ONCE(memcg->hi_determined) &&
 				get_workload_type(memcg) == w_type) {
 				if(dram_determined[i] == 0 &&
-					cur_highest_rate < memcg->highest_rate) {
-					cur_highest_rate = memcg->highest_rate;
+					cur_highest_rate < memcg->mean_rate) {
+					cur_highest_rate = memcg->mean_rate;
 					*idx = i;
 				}
 			}
@@ -1936,7 +1935,7 @@ static void distribute_local_dram_hi(void)
 							tot_strong_hot_rate, dram_determined);
 		dram_determined[idx] = 1;
 		tot_free_dram -= dram_size[idx];
-		tot_strong_hot_rate -= memcg->highest_rate;
+		tot_strong_hot_rate -= memcg->mean_rate;
 
 		pr_info("[%s] [ %s ] strong hot. dram set to %lu MB\n",
 			__func__, memcg->tenant_name, dram_size[idx] >> 8);
@@ -1961,7 +1960,7 @@ static void distribute_local_dram_hi(void)
 							tot_weak_hot_rate, dram_determined);
 		dram_determined[idx] = 1;
 		tot_free_dram -= dram_size[idx];
-		tot_weak_hot_rate -= memcg->highest_rate;
+		tot_weak_hot_rate -= memcg->mean_rate;
 
 		pr_info("[%s] [ %s ] weak hot. dram set to %lu MB\n",
 			__func__, memcg->tenant_name, dram_size[idx] >> 8);

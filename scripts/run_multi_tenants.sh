@@ -2,6 +2,7 @@
 
 #input : [# of workloads] [1st workload] [2nd workload] ...
 re='^[0-9]+$'
+: << END
 if ! [[ $1 =~ $re ]]
 then
 	echo "1st input should be a number"
@@ -19,15 +20,16 @@ then
 	echo "number of workloads is not matched"
 	exit 0
 fi
+END
 
 echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
-echo 102G > /proc/sys/vm/mttm_local_dram_string
+echo 80G > /proc/sys/vm/mttm_local_dram_string
 echo 1 > /proc/sys/vm/use_dram_determination
-echo 0 > /proc/sys/vm/use_region_separation
-echo 1 > /proc/sys/vm/use_hotness_intensity
+echo 1 > /proc/sys/vm/use_region_separation
+echo 0 > /proc/sys/vm/use_hotness_intensity
 echo 200 > /proc/sys/vm/hotness_intensity_threshold
 
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
@@ -50,19 +52,26 @@ sudo sysctl kernel.perf_event_max_sample_rate=100000
 sudo sysctl vm.enable_ksampled=0
 sudo sysctl vm.enable_ksampled=1
 
-i=1
-for arg in "$@"
-do
-	if ! [[ $arg =~ $re ]]
-	then
-		workload[$i]=$arg
-		((i++))
-	fi
-done
+if [[ "$1" == "config3" ]]; then
+	workload[1]="xsbench"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_large_low"
+	echo 73G > /proc/sys/vm/mttm_local_dram_string #73G, 16G
+else
+	i=1
+	for arg in "$@"
+	do
+		if ! [[ $arg =~ $re ]]
+		then
+			workload[$i]=$arg
+			((i++))
+		fi
+	done
+fi
 
 for i in "${!workload[@]}"
 do
-	./run_single_tenant.sh $i ${workload[i]} &	
+	./run_single_tenant.sh $i ${workload[i]} $1 &	
 done
 wait
 
