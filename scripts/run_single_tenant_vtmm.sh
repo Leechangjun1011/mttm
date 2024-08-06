@@ -50,7 +50,7 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14" #(n,8) (n,10) (n,14)
+        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14" #(cpu_dlrm_small_low,8) (config 2 : 14) (n,10)
        	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 	#echo enabled > ${CGMEM_DIR}/memory.use_mig
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
@@ -69,7 +69,7 @@ elif [[ "$2" == "graph500" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
-        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000" #(p,30000000) (p,25000000) (p,35000000)
+        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000" #(p,30000000) (config 2 : 35000000) (p,25000000)
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
@@ -81,7 +81,7 @@ elif [[ "$2" == "btree" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit" #500000000 1100000000
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
@@ -161,7 +161,7 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 4000000000 35 8 33"#4000000000
+        BENCH="${BENCH_PATH}/gups 2 4000000000 31 8 29"#4000000000
 	#echo disabled > ${CGMEM_DIR}/memory.use_mig
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then

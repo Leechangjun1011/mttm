@@ -27,6 +27,8 @@ if [[ "$1" == "small" ]]; then
 	EMBS='128,1000000,60,120'
 	if [[ "$2" == "low" ]]; then
 		NUM_BATCH=150 #120
+	elif [[ "$2" == "high" ]]; then
+		NUM_BATCH=750 #120
 	fi
 elif [[ "$1" == "med" ]]; then
 	BOT_MLP=1024-512-128-128

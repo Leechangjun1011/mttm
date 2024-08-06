@@ -22,7 +22,7 @@ fi
 
 echo 1 > /proc/sys/vm/drop_caches
 
-echo 90G > /proc/sys/vm/mttm_local_dram_string
+echo 102G > /proc/sys/vm/mttm_local_dram_string
 echo 1 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration

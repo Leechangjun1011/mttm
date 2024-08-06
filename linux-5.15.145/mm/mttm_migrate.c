@@ -1410,7 +1410,7 @@ static int kmigrated(void *p)
 	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
 	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong, one_cooling_cputime;
 	unsigned long stamp;
-	unsigned long trace_period = msecs_to_jiffies(20000);
+	unsigned long trace_period = msecs_to_jiffies(10000);
 	unsigned long cur, interval_start;
 	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
 	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
@@ -1613,14 +1613,18 @@ static int kmigrated(void *p)
 				interval_pingpong >> 8);
 			*/
 			if(use_lru_manage_reduce) {
-				if(interval_manage_cputime >= manage_cputime_threshold && interval_manage_cnt > 1 &&
-					//READ_ONCE(memcg->region_determined) &&
-					(memcg->adjust_period << 1) < memcg->cooling_period) {
+				if(interval_manage_cputime >= manage_cputime_threshold &&
+					interval_manage_cnt > 1) {
 					high_manage_cnt++;
 					if(high_manage_cnt >= 2) {
 						high_manage_cnt = 0;
-						WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-						//WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+						if((memcg->adjust_period << 1) > memcg->cooling_period) {
+							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+						}
+						else
+							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+
 						pr_info("[%s] [ %s ] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
 							__func__, memcg->tenant_name, memcg->adjust_period, memcg->cooling_period);
 					}	

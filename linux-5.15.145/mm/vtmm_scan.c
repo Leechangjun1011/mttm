@@ -736,6 +736,7 @@ static void determine_local_dram(struct mem_cgroup *memcg,
 	int idx_hot;
 	unsigned long lower_limit = memcg->vtmm_init_dram_size * 75 / 100;
 	unsigned long upper_limit = memcg->vtmm_init_dram_size * 125 / 100;
+	unsigned long remained_available_dram;
 	int remained_tenant = 0, i;
 
 	if(!use_dram_determination)
@@ -757,14 +758,18 @@ static void determine_local_dram(struct mem_cgroup *memcg,
 	nr_hot = min_t(unsigned long, nr_hot, *available_dram);
 
 	for(i = tenant_idx + 1; i < LIMIT_TENANTS; i++) {
-		remained_tenant++;
+		if(READ_ONCE(memcg_list[i]))
+			remained_tenant++;
 	}
-	nr_hot = min_t(unsigned long, nr_hot,
-			(*available_dram) - remained_tenant * memcg->vtmm_init_dram_size);
+	if((*available_dram) > remained_tenant * lower_limit)
+		remained_available_dram = (*available_dram) - remained_tenant * lower_limit;
+	else
+		remained_available_dram = 0;
+
+	nr_hot = min_t(unsigned long, nr_hot, remained_available_dram);
 
 	set_dram_size(memcg, nr_hot);
 	*available_dram = (*available_dram) - nr_hot;
-	
 }
 
 static void kptscand_do_work(void)
