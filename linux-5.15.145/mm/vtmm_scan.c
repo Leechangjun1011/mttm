@@ -42,6 +42,7 @@ extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 
 extern struct mem_cgroup **memcg_list;
 extern unsigned int use_dram_determination;
+extern unsigned int print_more_info;
 extern unsigned long mttm_local_dram;
 
 unsigned int kptscand_period_in_us = 600000;
@@ -806,6 +807,7 @@ static int kptscand(void *dummy)
 		kptscand_do_work();
 
 		if(jiffies - cur >= trace_period) {
+			spin_lock(&vtmm_register_lock);
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
@@ -815,23 +817,7 @@ static int kptscand(void *dummy)
 					unsigned long nr_list_pages = 0, nr_list_basepages = 0;
 					unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
 					int j;
-
-			
-					/*for(j = 0; j < ML_QUEUE_MAX; j++) {
-						nr_xa_basepages = 0;
-						nr_xa_pages = 0;
-						xa_for_each(memcg->ml_queue[j], index, vp) {
-							if(vp->is_thp)
-								nr_xa_basepages += HPAGE_PMD_NR;
-							else
-								nr_xa_basepages++;
-							nr_xa_pages++;
-						}
-						nr_xa_tot += nr_xa_basepages;
-						if(nr_xa_basepages >> 8)
-							pr_info("[%s] [ %s ] ML QUEUE %d. pages : %lu MB\n",
-								__func__, memcg->tenant_name, j, nr_xa_basepages >> 8);
-					}*/
+	
 					nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 								LRU_ACTIVE_ANON, MAX_NR_ZONES) +
 							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
@@ -846,25 +832,25 @@ static int kptscand(void *dummy)
 						nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
 						memcg->max_nr_dram_pages >> 8);
 
-					
-					for(j = 0; j < BUCKET_MAX; j++) {
-						nr_list_basepages = 0;
-						nr_list_pages = 0;
-						list_for_each_entry(vp, memcg->page_bucket[j], list) {
-							if(vp->is_thp)
-								nr_list_basepages += HPAGE_PMD_NR;
-							else
-								nr_list_basepages++;
-							nr_list_pages++;
+					if(print_more_info) {
+						for(j = 0; j < BUCKET_MAX; j++) {
+							nr_list_basepages = 0;
+							nr_list_pages = 0;
+							list_for_each_entry(vp, memcg->page_bucket[j], list) {
+								if(vp->is_thp)
+									nr_list_basepages += HPAGE_PMD_NR;
+								else
+									nr_list_basepages++;
+								nr_list_pages++;
+							}
+							if(nr_list_basepages >> 8)
+								pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
+									__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
 						}
-						if(nr_list_basepages >> 8)
-							pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
-								__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
 					}
-					
 				}
 			}
-
+		        spin_unlock(&vtmm_register_lock);
 			cur = jiffies;
 		}
 

@@ -28,10 +28,22 @@ echo 1 > /proc/sys/vm/drop_caches
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
 
-if [[ "$1" == "config3" ]]; then
+if [[ "$1" == "config1" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "config3" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_large_low"
+elif [[ "$1" == "config4" ]]; then
+	workload[1]="xsbench"
+	workload[2]="roms"
+	workload[3]="cpu_dlrm_large_low"
+elif [[ "$1" == "config5" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="silo"
+	workload[3]="cpu_dlrm_med_low"
 else
 	i=1
 	for arg in "$@"
@@ -51,4 +63,3 @@ done
 wait
 
 echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-

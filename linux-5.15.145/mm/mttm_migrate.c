@@ -883,7 +883,8 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
-				unsigned int active_threshold_cooled = MTTM_INIT_THRESHOLD;
+				unsigned int active_threshold_cooled = MTTM_INIT_THRESHOLD +
+									memcg->threshold_offset;
 
 				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
 							memcg->active_threshold - 1 : memcg->active_threshold;*/
@@ -1149,8 +1150,11 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 		*nr_to_inactive = nr_to_inactive_tot;
 }
 
-static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
-						enum lru_list lru)
+static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
+					struct lruvec *lruvec, enum lru_list lru,
+					unsigned long *hot_region_size, unsigned long *cold_region_size,
+					unsigned long *hot_region_access, unsigned long *cold_region_access,
+					unsigned long *lev2_size, unsigned long *lev3_size, unsigned long *lev4_size)
 {
 	unsigned long nr_taken;
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
@@ -1187,23 +1191,21 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 			idx = get_idx(meta_page->nr_accesses);
 			if(use_region_separation) {
 				if(idx >= 2) {
-					memcg->hot_region += HPAGE_PMD_NR;
-					memcg->nr_hot_region_access += meta_page->nr_accesses;
+					*hot_region_size = (*hot_region_size) + HPAGE_PMD_NR;
+					*hot_region_access = (*hot_region_access) + meta_page->nr_accesses;
 				}
 				else if(idx == 1) {
-					memcg->cold_region += HPAGE_PMD_NR;
-					memcg->nr_cold_region_access += meta_page->nr_accesses;
+					*cold_region_size = (*cold_region_size) + HPAGE_PMD_NR;
+					*cold_region_access = (*cold_region_access) + meta_page->nr_accesses;
 				}
 			}
 			else if(use_hotness_intensity) {
-				if(idx == 1)
-					memcg->lev1_size += HPAGE_PMD_NR;
 				if(idx >= 2)
-					memcg->lev2_size += HPAGE_PMD_NR;
+					*lev2_size = (*lev2_size) + HPAGE_PMD_NR;
 				if(idx >= 3)
-					memcg->lev3_size += HPAGE_PMD_NR;
+					*lev3_size = (*lev3_size) + HPAGE_PMD_NR;
 				if(idx >= 4)
-					memcg->lev4_size += HPAGE_PMD_NR;
+					*lev4_size = (*lev4_size) + HPAGE_PMD_NR;
 			}
 		}
 		else {
@@ -1222,23 +1224,21 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 			idx = get_idx(pginfo->nr_accesses);
 			if(use_region_separation) {
 				if(idx >= 2) {
-					memcg->hot_region++;
-					memcg->nr_hot_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+					*hot_region_size = (*hot_region_size) + 1;
+					*hot_region_access = (*hot_region_access) + (pginfo->nr_accesses / HPAGE_PMD_NR);
 				}
 				else if(idx == 1) {
-					memcg->cold_region++;
-					memcg->nr_cold_region_access += (pginfo->nr_accesses / HPAGE_PMD_NR);
+					*cold_region_size = (*cold_region_size) + 1;
+					*cold_region_access = (*cold_region_access) + (pginfo->nr_accesses / HPAGE_PMD_NR);
 				}
 			}
 			else if(use_hotness_intensity) {
-				if(idx == 1)
-					memcg->lev1_size++;
 				if(idx >= 2)
-					memcg->lev2_size++;
+					*lev2_size = (*lev2_size) + 1;
 				if(idx >= 3)
-					memcg->lev3_size++;
+					*lev3_size = (*lev3_size) + 1;
 				if(idx >= 4)
-					memcg->lev4_size++;
+					*lev4_size = (*lev4_size) + 1;
 			}
 		}
 
@@ -1258,7 +1258,11 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan, struct lruv
 }
 
 
-static void scan_hotness_node(pg_data_t *pgdat, struct mem_cgroup *memcg)
+static void scan_hotness_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
+				unsigned long *hot_region_size, unsigned long *cold_region_size,
+				unsigned long *hot_region_access, unsigned long *cold_region_access,
+				unsigned long *lev2_size, unsigned long *lev3_size, unsigned long *lev4_size)
+
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
 	unsigned long nr_to_scan, nr_max_scan = 12, nr_scanned;
@@ -1272,7 +1276,10 @@ re_scan:
 		unsigned long scan = nr_to_scan >> 3;
 		if(!scan)
 			scan = nr_to_scan;
-		nr_scanned += scan_hotness_lru_list(scan, lruvec, lru);
+		nr_scanned += scan_hotness_lru_list(scan, lruvec, lru,
+						hot_region_size, cold_region_size,
+						hot_region_access, cold_region_access,
+						lev2_size, lev3_size, lev4_size);
 		nr_max_scan--;
 	} while(nr_scanned < nr_to_scan && nr_max_scan);
 
@@ -1334,10 +1341,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
 	}
 
-	if(use_region_separation)
-		target_cooling = REGION_DETERMINATION_COOLING;
-	else if(use_hotness_intensity)
-		target_cooling = WORKLOAD_CLASSIFICATION_COOLING;
+	target_cooling = READ_ONCE(memcg->hotness_scan_cnt);;
 
 	if(use_dram_determination &&
 		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
@@ -1352,15 +1356,47 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			memcg->lev4_size = 0;
 			memcg->lev3_size = 0;
 			memcg->lev2_size = 0;
-			memcg->lev1_size = 0;
 			return;
 		}
 
 		if(cooling && (*hotness_scanned < target_cooling)) {
-			scan_hotness_node(NODE_DATA(0), memcg);
-			scan_hotness_node(NODE_DATA(1), memcg);
+			unsigned long hot_region_size = 0, cold_region_size = 0;
+			unsigned long hot_region_access = 0, cold_region_access = 0;
+			unsigned long lev2_size = 0, lev3_size = 0, lev4_size = 0;
 
-			(*hotness_scanned)++;
+			scan_hotness_node(NODE_DATA(0), memcg, &hot_region_size, &cold_region_size,
+					&hot_region_access, &cold_region_access, &lev2_size, &lev3_size, &lev4_size);
+			scan_hotness_node(NODE_DATA(1), memcg, &hot_region_size, &cold_region_size,
+					&hot_region_access, &cold_region_access, &lev2_size, &lev3_size, &lev4_size);
+
+			if(use_region_separation && 
+				(hot_region_size >> 8) > 100UL &&
+				(cold_region_size >> 8) > 100UL) {
+				(*hotness_scanned)++;
+
+				memcg->hot_region += hot_region_size;
+				memcg->cold_region += cold_region_size;
+				memcg->nr_hot_region_access += hot_region_access;
+				memcg->nr_cold_region_access += cold_region_access;
+
+				pr_info("[%s] [ %s ] scan : %u, region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
+					__func__, memcg->tenant_name, *hotness_scanned,
+					hot_region_size >> 8, cold_region_size >> 8,
+					hot_region_access, cold_region_access);
+
+			}
+			else if(use_hotness_intensity &&
+				(lev2_size >> 8) > 100UL) {
+				(*hotness_scanned)++;
+
+				memcg->lev2_size += lev2_size;
+				memcg->lev3_size += lev3_size;
+				memcg->lev4_size += lev4_size;
+
+				pr_info("[%s] [ %s ] scan : %u,  lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
+					__func__, memcg->tenant_name, *hotness_scanned,
+					lev2_size >> 8, lev3_size >> 8, lev4_size >> 8);
+			}
 		}
 
 		if(*hotness_scanned >= target_cooling) {
@@ -1369,11 +1405,8 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->cold_region /= (*hotness_scanned);
 				memcg->nr_hot_region_access /= (*hotness_scanned);
 				memcg->nr_cold_region_access /= (*hotness_scanned);
-
-				//WRITE_ONCE(memcg->cooling_period, MTTM_STABLE_COOLING_PERIOD);
-				//WRITE_ONCE(memcg->adjust_period, MTTM_STABLE_ADJUST_PERIOD);
 				
-				pr_info("[%s] name : [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
+				pr_info("[%s] [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
 					__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
 					memcg->nr_hot_region_access, memcg->nr_cold_region_access);
 				
@@ -1383,12 +1416,12 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev4_size /= (*hotness_scanned);
 				memcg->lev3_size /= (*hotness_scanned);
 				memcg->lev2_size /= (*hotness_scanned);
-				memcg->lev1_size /= (*hotness_scanned);
+
 				memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 								tot_pages / memcg->lev2_size;
 
-				pr_info("[%s] name : [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
+				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,
 					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);
 				
@@ -1518,8 +1551,8 @@ static int kmigrated(void *p)
 			unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
 
 			WRITE_ONCE(memcg->hg_mismatch, true);
-		
-			memcg->active_threshold++;
+			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
+
 			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
 			tot_nr_adjusted += nr_adjusted_active;
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
@@ -1650,28 +1683,7 @@ static int kmigrated(void *p)
 						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
 					pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
 						__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
-				}
-
-				/*
-					if(high_pingpong_cnt > memcg->threshold_offset) {
-						high_pingpong_cnt = 0;
-						if(!use_dram_determination ||
-							(use_region_separation && READ_ONCE(memcg->region_determined)) ||
-							(use_hotness_intensity && READ_ONCE(memcg->hi_determined))) {
-							WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
-							WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
-							if(memcg->use_warm)
-								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-							else
-								WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-							pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
-								__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
-						}
-					}
-				}
-				else {
-					high_pingpong_cnt = 0;
-				}*/	
+				}	
 			}
 
 			interval_start = cur;

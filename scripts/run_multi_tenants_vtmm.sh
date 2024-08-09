@@ -24,11 +24,12 @@ END
 
 echo 1 > /proc/sys/vm/drop_caches
 
-echo 102G > /proc/sys/vm/mttm_local_dram_string
+echo 80G > /proc/sys/vm/mttm_local_dram_string
 echo 1 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
+echo 0 > /proc/sys/vm/print_more_info
 echo 600000 > /proc/sys/vm/kptscand_period_in_us
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
@@ -39,7 +40,17 @@ if [[ "$1" == "config3" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_large_low"
-	echo 73G > /proc/sys/vm/mttm_local_dram_string #73G, 16G
+	echo 16G > /proc/sys/vm/mttm_local_dram_string #73G, 16G
+elif [[ "$1" == "config4" ]]; then
+	workload[1]="xsbench"
+	workload[2]="roms"
+	workload[3]="cpu_dlrm_large_low"
+	echo 14G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
+elif [[ "$1" == "config5" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="silo"
+	workload[3]="cpu_dlrm_med_low"
+	echo 54G > /proc/sys/vm/mttm_local_dram_string #54G
 else
 	i=1
 	for arg in "$@"

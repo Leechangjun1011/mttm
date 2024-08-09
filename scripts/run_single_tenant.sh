@@ -16,7 +16,7 @@ CGMEM_DIR=/sys/fs/cgroup/memory/mttm_$1
 cgdelete -g memory:mttm_$1
 cgcreate -g memory:mttm_$1
 echo enabled > ${CGMEM_DIR}/memory.use_mig
-echo enabled > ${CGMEM_DIR}/memory.use_warm
+echo disabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
 
 
@@ -45,14 +45,23 @@ echo $$ > ${CGCPU_DIR}/cgroup.procs
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
-        #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
+	if [[ "$3" == "config1" ]]; then
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
+	elif [[ "$3" == "config5" ]]; then
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 20"
+	else
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 18"
+	fi
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
-	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
-	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14" #conf (config 1 : 8) (config 2 : 14) (n,10)
+	if [[ "$3" == "config1" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	elif [[ "$3" == "config5" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
+	else
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
+	fi
        	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
@@ -71,7 +80,9 @@ elif [[ "$2" == "graph500" ]]; then
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
 	if [[ "$3" == "config3" ]]; then
-	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000" #(p,30000000) (config 2 : 35000000) (p,25000000)
+	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000"
+	elif [[ "$3" == "config4" ]]; then
+	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 60000000"
 	else
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
@@ -90,11 +101,19 @@ elif [[ "$2" == "btree" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit" #(500000000) (1100000000)
+	if [[ "$3" == "config5" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 100000 --ops-per-worker=650000000"
+	else
+	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit"
+	fi
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
+	if [[ "$3" == "config1" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config1"
+	else
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
+	fi
         echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
@@ -108,7 +127,11 @@ elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_med_low" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med low"
+	if [[ "$3" == "config5" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med low config5"
+	else
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med low"
+	fi
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_med_mid" ]]; then
         BENCH_PATH="${PWD}"
@@ -120,7 +143,13 @@ elif [[ "$2" == "cpu_dlrm_med_high" ]]; then
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_large_low" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low"
+	if [[ "$3" == "config3" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low config3"
+	elif [[ "$3" == "config4" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low config4"
+	else
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh large low"
+	fi
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_large_mid" ]]; then
         BENCH_PATH="${PWD}"
@@ -138,7 +167,11 @@ elif [[ "$2" == "fotonik" ]]; then
         BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "roms" ]]; then
-        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 654.roms_s"
+	if [[ "$3" == "config4" ]]; then
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 654.roms_s"
+	else
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 654.roms_s"
+	fi
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_cg.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"

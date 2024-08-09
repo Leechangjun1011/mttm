@@ -41,7 +41,7 @@ echo 50 > /proc/sys/vm/manage_cputime_threshold
 echo 1000 > /proc/sys/vm/kmigrated_period_in_ms
 echo 2000 > /proc/sys/vm/ksampled_trace_period_in_ms
 echo 1 > /proc/sys/vm/check_stable_sample_rate
-echo 0 > /proc/sys/vm/print_sample_rate
+echo 0 > /proc/sys/vm/print_more_info
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
@@ -52,11 +52,26 @@ sudo sysctl kernel.perf_event_max_sample_rate=100000
 sudo sysctl vm.enable_ksampled=0
 sudo sysctl vm.enable_ksampled=1
 
-if [[ "$1" == "config3" ]]; then
+if [[ "$1" == "config1" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="cpu_dlrm_small_low"
+	echo 70G > /proc/sys/vm/mttm_local_dram_string
+elif [[ "$1" == "config3" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_large_low"
 	echo 73G > /proc/sys/vm/mttm_local_dram_string #73G, 16G
+elif [[ "$1" == "config4" ]]; then
+	workload[1]="xsbench"
+	workload[2]="roms"
+	workload[3]="cpu_dlrm_large_low"
+	echo 14G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
+elif [[ "$1" == "config5" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="silo"
+	workload[3]="cpu_dlrm_med_low"
+	echo 54G > /proc/sys/vm/mttm_local_dram_string
 else
 	i=1
 	for arg in "$@"

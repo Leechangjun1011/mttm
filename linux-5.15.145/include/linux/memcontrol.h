@@ -387,9 +387,9 @@ struct mem_cgroup {
 	unsigned long		interval_sample[5];
 	unsigned long		highest_rate;
 	unsigned long		mean_rate;
+	unsigned long		hotness_scan_cnt;
 	unsigned long		stable_cnt;
 	unsigned long		hotness_intensity;
-	unsigned long		lev1_size;
 	unsigned long		lev2_size;
 	unsigned long		lev3_size;
 	unsigned long		lev4_size;

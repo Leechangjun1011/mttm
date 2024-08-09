@@ -6,9 +6,9 @@ export KMP_BLOCKTIME=1
 export OMP_NUM_THREADS=1
 PyGenTbl='import sys; rows,tables=sys.argv[1:3]; print("-".join([rows]*int(tables)))'
 
-if [ $# -ne 2 ]
+if [ $# -lt 2 ]
 then
-	echo "2 input(size, reuse distance) required"
+	echo "2 input(size, reuse distance) or more input required"
 	exit 0
 fi
 
@@ -26,7 +26,11 @@ if [[ "$1" == "small" ]]; then
 	TOP_MLP=128-64-1
 	EMBS='128,1000000,60,120'
 	if [[ "$2" == "low" ]]; then
-		NUM_BATCH=150 #120
+		if [[ "$3" == "config1" ]]; then
+			NUM_BATCH=150
+		else
+			NUM_BATCH=150
+		fi
 	elif [[ "$2" == "high" ]]; then
 		NUM_BATCH=750 #120
 	fi
@@ -34,12 +38,27 @@ elif [[ "$1" == "med" ]]; then
 	BOT_MLP=1024-512-128-128
 	TOP_MLP=384-192-1
 	EMBS='128,1000000,120,150'
+	if [[ "$2" == "low" ]]; then
+		if [[ "$3" == "config5" ]]; then
+			NUM_BATCH=80
+		else
+			NUM_BATCH=40
+		fi
+	else
+		NUM_BATCH=60
+	fi
 elif [[ "$1" == "large" ]]; then
 	BOT_MLP=2048-1024-256-128
 	TOP_MLP=512-256-1
 	EMBS='128,1000000,170,180'
 	if [[ "$2" == "low" ]]; then
-		NUM_BATCH=40 #120
+		if [[ "$3" == "config3" ]]; then
+			NUM_BATCH=40
+		elif [[ "$3" == "config4" ]]; then
+			NUM_BATCH=80
+		else
+			NUM_BATCH=40
+		fi
 	elif [[ "$2" == "mid" ]]; then
 		NUM_BATCH=60 #120
 	fi

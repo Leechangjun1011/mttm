@@ -5270,7 +5270,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cooling_clock = 0;
 	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
-		
+	memcg->hotness_scan_cnt = 3;	
 	if(use_dram_determination) {
 		memcg->region_determined = false;
 		memcg->hi_determined = false;
@@ -5317,7 +5317,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cold_region_dram_sensitivity = 0;
 
 	memcg->hotness_intensity = 0;
-	memcg->lev1_size = 0;
 	memcg->lev2_size = 0;
 	memcg->lev3_size = 0;
 	memcg->lev4_size = 0;
