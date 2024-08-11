@@ -313,7 +313,8 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				struct page *meta_page = get_meta_page(page);
 				if(!meta_page)
 					goto keep_locked;
-				if(memcg->use_warm && (get_idx(meta_page->nr_accesses) >= memcg->warm_threshold))
+				if(memcg->use_warm &&
+					get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->warm_threshold))
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					meta_page->demoted = 1;
@@ -322,6 +323,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 						memcg->nr_pingpong += HPAGE_PMD_NR;
 						meta_page->promoted = 0;
 					}
+				}
+				else {
+					// demotion on dram limit
+					meta_page->demoted = 0;
+					meta_page->promoted = 0;
 				}
 			}
 			else {
@@ -338,7 +344,8 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 					goto keep_locked;
 				}
 				idx = get_idx(pginfo->nr_accesses);
-				if(memcg->use_warm && idx >= memcg->warm_threshold)
+				if(memcg->use_warm &&
+					idx >= READ_ONCE(memcg->warm_threshold))
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					pginfo->demoted = 1;
@@ -347,6 +354,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 						memcg->nr_pingpong++;
 						pginfo->promoted = 0;
 					}
+				}
+				else {
+					// demotion on dram limit
+					pginfo->demoted = 0;
+					pginfo->promoted = 0;
 				}
 			}
 		}
@@ -505,7 +517,7 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 		nr_smem_active = nr_smem_active < nr_to_reclaim ?
 					nr_smem_active : nr_to_reclaim;
 		if(nr_smem_active && nr_reclaimed < nr_smem_active)
-			memcg->warm_threshold = memcg->active_threshold;
+			WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
 	}
 
 	if(get_nr_lru_pages_node(memcg, pgdat) +
@@ -566,6 +578,11 @@ static unsigned long promote_page_list(struct list_head *page_list,
 						meta_page->demoted = 0;
 					}
 				}
+				else if(READ_ONCE(memcg->dram_expanded)) {
+					// promotion on dram expand
+					meta_page->promoted = 0;
+					meta_page->demoted = 0;
+				}
 			}
 			else {
 				pginfo_t *pginfo = NULL;
@@ -586,6 +603,11 @@ static unsigned long promote_page_list(struct list_head *page_list,
 						memcg->nr_pingpong++;
 						pginfo->demoted = 0;
 					}
+				}
+				else if(READ_ONCE(memcg->dram_expanded)) {
+					// promotion on dram expand
+					pginfo->promoted = 0;
+					pginfo->demoted = 0;
 				}
 			}
 		}
@@ -883,11 +905,12 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
-				unsigned int active_threshold_cooled = MTTM_INIT_THRESHOLD +
-									memcg->threshold_offset;
+				unsigned int active_threshold_cooled =
+						MTTM_INIT_THRESHOLD + memcg->threshold_offset;
 
 				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
-							memcg->active_threshold - 1 : memcg->active_threshold;*/
+							memcg->active_threshold - 1 : memcg->active_threshold;
+				*/
 				check_transhuge_cooling_reset((void *)memcg, page);
 
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
@@ -1053,7 +1076,7 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
 
-			if(get_idx(meta_page->nr_accesses) >= memcg->active_threshold)
+			if(get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->active_threshold))
 				status = 2;
 			else
 				status = 1;
@@ -1341,7 +1364,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
 	}
 
-	target_cooling = READ_ONCE(memcg->hotness_scan_cnt);;
+	target_cooling = READ_ONCE(memcg->hotness_scan_cnt);
 
 	if(use_dram_determination &&
 		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
@@ -1543,13 +1566,9 @@ static int kmigrated(void *p)
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
-		stamp = jiffies;
+		//stamp = jiffies;
 		if(active_lru_overflow(memcg)) {
-			// It may not fix the active lru overflow immediately.
-			unsigned long fmem_active, smem_active, nr_active_cur;
-			unsigned long max_dram_pages = READ_ONCE(memcg->max_nr_dram_pages);
-			unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
-
+			// It may not fix the active lru overflow immediately
 			WRITE_ONCE(memcg->hg_mismatch, true);
 			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
 
@@ -1558,23 +1577,15 @@ static int kmigrated(void *p)
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
 			tot_nr_adjusted += nr_adjusted_active;
 
-			fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-					LRU_ACTIVE_ANON, MAX_NR_ZONES);
-			smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-					LRU_ACTIVE_ANON, MAX_NR_ZONES);
-			nr_active_cur = fmem_active + smem_active;
-
-			if((nr_active_cur < (max_nr_pages * 75 / 100)) &&
-				memcg->use_warm &&
-				(memcg->active_threshold > MTTM_INIT_THRESHOLD))
-				memcg->warm_threshold = memcg->active_threshold - 1;
+			if(memcg->use_warm && READ_ONCE(memcg->active_threshold) > MTTM_INIT_THRESHOLD)
+				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 			else
-				memcg->warm_threshold = memcg->active_threshold;
+				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+
 			active_lru_overflow_cnt++;
-			interval_manage_cnt++;
-			//pr_info("[%s] active_lru_overflow_cnt : %u\n",__func__, active_lru_overflow_cnt);
+			//interval_manage_cnt++;
 		}
-		one_manage_cputime += (jiffies - stamp);
+		//one_manage_cputime += (jiffies - stamp);
 
 		one_mig_cputime = jiffies;
 		one_do_mig_cputime = 0;
@@ -1632,19 +1643,13 @@ static int kmigrated(void *p)
 
 		total_cputime += (one_cooling_cputime + one_manage_cputime + one_mig_cputime);
 		total_mig_cputime += one_mig_cputime;
-		interval_manage_cputime += one_manage_cputime;
+		interval_manage_cputime += (one_manage_cputime + one_cooling_cputime);
 		interval_mig_cputime += one_mig_cputime;
 		interval_do_mig_cputime += one_do_mig_cputime;
 		interval_pingpong += one_pingpong;
 
 		cur = jiffies;
-		if(cur - interval_start >= trace_period) {
-			/*pr_info("[%s] interval : %lu, interval_cputime : %lu [manage : %lu (cnt : %lu), mig : %lu (do_mig : %lu)], util : %llu, pingpong : %lu MB\n",
-				__func__, cur - interval_start, interval_manage_cputime + interval_mig_cputime,
-				interval_manage_cputime, interval_manage_cnt, interval_mig_cputime, interval_do_mig_cputime,
-				div64_u64((interval_manage_cputime + interval_mig_cputime) * 1000, cur - interval_start),
-				interval_pingpong >> 8);
-			*/
+		if(cur - interval_start >= trace_period) {	
 			if(use_lru_manage_reduce) {
 				if(interval_manage_cputime >= manage_cputime_threshold &&
 					interval_manage_cnt > 1) {
@@ -1652,8 +1657,17 @@ static int kmigrated(void *p)
 					if(high_manage_cnt >= 2) {
 						high_manage_cnt = 0;
 						if((memcg->adjust_period << 1) > memcg->cooling_period) {
-							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-							WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+							if(use_dram_determination) {
+								if((use_region_separation && memcg->region_determined) ||
+									(use_hotness_intensity && memcg->hi_determined)) {
+									WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+									WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+								}
+							}
+							else {
+								WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
+								WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
+							}
 						}
 						else
 							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
@@ -1670,11 +1684,14 @@ static int kmigrated(void *p)
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
+
 					high_pingpong_cnt++;
+					/*pr_info("[%s] [ %s ] interval_pingpong : %lu MB, mig_time : %lu\n",
+						__func__, memcg->tenant_name, interval_pingpong >> 8, interval_mig_cputime);*/
 					pr_info("[%s] [ %s ] Pingpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
 						__func__, memcg->tenant_name,
 						div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
-
+					
 					WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
 					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
 					if(memcg->use_warm)
@@ -1683,7 +1700,8 @@ static int kmigrated(void *p)
 						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
 					pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
 						__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
-				}	
+					
+				}
 			}
 
 			interval_start = cur;

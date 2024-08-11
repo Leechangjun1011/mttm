@@ -44,6 +44,10 @@ elif [[ "$1" == "config5" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="silo"
 	workload[3]="cpu_dlrm_med_low"
+elif [[ "$1" == "config6" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
 else
 	i=1
 	for arg in "$@"

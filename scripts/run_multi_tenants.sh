@@ -35,7 +35,7 @@ echo 200 > /proc/sys/vm/hotness_intensity_threshold
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-echo 200 > /proc/sys/vm/mig_cputime_threshold
+echo 300 > /proc/sys/vm/mig_cputime_threshold
 echo 50 > /proc/sys/vm/manage_cputime_threshold
 
 echo 1000 > /proc/sys/vm/kmigrated_period_in_ms
@@ -72,6 +72,11 @@ elif [[ "$1" == "config5" ]]; then
 	workload[2]="silo"
 	workload[3]="cpu_dlrm_med_low"
 	echo 54G > /proc/sys/vm/mttm_local_dram_string
+elif [[ "$1" == "config6" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
+	echo 51G > /proc/sys/vm/mttm_local_dram_string
 else
 	i=1
 	for arg in "$@"

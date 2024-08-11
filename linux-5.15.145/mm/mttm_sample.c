@@ -591,7 +591,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	unsigned long nr_active = 0;
 	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
 		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
-	bool need_warm = false;
+	//bool need_warm = false;
 	int idx_hot;
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
@@ -611,8 +611,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	if(idx_hot != 15)
 		idx_hot++;
 
-	if(nr_active < (max_nr_pages * 75 / 100))
-		need_warm = true;
+	/*if(nr_active < (max_nr_pages * 75 / 100))
+		need_warm = true;*/
 
 	spin_unlock(&memcg->access_lock);
 
@@ -620,26 +620,22 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 		idx_hot = MTTM_INIT_THRESHOLD;
 	}
 
-
+	// histogram is reset before cooling
 	// some pages may not be reflected in the histogram when cooling happens
 	if(memcg->cooled) {
-		//when cooling happens
-		if(idx_hot < memcg->active_threshold)
-			if(memcg->active_threshold > 1)
-				memcg->active_threshold--;
-
+		WRITE_ONCE(memcg->active_threshold, MTTM_INIT_THRESHOLD + memcg->threshold_offset);
 		memcg->cooled = false;
 	}
 	else {
-		memcg->active_threshold = idx_hot;
+		WRITE_ONCE(memcg->active_threshold, idx_hot + memcg->threshold_offset);
 	}
 
-	WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
 	set_lru_adjusting(memcg, true);
 
-	memcg->warm_threshold = memcg->active_threshold;
-	if(memcg->use_warm && need_warm && (memcg->active_threshold > MTTM_INIT_THRESHOLD))
-		memcg->warm_threshold = memcg->active_threshold - 1;
+	if(memcg->use_warm && (memcg->active_threshold > MTTM_INIT_THRESHOLD))
+		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+	else
+		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
 
 }
 
@@ -1200,12 +1196,11 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 static void check_rate_change(struct mem_cgroup *memcg)
 {
 	int j;
-	unsigned long scan_cnt = 1;
 	if((memcg->highest_rate * 3 / 2) < memcg->mean_rate) {
 		// access rate increased more than 50% of highest one
 		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);
-		scan_cnt = max_t(unsigned long, scan_cnt, memcg->highest_rate / 2000);
-		WRITE_ONCE(memcg->hotness_scan_cnt, scan_cnt);
+		WRITE_ONCE(memcg->hotness_scan_cnt,
+			max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / 2000));
 
 		pr_info("[%s] [ %s ] highest rate updated to %lu. scan_cnt updated to %lu\n",
 			__func__, memcg->tenant_name, memcg->highest_rate, memcg->hotness_scan_cnt);
