@@ -32,7 +32,11 @@ if [[ "$1" == "small" ]]; then
 			NUM_BATCH=150
 		fi
 	elif [[ "$2" == "high" ]]; then
-		NUM_BATCH=750 #120
+		if [[ "$3" == "config8" ]]; then
+			NUM_BATCH=450 
+		else
+			NUM_BATCH=300
+		fi
 	fi
 elif [[ "$1" == "med" ]]; then
 	BOT_MLP=1024-512-128-128
@@ -42,10 +46,10 @@ elif [[ "$1" == "med" ]]; then
 		if [[ "$3" == "config5" ]]; then
 			NUM_BATCH=80
 		else
-			NUM_BATCH=40
+			NUM_BATCH=80
 		fi
 	else
-		NUM_BATCH=60
+		NUM_BATCH=80
 	fi
 elif [[ "$1" == "large" ]]; then
 	BOT_MLP=2048-1024-256-128
@@ -61,6 +65,8 @@ elif [[ "$1" == "large" ]]; then
 		fi
 	elif [[ "$2" == "mid" ]]; then
 		NUM_BATCH=60 #120
+	elif [[ "$2" == "high" ]]; then
+		NUM_BATCH=60
 	fi
 fi
 

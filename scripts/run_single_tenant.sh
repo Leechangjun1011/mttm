@@ -49,10 +49,14 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
 	elif [[ "$3" == "config5" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 20"
+	elif [[ "$3" == "config7" ]]; then
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 38"
+	elif [[ "$3" == "config8" ]]; then
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 22"
 	else
-	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 18"
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
 	fi
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
 	if [[ "$3" == "config1" ]]; then
@@ -62,9 +66,9 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	elif [[ "$3" == "config6" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 10"
 	else
-	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	fi
-       	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+       	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
@@ -73,12 +77,16 @@ elif [[ "$2" == "gapbs-cc_sv" ]]; then
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-tc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
+	if [[ "$3" == "config7" ]]; then
+	        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
+	else
+	        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
+	fi
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15, options.h NBFS_max is number of BFS
-	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
 	if [[ "$3" == "config3" ]]; then
@@ -88,10 +96,14 @@ elif [[ "$2" == "xsbench" ]]; then
 	else
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
-	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
 	if [[ "$3" == "config3" ]]; then
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
+	elif [[ "$3" == "config7" ]]; then
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 50"
+	elif [[ "$3" == "config8" ]]; then
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
 	else
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
@@ -118,7 +130,7 @@ elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
 	else
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
 	fi
-        echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
 	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
@@ -127,7 +139,11 @@ elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
+	if [[ "$3" == "config8" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config8"
+	else
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
+	fi
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_med_low" ]]; then
         BENCH_PATH="${PWD}"
@@ -173,14 +189,14 @@ elif [[ "$2" == "fotonik" ]]; then
 	else
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
 	fi
-        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "roms" ]]; then
 	if [[ "$3" == "config4" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 654.roms_s"
 	else
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 654.roms_s"
 	fi
-        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 2G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "nas_cg.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
         BENCH="${BENCH_PATH}/bin/cg.D.x"
@@ -211,8 +227,8 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 4000 32 8 30"#4000000000
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 31 100"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"

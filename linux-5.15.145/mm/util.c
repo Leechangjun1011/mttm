@@ -892,6 +892,8 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 		goto out;
 	*/
 
+	
+
 	if(use_dma_completion_interrupt)
 		init_completion(&cmp);
 

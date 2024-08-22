@@ -905,12 +905,12 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
-				unsigned int active_threshold_cooled =
+				unsigned int active_threshold_cooled = 
 						MTTM_INIT_THRESHOLD + memcg->threshold_offset;
 
 				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
-							memcg->active_threshold - 1 : memcg->active_threshold;
-				*/
+							memcg->active_threshold - 1 : memcg->active_threshold;*/
+				
 				check_transhuge_cooling_reset((void *)memcg, page);
 
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
@@ -1177,7 +1177,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 					struct lruvec *lruvec, enum lru_list lru,
 					unsigned long *hot_region_size, unsigned long *cold_region_size,
 					unsigned long *hot_region_access, unsigned long *cold_region_access,
-					unsigned long *lev2_size, unsigned long *lev3_size, unsigned long *lev4_size)
+					unsigned long *lev1_size, unsigned long *lev2_size,
+					unsigned long *lev3_size, unsigned long *lev4_size)
 {
 	unsigned long nr_taken;
 	pg_data_t *pgdat = lruvec_pgdat(lruvec);
@@ -1223,6 +1224,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 				}
 			}
 			else if(use_hotness_intensity) {
+				if(idx >= 1)
+					*lev1_size = (*lev1_size) + HPAGE_PMD_NR;
 				if(idx >= 2)
 					*lev2_size = (*lev2_size) + HPAGE_PMD_NR;
 				if(idx >= 3)
@@ -1256,6 +1259,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 				}
 			}
 			else if(use_hotness_intensity) {
+				if(idx >= 1)
+					*lev1_size = (*lev1_size) + 1;
 				if(idx >= 2)
 					*lev2_size = (*lev2_size) + 1;
 				if(idx >= 3)
@@ -1284,7 +1289,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 static void scan_hotness_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 				unsigned long *hot_region_size, unsigned long *cold_region_size,
 				unsigned long *hot_region_access, unsigned long *cold_region_access,
-				unsigned long *lev2_size, unsigned long *lev3_size, unsigned long *lev4_size)
+				unsigned long *lev1_size, unsigned long *lev2_size,
+				unsigned long *lev3_size, unsigned long *lev4_size)
 
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
@@ -1302,7 +1308,7 @@ re_scan:
 		nr_scanned += scan_hotness_lru_list(scan, lruvec, lru,
 						hot_region_size, cold_region_size,
 						hot_region_access, cold_region_access,
-						lev2_size, lev3_size, lev4_size);
+						lev1_size, lev2_size, lev3_size, lev4_size);
 		nr_max_scan--;
 	} while(nr_scanned < nr_to_scan && nr_max_scan);
 
@@ -1386,11 +1392,14 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			unsigned long hot_region_size = 0, cold_region_size = 0;
 			unsigned long hot_region_access = 0, cold_region_access = 0;
 			unsigned long lev2_size = 0, lev3_size = 0, lev4_size = 0;
+			unsigned long lev1_size = 0;
 
 			scan_hotness_node(NODE_DATA(0), memcg, &hot_region_size, &cold_region_size,
-					&hot_region_access, &cold_region_access, &lev2_size, &lev3_size, &lev4_size);
+					&hot_region_access, &cold_region_access,
+					&lev1_size, &lev2_size, &lev3_size, &lev4_size);
 			scan_hotness_node(NODE_DATA(1), memcg, &hot_region_size, &cold_region_size,
-					&hot_region_access, &cold_region_access, &lev2_size, &lev3_size, &lev4_size);
+					&hot_region_access, &cold_region_access,
+					&lev1_size, &lev2_size, &lev3_size, &lev4_size);
 
 			if(use_region_separation && 
 				(hot_region_size >> 8) > 100UL &&
@@ -1416,9 +1425,9 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev3_size += lev3_size;
 				memcg->lev4_size += lev4_size;
 
-				pr_info("[%s] [ %s ] scan : %u,  lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
+				pr_info("[%s] [ %s ] scan : %u,  lev1 : %lu MB, lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
 					__func__, memcg->tenant_name, *hotness_scanned,
-					lev2_size >> 8, lev3_size >> 8, lev4_size >> 8);
+					lev1_size >> 8, lev2_size >> 8, lev3_size >> 8, lev4_size >> 8);
 			}
 		}
 
