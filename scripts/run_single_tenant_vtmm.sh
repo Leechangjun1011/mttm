@@ -214,8 +214,8 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 4000000000 35 8 33"
-	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33 90"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"

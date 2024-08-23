@@ -362,8 +362,8 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 
         spin_unlock(&vtmm_register_lock);
 
-        pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d\n",
-                __func__, pid, memcg->tenant_name, current_tenants);
+        pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total_tlb_miss : %lu\n",
+                __func__, pid, memcg->tenant_name, current_tenants, memcg->nr_vtmm_tlb_miss);
         return 0;
 }
 
@@ -450,20 +450,26 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 							1, BITMAP_MAX);
 				clear_bit(0, &vp->read_count);
 				clear_bit(0, &vp->write_count);
+
 				if(accessed || dirty) {//accessed
 					if(accessed) {
 						if(vp->remained_dnd_time == 0) {
-							*pmd = pmd_mkold(*pmd);	
+							*pmd = pmd_mkold(*pmd);
 						}
+						//*pmd = pmd_mkold(*pmd);
 						//vp->read_count++;
 						set_bit(0, &vp->read_count);
+						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(dirty) {
+						
 						if(vp->remained_dnd_time == 0) {
 							*pmd = pmd_mkclean(*pmd);
 						}
+						//*pmd = pmd_mkclean(*pmd);
 						//vp->write_count++;
 						set_bit(0, &vp->write_count);
+						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(vp->remained_dnd_time == 0) {
 						flush_cache_range(vma, va, va + HPAGE_SIZE);
@@ -497,16 +503,23 @@ static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 				clear_bit(0, &vp->write_count);
 				if(accessed || dirty) {
 					if(accessed) {
-						if(vp->remained_dnd_time == 0)
+						
+						if(vp->remained_dnd_time == 0) {
 							*pte = pte_mkold(*pte);
+						}
 						//vp->read_count++;
+						//*pte = pte_mkold(*pte);
 						set_bit(0, &vp->read_count);
+						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(dirty) {
-						if(vp->remained_dnd_time == 0)
+						if(vp->remained_dnd_time == 0) {
 							*pte = pte_mkclean(*pte);
+						}
 						//vp->write_count++;
+						//*pte = pte_mkclean(*pte);
 						set_bit(0, &vp->write_count);
+						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(vp->remained_dnd_time == 0) {
 						flush_cache_range(vma, va, va + PAGE_SIZE);

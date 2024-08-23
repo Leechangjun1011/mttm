@@ -27,8 +27,8 @@ echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
 echo 80G > /proc/sys/vm/mttm_local_dram_string
-echo 1 > /proc/sys/vm/use_dram_determination
-echo 1 > /proc/sys/vm/use_region_separation
+echo 0 > /proc/sys/vm/use_dram_determination
+echo 0 > /proc/sys/vm/use_region_separation
 echo 0 > /proc/sys/vm/use_hotness_intensity
 echo 200 > /proc/sys/vm/hotness_intensity_threshold
 

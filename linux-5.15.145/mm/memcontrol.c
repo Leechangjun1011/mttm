@@ -5292,6 +5292,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->hg_mismatch = false;
 	memcg->mttm_enabled = false;
 	memcg->vtmm_enabled = false;
+	memcg->nr_vtmm_tlb_miss = 0;
 	memcg->vtmm_mm = NULL;
 	memcg->vtmm_pid = 0;
 	memcg->vtmm_init_dram_size = 0;

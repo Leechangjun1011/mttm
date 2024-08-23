@@ -15,15 +15,18 @@ END
 
 function run_perf
 {
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+	#echo always > /sys/kernel/mm/transparent_hugepage/enabled
 	perf stat -o ./tlb_result/$1_tlb_huge.txt -a -e LLC-load-misses,LLC-store-misses,dTLB-load-misses,dTLB-store-misses,iTLB-load-misses ./run_multi_tenants_native.sh 1 $1 > ./tlb_result/$1_perf_tlb_huge.txt
 	
-	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	perf stat -o ./tlb_result/$1_tlb_base.txt -a -e LLC-load-misses,LLC-store-misses,dTLB-load-misses,dTLB-store-misses,iTLB-load-misses ./run_multi_tenants_native.sh 1 $1 > ./tlb_result/$1_perf_tlb_base.txt
+	#echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+	#perf stat -o ./tlb_result/$1_tlb_base.txt -a -e LLC-load-misses,LLC-store-misses,dTLB-load-misses,dTLB-store-misses,iTLB-load-misses ./run_multi_tenants_native.sh 1 $1 > ./tlb_result/$1_perf_tlb_base.txt
 
 }
 
-#run_perf gapbs-cc_sv
+run_perf gups_large
+
+: << END
+run_perf gapbs-cc_sv
 run_perf gapbs-tc
 run_perf graph500
 run_perf xsbench
@@ -41,7 +44,7 @@ run_perf nas_sp.d
 run_perf nas_mg.d
 run_perf nas_lu.d
 run_perf nas_ua.d
-
+END
 
 
 
