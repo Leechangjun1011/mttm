@@ -24,8 +24,8 @@ END
 
 echo 1 > /proc/sys/vm/drop_caches
 
-echo 80G > /proc/sys/vm/mttm_local_dram_string
-echo 0 > /proc/sys/vm/use_dram_determination
+#echo 80G > /proc/sys/vm/mttm_local_dram_string
+echo 1 > /proc/sys/vm/use_dram_determination
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
@@ -45,7 +45,7 @@ elif [[ "$1" == "config4" ]]; then
 	workload[1]="xsbench"
 	workload[2]="roms"
 	workload[3]="cpu_dlrm_large_low"
-	echo 14G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
+	#echo 63G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
 elif [[ "$1" == "config5" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="silo"

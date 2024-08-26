@@ -5305,6 +5305,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->highest_rate = 0;
 	memcg->mean_rate = 0;
 	memcg->stable_cnt = 0;
+	memcg->update_cnt = 0;
 	memcg->lowered_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;

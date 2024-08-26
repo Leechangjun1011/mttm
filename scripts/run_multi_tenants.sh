@@ -26,14 +26,15 @@ echo 1 > /proc/sys/vm/drop_caches
 echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
-echo 80G > /proc/sys/vm/mttm_local_dram_string
-echo 0 > /proc/sys/vm/use_dram_determination
-echo 0 > /proc/sys/vm/use_region_separation
-echo 0 > /proc/sys/vm/use_hotness_intensity
+#echo 80G > /proc/sys/vm/mttm_local_dram_string
+echo 1 > /proc/sys/vm/use_dram_determination
+#echo 1 > /proc/sys/vm/use_region_separation
+#echo 0 > /proc/sys/vm/use_hotness_intensity
 echo 200 > /proc/sys/vm/hotness_intensity_threshold
 
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce
+echo 5 > /proc/sys/vm/pingpong_reduce_limit
 echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 echo 300 > /proc/sys/vm/mig_cputime_threshold
 echo 50 > /proc/sys/vm/manage_cputime_threshold
@@ -66,7 +67,7 @@ elif [[ "$1" == "config4" ]]; then
 	workload[1]="xsbench"
 	workload[2]="roms"
 	workload[3]="cpu_dlrm_large_low"
-	echo 63G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
+	#echo 63G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
 elif [[ "$1" == "config5" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="silo"
@@ -76,7 +77,7 @@ elif [[ "$1" == "config6" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-	echo 51G > /proc/sys/vm/mttm_local_dram_string
+	#echo 51G > /proc/sys/vm/mttm_local_dram_string
 elif [[ "$1" == "config7" ]]; then
 	workload[1]="gapbs-tc"
 	workload[2]="gapbs-bc"
@@ -86,7 +87,7 @@ elif [[ "$1" == "config8" ]]; then
 	workload[1]="cpu_dlrm_small_high"
 	workload[2]="gapbs-bc"
 	workload[3]="xindex"
-	echo 20G > /proc/sys/vm/mttm_local_dram_string #50G, 20G
+	#echo 20G > /proc/sys/vm/mttm_local_dram_string #50G, 20G
 else
 	i=1
 	for arg in "$@"

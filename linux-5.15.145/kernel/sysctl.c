@@ -201,6 +201,7 @@ extern unsigned int use_dram_determination;
 extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
+extern unsigned long pingpong_reduce_limit;
 extern unsigned int print_more_info;
 extern unsigned long pingpong_reduce_threshold;
 extern unsigned long manage_cputime_threshold;
@@ -2987,6 +2988,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "pingpong_reduce_threshold",
 		.data		= &pingpong_reduce_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "pingpong_reduce_limit",
+		.data		= &pingpong_reduce_limit,
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,

@@ -45,6 +45,7 @@ extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
+unsigned long pingpong_reduce_limit = 1;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int use_lru_manage_reduce;
@@ -1692,7 +1693,8 @@ static int kmigrated(void *p)
 
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if(interval_mig_cputime >= mig_cputime_threshold &&
-					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold) {
+					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold &&
+					memcg->threshold_offset < pingpong_reduce_limit) {
 
 					high_pingpong_cnt++;
 					/*pr_info("[%s] [ %s ] interval_pingpong : %lu MB, mig_time : %lu\n",
