@@ -369,6 +369,7 @@ struct mem_cgroup {
 	unsigned long		cooling_period;
 	unsigned long		adjust_period;
 	unsigned long		max_nr_dram_pages;
+	unsigned long		max_anon_rss;
 	unsigned long		nr_alloc;
 	unsigned long		nr_sampled;
 	unsigned long		interval_nr_sampled;
@@ -389,7 +390,6 @@ struct mem_cgroup {
 	unsigned long		mean_rate;
 	unsigned long		hotness_scan_cnt;
 	unsigned long		stable_cnt;
-	unsigned long		update_cnt;
 	unsigned long		lowered_cnt;
 	unsigned long		hotness_intensity;
 	unsigned long		lev2_size;

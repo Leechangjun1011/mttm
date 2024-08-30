@@ -28,6 +28,10 @@ if [[ "$1" == "small" ]]; then
 	if [[ "$2" == "low" ]]; then
 		if [[ "$3" == "config1" ]]; then
 			NUM_BATCH=150
+		elif [[ "$3" == "config9" ]]; then
+			NUM_BATCH=430
+		elif [[ "$3" == "config10" ]]; then
+			NUM_BATCH=180
 		else
 			NUM_BATCH=150
 		fi

@@ -215,6 +215,7 @@ extern unsigned int use_dma_completion_interrupt;
 extern unsigned int use_all_stores;
 extern unsigned int use_xa_basepage;
 extern unsigned int kptscand_period_in_us;
+extern unsigned int weak_hot_offset;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -3016,6 +3017,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "ksampled_trace_period_in_ms",
 		.data		= &ksampled_trace_period_in_ms,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "weak_hot_offset",
+		.data		= &weak_hot_offset,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

@@ -5258,6 +5258,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->kmigrated = NULL;
 	spin_lock_init(&memcg->access_lock);
 	memcg->max_nr_dram_pages = ULONG_MAX;
+	memcg->max_anon_rss = 0;
 	memcg->nr_sampled = 0;
 	memcg->interval_nr_sampled = 0;
 	memcg->nr_load = 0;
@@ -5270,7 +5271,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cooling_clock = 0;
 	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
-	memcg->hotness_scan_cnt = 2;
+	memcg->hotness_scan_cnt = 1;
 	if(use_dram_determination) {
 		memcg->region_determined = false;
 		memcg->hi_determined = false;
@@ -5305,7 +5306,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->highest_rate = 0;
 	memcg->mean_rate = 0;
 	memcg->stable_cnt = 0;
-	memcg->update_cnt = 0;
 	memcg->lowered_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;

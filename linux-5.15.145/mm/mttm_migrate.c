@@ -46,12 +46,14 @@ extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
 unsigned long pingpong_reduce_limit = 1;
+unsigned int weak_hot_offset = 1;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_xa_basepage;
 extern unsigned int hotset_size_threshold;
+extern unsigned long hotness_intensity_threshold;
 
 unsigned long kmigrated_period_in_ms = 1000;
 
@@ -1442,6 +1444,16 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				pr_info("[%s] [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
 					__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
 					memcg->nr_hot_region_access, memcg->nr_cold_region_access);
+
+				/*if(memcg->nr_hot_region_access / memcg->nr_cold_region_access < 10 &&
+					memcg->hot_region * 100 / memcg->cold_region > 80) {
+					pr_info("[%s] [ %s ] weak hot offset added\n",
+						__func__, memcg->tenant_name);
+
+					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold - memcg->threshold_offset);
+					WRITE_ONCE(memcg->threshold_offset, weak_hot_offset);
+					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
+				}*/
 				
 				WRITE_ONCE(memcg->region_determined, true);
 			}
@@ -1457,6 +1469,14 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,
 					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);
+
+				/*if(memcg->hotness_intensity < hotness_intensity_threshold) {
+					WRITE_ONCE(memcg->threshold_offset, weak_hot_offset);
+					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
+					if(memcg->use_warm)
+						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+
+				}*/
 				
 				WRITE_ONCE(memcg->hi_determined, true);
 			}

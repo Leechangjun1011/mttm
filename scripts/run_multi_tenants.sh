@@ -35,6 +35,7 @@ echo 200 > /proc/sys/vm/hotness_intensity_threshold
 echo 1 > /proc/sys/vm/use_lru_manage_reduce
 echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 5 > /proc/sys/vm/pingpong_reduce_limit
+echo 2 > /proc/sys/vm/weak_hot_offset
 echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 echo 300 > /proc/sys/vm/mig_cputime_threshold
 echo 50 > /proc/sys/vm/manage_cputime_threshold
@@ -88,6 +89,14 @@ elif [[ "$1" == "config8" ]]; then
 	workload[2]="gapbs-bc"
 	workload[3]="xindex"
 	#echo 20G > /proc/sys/vm/mttm_local_dram_string #50G, 20G
+elif [[ "$1" == "config9" ]]; then
+	workload[1]="cpu_dlrm_small_low"
+	workload[2]="silo"
+	workload[3]="nas_cg.d"
+elif [[ "$1" == "config10" ]]; then
+	workload[1]="cpu_dlrm_small_low"
+	workload[2]="silo"
+	workload[3]="fotonik"
 else
 	i=1
 	for arg in "$@"

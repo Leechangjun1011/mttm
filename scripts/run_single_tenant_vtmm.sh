@@ -57,7 +57,7 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	if [[ "$3" == "config5" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
 	elif [[ "$3" == "config6" ]]; then
-	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 10"
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
 	fi
@@ -110,6 +110,10 @@ elif [[ "$2" == "silo" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 100000 --ops-per-worker=650000000"
 	elif [[ "$3" == "config6" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	elif [[ "$3" == "config9" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=1000000000"
+	elif [[ "$3" == "config10" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 	else
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit"
 	fi
@@ -117,9 +121,12 @@ elif [[ "$2" == "silo" ]]; then
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
+	if [[ "$3" == "config9" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config9"
+	elif [[ "$3" == "config10" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config10"
+	fi
         echo 10G > ${CGMEM_DIR}/memory.max_at_node0
-	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
-	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
@@ -172,6 +179,8 @@ elif [[ "$2" == "bwaves" ]]; then
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "fotonik" ]]; then
 	if [[ "$3" == "config6" ]]; then
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+	elif [[ "$3" == "config10" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	else
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"

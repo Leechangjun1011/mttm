@@ -786,7 +786,8 @@ static void determine_local_dram(struct mem_cgroup *memcg,
 	*available_dram = (*available_dram) - nr_hot;
 }
 
-static void kptscand_do_work(void)
+
+void kptscand_do_work(void)
 {
 	int i;
 	struct mem_cgroup *memcg;
@@ -807,7 +808,7 @@ static int kptscand(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(kptscand_period_in_us);
 	unsigned long total_time, total_cputime = 0, one_cputime;
-	unsigned long cur, trace_period = msecs_to_jiffies(10000);
+	unsigned long cur, trace_period = msecs_to_jiffies(30000);
 	struct mem_cgroup *memcg;
 	int i;
 
@@ -820,7 +821,6 @@ static int kptscand(void *dummy)
 		kptscand_do_work();
 
 		if(jiffies - cur >= trace_period) {
-			spin_lock(&vtmm_register_lock);
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
@@ -831,6 +831,7 @@ static int kptscand(void *dummy)
 					unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
 					int j;
 	
+					spin_lock(&vtmm_register_lock);
 					nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 								LRU_ACTIVE_ANON, MAX_NR_ZONES) +
 							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
@@ -861,9 +862,9 @@ static int kptscand(void *dummy)
 									__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
 						}
 					}
+					spin_unlock(&vtmm_register_lock);
 				}
 			}
-		        spin_unlock(&vtmm_register_lock);
 			cur = jiffies;
 		}
 

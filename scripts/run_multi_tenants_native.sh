@@ -56,6 +56,14 @@ elif [[ "$1" == "config8" ]]; then
 	workload[1]="cpu_dlrm_small_high"
 	workload[2]="gapbs-bc"
 	workload[3]="xindex"
+elif [[ "$1" == "config9" ]]; then
+	workload[1]="cpu_dlrm_small_low"
+	workload[2]="silo"
+	workload[3]="nas_cg.d"
+elif [[ "$1" == "config10" ]]; then
+	workload[1]="cpu_dlrm_small_low"
+	workload[2]="silo"
+	workload[3]="fotonik"
 else
 	i=1
 	for arg in "$@"
