@@ -34,7 +34,7 @@
 
 #ifdef CONFIG_MTTM
 #define NUM_AVAIL_DMA_CHAN	16
-#define DMA_CHAN_PER_PAGE	2
+#define DMA_CHAN_PER_PAGE	1
 extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 int use_dma_completion_interrupt = 1;

@@ -354,7 +354,23 @@ void migration_entry_wait(struct mm_struct *mm, pmd_t *pmd,
 {
 	spinlock_t *ptl = pte_lockptr(mm, pmd);
 	pte_t *ptep = pte_offset_map(pmd, address);
+#ifdef CONFIG_MTTM
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(mm);
+	ktime_t start, end;
+
+	if(memcg->mttm_enabled)
+		start = ktime_get();
+#endif
 	__migration_entry_wait(mm, ptep, ptl);
+
+#ifdef CONFIG_MTTM
+	if(memcg->mttm_enabled) {
+		end = ktime_get();
+		WRITE_ONCE(memcg->block_time,
+			memcg->block_time + ktime_sub(end, start));
+
+	}
+#endif
 }
 
 void migration_entry_wait_huge(struct vm_area_struct *vma,
@@ -369,6 +385,10 @@ void pmd_migration_entry_wait(struct mm_struct *mm, pmd_t *pmd)
 {
 	spinlock_t *ptl;
 	struct page *page;
+#ifdef CONFIG_MTTM
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(mm);
+	ktime_t start, end;
+#endif
 
 	ptl = pmd_lock(mm, pmd);
 	if (!is_pmd_migration_entry(*pmd))
@@ -377,7 +397,21 @@ void pmd_migration_entry_wait(struct mm_struct *mm, pmd_t *pmd)
 	if (!get_page_unless_zero(page))
 		goto unlock;
 	spin_unlock(ptl);
+#ifdef CONFIG_MTTM
+	if(memcg->mttm_enabled)
+		start = ktime_get();
+#endif
+
 	put_and_wait_on_page_locked(page, TASK_UNINTERRUPTIBLE);
+#ifdef CONFIG_MTTM
+	if(memcg->mttm_enabled) {
+		end = ktime_get();
+		WRITE_ONCE(memcg->block_time,
+			memcg->block_time + ktime_sub(end, start));
+
+	}
+#endif
+
 	return;
 unlock:
 	spin_unlock(ptl);

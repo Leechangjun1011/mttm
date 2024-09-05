@@ -419,6 +419,7 @@ struct mem_cgroup {
 	unsigned long		hot_region_dram_sensitivity;
 	unsigned long		cold_region_dram_sensitivity;
 	unsigned long		nr_pingpong;
+	ktime_t			block_time;
 	struct xarray		*basepage_xa;
 
 	unsigned long		vtmm_init_dram_size;

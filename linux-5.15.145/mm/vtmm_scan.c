@@ -35,7 +35,7 @@ DEFINE_SPINLOCK(vtmm_register_lock);
 struct task_struct *kptscand_thread = NULL;
 
 #define NUM_AVAIL_DMA_CHAN	16
-#define DMA_CHAN_PER_PAGE	2
+#define DMA_CHAN_PER_PAGE	1
 extern unsigned int use_dma_migration;
 extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
@@ -820,7 +820,7 @@ static int kptscand(void *dummy)
 
 		kptscand_do_work();
 
-		if(jiffies - cur >= trace_period) {
+		/*if(jiffies - cur >= trace_period) {
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
@@ -866,7 +866,7 @@ static int kptscand(void *dummy)
 				}
 			}
 			cur = jiffies;
-		}
+		}*/
 
 		total_cputime += (jiffies - one_cputime);
 		schedule_timeout_interruptible(sleep_timeout);

@@ -74,6 +74,26 @@ elif [[ "$1" == "config10" ]]; then
 	workload[1]="cpu_dlrm_small_low"
 	workload[2]="silo"
 	workload[3]="fotonik"
+elif [[ "$1" == "6tenants" ]]; then
+        workload[1]="gapbs-bc"
+        workload[2]="xsbench"
+        workload[3]="gapbs-pr"
+        workload[4]="silo"
+        workload[5]="fotonik"
+        workload[6]="cpu_dlrm_small_low"
+elif [[ "$1" == "12tenants" ]]; then
+        workload[1]="gapbs-bc"
+        workload[2]="xsbench"
+        workload[3]="gapbs-pr"
+        workload[4]="silo"
+        workload[5]="fotonik"
+        workload[6]="cpu_dlrm_small_low_1"
+        workload[7]="gapbs-bc"
+        workload[8]="xsbench"
+        workload[9]="gapbs-pr"
+        workload[10]="silo"
+        workload[11]="fotonik"
+        workload[12]="cpu_dlrm_small_low_2"
 else
 	i=1
 	for arg in "$@"

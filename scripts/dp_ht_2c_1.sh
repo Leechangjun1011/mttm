@@ -41,11 +41,6 @@ if [[ "$1" == "small" ]]; then
 		else
 			NUM_BATCH=150
 		fi
-	elif [[ "$2" == "mid" ]]; then
-		if [[ "$3" == "12tenants" ]]; then
-			NUM_BATCH=80
-			INSTANCES=2
-		fi
 	elif [[ "$2" == "high" ]]; then
 		if [[ "$3" == "config8" ]]; then
 			NUM_BATCH=450 
@@ -98,7 +93,7 @@ for e in $EMBS; do
 	IFS=','; set -- $e; EMB_DIM=$1; EMB_ROW=$2; EMB_TBL=$3; EMB_LS=$4; unset IFS;
 	EMB_TBL=$(python -c "$PyGenTbl" "$EMB_ROW" "$EMB_TBL")
 	DATA_GEN="prod,$reuse,$EMB_ROW"
-	$CONDA_PREFIX/bin/python -u $MODELS_PATH/models/recommendation/pytorch/dlrm/product/dlrm_s_pytorch.py --data-generation=$DATA_GEN --round-targets=True --learning-rate=1.0 --arch-mlp-bot=$BOT_MLP --arch-mlp-top=$TOP_MLP --arch-sparse-feature-size=$EMB_DIM --max-ind-range=40000000 --numpy-rand-seed=727 --ipex-interaction --inference-only --num-batches=$NUM_BATCH --data-size 100000000 --num-indices-per-lookup=$EMB_LS --num-indices-per-lookup-fixed=True --arch-embedding-size=$EMB_TBL --print-freq=10 --print-time --mini-batch-size=$BS --share-weight-instance=$INSTANCES $EXTRA_FLAGS | tee -a $LOG
+	$CONDA_PREFIX/bin/python -u $MODELS_PATH/models/recommendation/pytorch/dlrm/product/dlrm_s_pytorch_1.py --data-generation=$DATA_GEN --round-targets=True --learning-rate=1.0 --arch-mlp-bot=$BOT_MLP --arch-mlp-top=$TOP_MLP --arch-sparse-feature-size=$EMB_DIM --max-ind-range=40000000 --numpy-rand-seed=727 --ipex-interaction --inference-only --num-batches=$NUM_BATCH --data-size 100000000 --num-indices-per-lookup=$EMB_LS --num-indices-per-lookup-fixed=True --arch-embedding-size=$EMB_TBL --print-freq=10 --print-time --mini-batch-size=$BS --share-weight-instance=$INSTANCES $EXTRA_FLAGS | tee -a $LOG
 done
 
 

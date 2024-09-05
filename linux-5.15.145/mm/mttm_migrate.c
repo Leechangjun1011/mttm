@@ -1752,8 +1752,9 @@ static int kmigrated(void *p)
 	memcg->promoted_pages = tot_promoted;
 	memcg->demoted_pages = tot_demoted;
 	total_time = jiffies - total_time;
-	pr_info("[%s] name : %s. tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu\n",
-		__func__, memcg->tenant_name, tot_promoted >> 8, tot_demoted >> 8, memcg->nr_pingpong);
+	pr_info("[%s] name : %s. tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu MB, block_time : %llu ns\n",
+		__func__, memcg->tenant_name, tot_promoted >> 8, tot_demoted >> 8,
+		memcg->nr_pingpong >> 8, READ_ONCE(memcg->block_time));
 	pr_info("[%s] name : %s. total_time : %lu, total_cputime : %lu, total_mig_cputime : %lu\n",
 		__func__, memcg->tenant_name, total_time, total_cputime, total_mig_cputime);
 

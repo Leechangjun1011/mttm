@@ -20,21 +20,28 @@ echo $$ > ${CGMEM_DIR}/cgroup.procs
 CGCPU_DIR=/sys/fs/cgroup/cpuset/vtmm_$1
 cgdelete -g cpuset:vtmm_$1
 cgcreate -g cpuset:vtmm_$1
-: << END
-if [[ $1 -eq 1 ]]
-then
-	CPUSETS="0-7"
-elif [[ $1 -eq 2 ]]
-then
-	CPUSETS="8-15"
-elif [[ $1 -eq 3 ]]
-then
-	CPUSETS="16-23"
+
+if [[ "$3" == "6tenants" ]]; then
+        CPUSETS="0-3"
+elif [[ "$3" == "12tenants" ]]; then
+        CPUSETS="0-1"
+        if [ $1 -lt 5 ]; then
+                CPUSETS="0-1"
+        elif [ $1 -lt 9 ]; then
+                CPUSETS="2-3"
+        elif [ $1 -lt 13 ]; then
+                CPUSETS="4-5"
+        fi
+
+        if [[ "$2" == "cpu_dlrm_small_low_1" ]]; then
+                CPUSETS="0-23"
+        elif [[ "$2" == "cpu_dlrm_small_low_2" ]]; then
+                CPUSETS="0-23"
+        fi
 else
-	CPUSETS="-23"
+        CPUSETS="0-7"
 fi
-END
-CPUSETS="0-7"
+
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
@@ -48,6 +55,10 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 38"
 	elif [[ "$3" == "config8" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 22"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g26.sg -n 28"
+        elif [[ "$3" == "12tenants" ]]; then
+                BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g26.sg -n 26"
 	else
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 20"
 	fi
@@ -58,6 +69,10 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
 	elif [[ "$3" == "config6" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 20"
+        elif [[ "$3" == "12tenants" ]]; then
+                BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 18"
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
 	fi
@@ -84,6 +99,10 @@ elif [[ "$2" == "xsbench" ]]; then
 	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 35000000"
 	elif [[ "$3" == "config4" ]]; then
 	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 60000000"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="${BENCH_PATH}/XSBench -t 4 -g 25000 -p 12000000"
+        elif [[ "$3" == "12tenants" ]]; then
+                BENCH="${BENCH_PATH}/XSBench -t 2 -g 25000 -p 11000000"
 	else
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
@@ -114,6 +133,10 @@ elif [[ "$2" == "silo" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=1000000000"
 	elif [[ "$3" == "config10" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 4 --scale-factor 80000 --ops-per-worker=450000000"
+        elif [[ "$3" == "12tenants" ]]; then
+                BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit"
 	fi
@@ -125,8 +148,16 @@ elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config9"
 	elif [[ "$3" == "config10" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config10"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low 6tenants"
 	fi
         echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "cpu_dlrm_small_low_1" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_2c_1.sh small low 12tenants"
+elif [[ "$2" == "cpu_dlrm_small_low_2" ]]; then
+        BENCH_PATH="${PWD}"
+        BENCH="bash ${BENCH_PATH}/dp_ht_2c_2.sh small low 12tenants"
 elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
@@ -182,6 +213,10 @@ elif [[ "$2" == "fotonik" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	elif [[ "$3" == "config10" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+	elif [[ "$3" == "6tenants" ]]; then
+                BENCH="runcpu --config=mttm_2 --noreportable --iteration=1 649.fotonik3d_s"
+        elif [[ "$3" == "12tenants" ]]; then
+                BENCH="runcpu --config=mttm_3 --noreportable --iteration=1 649.fotonik3d_s"
 	else
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
 	fi
@@ -239,6 +274,12 @@ function release_cpuset
 	sleep 6s
 	echo "0-23" > ${CGCPU_DIR}/cpuset.cpus
 }
+
+if [ $1 -gt 6 ]
+then
+	sleep 2s
+fi
+
 
 ./run_bench_vtmm ${BENCH} & release_cpuset
 wait

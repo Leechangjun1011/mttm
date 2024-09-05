@@ -216,6 +216,7 @@ extern unsigned int use_all_stores;
 extern unsigned int use_xa_basepage;
 extern unsigned int kptscand_period_in_us;
 extern unsigned int weak_hot_offset;
+extern unsigned int remote_latency;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -3024,6 +3025,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "weak_hot_offset",
 		.data		= &weak_hot_offset,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "remote_latency",
+		.data		= &remote_latency,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

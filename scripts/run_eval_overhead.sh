@@ -10,8 +10,46 @@ function run_mttm_region
 	echo 1 > /proc/sys/vm/use_region_separation
 	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo $1 > /proc/sys/vm/mttm_local_dram_string
-	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/region_$1_$2_$3.txt
-	dmesg > ./evaluation/region_$1_$2_$3_dmesg.txt
+	echo 1 > /proc/sys/vm/use_lru_manage_reduce
+	echo 1 > /proc/sys/vm/use_pingpong_reduce
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/overhead/region_$1_$2_$3.txt
+	dmesg > ./evaluation/overhead/region_$1_$2_$3_dmesg.txt
+}
+
+function run_mttm_region_nolru
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 1 > /proc/sys/vm/use_pingpong_reduce
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/overhead/region_$1_$2_$3.txt
+	dmesg > ./evaluation/overhead/region_$1_$2_$3_dmesg.txt
+}
+
+function run_mttm_region_nopingpong
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo 1 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/overhead/region_$1_$2_$3.txt
+	dmesg > ./evaluation/overhead/region_$1_$2_$3_dmesg.txt
+}
+
+function run_mttm_region_nopingpong_nolru
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/overhead/region_$1_$2_$3.txt
+	dmesg > ./evaluation/overhead/region_$1_$2_$3_dmesg.txt
 }
 
 function run_mttm_hi
@@ -146,11 +184,13 @@ run_mttm_hi 48G config10 250
 run_mttm_region 19G config10 250
 run_mttm_hi 19G config10 250
 END
-#2nd exp
-#conda deactivate
-set_250
-run_vtmm 51G config6 250
-run_vtmm 21G config6 250
+
+set_192
+source $conda_activate dlrm_cpu
+run_mttm_region 25G config4 192_pingpong
+run_mttm_region_nopingpong 25G config4 192_nopingpong
+
+
 
 set_130
 

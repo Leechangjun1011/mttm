@@ -5,12 +5,6 @@ BENCH_DIR=/home/cjlee/CXL-emulation.code/workloads
 #1st input : order of tenant
 #2nd input : workload
 
-if [ $# -ne 2 ]
-then
-        echo "2 input required"
-        exit 0
-fi
-
 
 CGCPU_DIR=/sys/fs/cgroup/cpuset/mttm_$1
 cgdelete -g cpuset:mttm_$1
@@ -38,7 +32,11 @@ if [[ "$2" == "gapbs-bc" ]]; then
         #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	if [[ "$3" == "config6" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	else
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	fi
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
@@ -56,7 +54,11 @@ elif [[ "$2" == "xindex" ]]; then
         BENCH="${BENCH_PATH}/build/ycsb_bench --fg 16 --iteration 70"
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+	if [[ "$3" == "config6" ]]; then
+                BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	else
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
+	fi
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
@@ -114,6 +116,20 @@ elif [[ "$2" == "gups_large" ]]; then
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"
+elif [[ "$2" == "fotonik" ]]; then
+        if [[ "$3" == "config6" ]]; then
+                BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+        elif [[ "$3" == "config10" ]]; then
+                BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+        else
+                BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
+        fi
+elif [[ "$2" == "roms" ]]; then
+        if [[ "$3" == "config4" ]]; then
+                BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 654.roms_s"
+        else
+                BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 654.roms_s"
+        fi
 else
         echo "$2 benchmark is not supported"
         exit 0
