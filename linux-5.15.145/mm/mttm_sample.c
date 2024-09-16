@@ -33,6 +33,9 @@ unsigned long hotness_intensity_threshold = 200;
 unsigned int hotset_size_threshold = 2;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
+unsigned int use_memstrata_policy = 1;
+unsigned long donor_threshold = 4000;
+unsigned long acceptor_threshold = 50;
 unsigned int use_region_separation = 1;
 unsigned int use_hotness_intensity = 0;
 unsigned int use_pingpong_reduce = 1;
@@ -284,6 +287,22 @@ unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat)
 	return nr_pages;
 }
 
+static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram, bool fixed)
+{
+	WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, required_dram);
+	WRITE_ONCE(memcg->max_nr_dram_pages, required_dram);
+	WRITE_ONCE(memcg->dram_fixed, fixed);
+
+
+	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
+		get_memcg_demotion_wmark(required_dram) > required_dram)
+		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
+	else if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
+		get_nr_lru_pages_node(memcg, NODE_DATA(0)))
+		WRITE_ONCE(memcg->dram_expanded, true);
+
+}
+
 static bool valid_va(unsigned long addr)
 {
 	if(!(addr >> (PGDIR_SHIFT + 9)) && addr != 0)
@@ -381,42 +400,6 @@ static void pebs_update_period(uint64_t value)
 	}
 }
 
-#if 0
-pid_t test_pid;
-
-static unsigned long get_active_lru_size(void) {
-	struct pid *pid_struct = find_get_pid(test_pid);
-	struct task_struct *p = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
-	struct mm_struct *mm = p ? p->mm : NULL;
-	struct mem_cgroup *memcg;
-	struct lruvec *lruvec;
-	unsigned long ret = 0;
-	
-	if(!mm)
-		goto put_task;
-	if(!mm->mttm_enabled) {
-		goto put_task;
-	}
-	if(!mmap_read_trylock(mm))
-		goto put_task;
-
-	memcg = get_mem_cgroup_from_mm(mm);
-	if(!memcg)
-		goto mmap_unlock;
-
-	lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(0));
-	ret = lruvec_lru_size(lruvec, LRU_ACTIVE_ANON, MAX_NR_ZONES);
-	lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(1));
-	ret += lruvec_lru_size(lruvec, LRU_ACTIVE_ANON, MAX_NR_ZONES);
-
-mmap_unlock:
-	mmap_read_unlock(mm);
-put_task:
-	put_pid(pid_struct);
-
-	return ret;
-}
-#endif
 SYSCALL_DEFINE2(mttm_register_pid,
 		pid_t, pid, const char __user *, u_name)
 {
@@ -455,9 +438,10 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		if(memcg_list[i]) {
-			if(memcg_list[i]->mttm_enabled && use_dram_determination) {
+			if(memcg_list[i]->mttm_enabled && (use_dram_determination || use_memstrata_policy)) {
 				WRITE_ONCE(memcg_list[i]->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
 				WRITE_ONCE(memcg_list[i]->max_nr_dram_pages, mttm_local_dram / current_tenants);
+				WRITE_ONCE(memcg_list[i]->init_dram_size, memcg_list[i]->max_nr_dram_pages);
 				pr_info("[%s] [ %s ] dram size set to %lu MB\n",
 					__func__, memcg_list[i]->tenant_name, memcg_list[i]->max_nr_dram_pages >> 8);
 			}
@@ -497,6 +481,13 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		if(READ_ONCE(memcg_list[i])) {
 			WRITE_ONCE(memcg_list[i]->dram_fixed, false);
+			if(use_memstrata_policy) {
+				set_dram_size(memcg_list[i],
+						memcg_list[i]->max_nr_dram_pages + memcg->max_nr_dram_pages / current_tenants, false);
+				pr_info("[%s] [ %s ] dram set to %lu MB due to unregister\n",
+					__func__, memcg_list[i]->tenant_name,
+					memcg_list[i]->max_nr_dram_pages >> 8);
+			}
 		}
 	}
 
@@ -1177,21 +1168,7 @@ static void ksampled_do_work(void)
 
 }
 
-static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram, bool fixed)
-{
-	WRITE_ONCE(memcg->nodeinfo[0]->max_nr_base_pages, required_dram);
-	WRITE_ONCE(memcg->max_nr_dram_pages, required_dram);
-	WRITE_ONCE(memcg->dram_fixed, fixed);
 
-
-	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
-		get_memcg_demotion_wmark(required_dram) > required_dram)
-		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
-	else if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
-		get_nr_lru_pages_node(memcg, NODE_DATA(0)))
-		WRITE_ONCE(memcg->dram_expanded, true);
-
-}
 
 
 static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
@@ -1269,7 +1246,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 }
 
 
-static void calculate_sample_rate_stat(int rate_cnt)
+static void calculate_sample_rate_stat(void)
 {
 	unsigned long mean, std_deviation, sum_sample, variance, mean_rate;
 	int i, j;
@@ -1299,6 +1276,7 @@ static void calculate_sample_rate_stat(int rate_cnt)
 
 			mean_rate = div64_u64(sum_sample, (ksampled_trace_period_in_ms / 1000) * 5);
 			memcg->mean_rate = mean_rate;
+
 			if(print_more_info) {
 				if(memcg->nr_remote)
 					pr_info("[%s] [ %s ] mean_rate : %lu, local : %lu, remote : %lu, ratio : %lu\n",
@@ -1314,6 +1292,38 @@ static void calculate_sample_rate_stat(int rate_cnt)
 				check_sample_rate_is_stable(memcg, std_deviation, mean, mean_rate);
 			check_rate_change(memcg);
 
+			memcg->interval_nr_sampled = 0;
+			memcg->nr_local = 0;
+			memcg->nr_remote = 0;
+
+			if(memcg->max_anon_rss < get_anon_rss(memcg))
+				memcg->max_anon_rss = get_anon_rss(memcg);
+		}
+	}
+}
+
+static void calculate_sample_rate_stat_mpki(void)
+{
+	unsigned long mean_rate;
+	int i;
+	struct mem_cgroup *memcg;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {			
+			mean_rate = div64_u64(memcg->interval_nr_sampled, 10);
+			memcg->mean_rate = mean_rate;
+
+			if(memcg->nr_remote == 0)
+				memcg->nr_remote = 1;
+			memcg->fmmr = (memcg->fmmr * 8 +
+						(memcg->nr_remote * 100 / (memcg->nr_remote + memcg->nr_local)) * 2) / 10;
+		
+			if(print_more_info) {
+				pr_info("[%s] [ %s ] mean_rate : %lu, FMMR : %lu\n",
+					__func__, memcg->tenant_name, mean_rate, memcg->fmmr);
+			}
+	
 			memcg->interval_nr_sampled = 0;
 			memcg->nr_local = 0;
 			memcg->nr_remote = 0;
@@ -1915,39 +1925,157 @@ static void distribute_local_dram_hi(void)
 			__func__, tot_free_dram >> 8);
 }
 
+static unsigned long find_lowest_access_rate_level(int level, int *idx, int *ranked)
+{
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long cur_lowest_rate = ULONG_MAX;
+	unsigned long lb, ub;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(ranked[i] == 0 &&
+				cur_lowest_rate > memcg->mean_rate) {
+				lb = 10 * level;
+				ub = (level < 9) ? 10 * (level + 1) : 101;	
+				if(memcg->fmmr >= lb && memcg->fmmr < ub) {
+					cur_lowest_rate = memcg->mean_rate;
+					*idx = i;
+				}
+			}
+		}
+	}
+
+	return cur_lowest_rate;
+}
+
+
+
+static void rank_vms(int level, int *ranked, struct mem_cgroup **vms, int *vms_i)
+{
+	int idx;
+	unsigned long cur_lowest_rate;
+
+	while(1) {
+		cur_lowest_rate = ULONG_MAX;
+		idx = 0;
+		
+		cur_lowest_rate = find_lowest_access_rate_level(level, &idx, ranked);
+		if(cur_lowest_rate == ULONG_MAX)
+			break;
+
+		ranked[idx] = 1;
+		vms[*vms_i] = memcg_list[idx];
+		*vms_i = (*vms_i) + 1;
+	}
+
+}
+
+
+
+static void distribute_local_dram_mpki(void)
+{
+	int i, idx, vms_i = 0;
+	struct mem_cgroup *memcg;
+	int ranked[LIMIT_TENANTS] = {0,};
+	unsigned long dram_size[LIMIT_TENANTS] = {0,};
+	struct mem_cgroup *vms[LIMIT_TENANTS] = {NULL,};
+	int borrower, donor;
+	unsigned long toBorrow, toDonate, toMigrate, donated;
+
+	// vms[last] : highest FMMR, higher access rate
+	// level n : FMMR is [10*n, 10*(n+1)), n is 0~9
+
+	for(i = 0; i < 10; i++) {
+		rank_vms(i, ranked, vms, &vms_i);
+	}
+
+	
+	donor = 0;
+	for(borrower = vms_i - 1; borrower > 0; borrower--) {
+		if(vms[borrower]) {
+			if(vms[borrower]->fmmr <= acceptor_threshold)
+				break;
+
+			toBorrow = vms[borrower]->max_nr_dram_pages / 10;
+			while(donor < borrower && toBorrow > 0) {
+				donated = (vms[donor]->init_dram_size > vms[donor]->max_nr_dram_pages) ?
+						(vms[donor]->init_dram_size - vms[donor]->max_nr_dram_pages) : 0;
+				toDonate = (vms[donor]->max_nr_dram_pages / 10 > donated) ? 
+						(vms[donor]->max_nr_dram_pages / 10 - donated) : 0;
+				toMigrate = min_t(unsigned long, toDonate, toBorrow);
+				set_dram_size(vms[donor], vms[donor]->max_nr_dram_pages - toMigrate, false);
+				set_dram_size(vms[borrower], vms[borrower]->max_nr_dram_pages + toMigrate, false);
+				toBorrow -= toMigrate;
+				pr_info("[%s] [ %s ] gives [ %s ] %lu MB dram\n",
+					__func__, vms[donor]->tenant_name, vms[borrower]->tenant_name,
+					toMigrate >> 8);
+				if(toDonate == toMigrate)
+					donor++;
+			}
+		}
+	}
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(vms[i]) {
+			pr_info("[%s] vms[%d : %s], dram set to %lu MB, FMMR : %lu, rate : %lu\n",
+				__func__, i, vms[i]->tenant_name, vms[i]->max_nr_dram_pages >> 8,
+				vms[i]->fmmr, vms[i]->mean_rate);
+		}
+	}
+
+}
+
+
 
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(20000);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
+	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
 	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
+	unsigned long trace_period_long = msecs_to_jiffies(10000);
 	struct mem_cgroup *memcg;
-	int rate_cnt = 0;
 
 	total_time = jiffies;
 	interval_start = jiffies;
+	interval_start_long = jiffies;
 	while(!kthread_should_stop()) {
 		one_cputime = jiffies;
 		ksampled_do_work();
 
 		cur = jiffies;
-		if(cur - interval_start >= trace_period) {
-			rate_cnt++;
-			calculate_sample_rate_stat(rate_cnt);
-			
-			if(use_dram_determination) {
-				if(use_region_separation) {
-					calculate_dram_sensitivity();
-					distribute_local_dram_region();
-				}
-				else if(use_hotness_intensity) {
-					distribute_local_dram_hi();//hotness_intensity
-				}
+		cur_long = jiffies;
+		if(use_memstrata_policy) {
+			if(cur_long - interval_start_long >= trace_period_long) {
+				calculate_sample_rate_stat_mpki();
+				distribute_local_dram_mpki();
+
+				interval_start_long = cur_long;	
 			}
 
-			interval_start = cur;
 		}
+		else {
+			if(cur - interval_start >= trace_period) {
+				calculate_sample_rate_stat();
+				
+				if(use_dram_determination) {
+					if(use_region_separation) {
+						calculate_dram_sensitivity();
+						distribute_local_dram_region();
+					}
+					else if(use_hotness_intensity) {
+						distribute_local_dram_hi();//hotness_intensity
+					}
+				}
+				
+				interval_start = cur;
+			}
+		}
+
+
 		total_cputime += (jiffies - one_cputime);
 		schedule_timeout_interruptible(sleep_timeout);
 	}

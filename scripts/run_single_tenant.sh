@@ -82,12 +82,14 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 18"
+	elif [[ "$3" == "motiv" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	elif [[ "$3" == "motiv-pr" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	fi
-       	echo 3858M > ${CGMEM_DIR}/memory.max_at_node0
-	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
-	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
+       	echo 3G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
@@ -114,10 +116,14 @@ elif [[ "$2" == "xsbench" ]]; then
 	        BENCH="${BENCH_PATH}/XSBench -t 4 -g 25000 -p 12000000"
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/XSBench -t 2 -g 25000 -p 11000000"
+	elif [[ "$3" == "motiv" ]]; then
+	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
+	elif [[ "$3" == "motiv-xsbench" ]]; then
+	        BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 20000000"
 	else
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
-	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 1100M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
 	if [[ "$3" == "config3" ]]; then
@@ -126,10 +132,12 @@ elif [[ "$2" == "xindex" ]]; then
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 50"
 	elif [[ "$3" == "config8" ]]; then
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
+	elif [[ "$3" == "motiv-xindex" ]]; then
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	else
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
 	fi
-	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 13G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "btree" ]]; then
         BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"
         BENCH="${BENCH_PATH}/bench_btree_mt"
@@ -162,12 +170,12 @@ elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config10"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low 6tenants"
+	elif [[ "$3" == "motiv" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low motiv"
 	else
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
 	fi
-        echo 2G > ${CGMEM_DIR}/memory.max_at_node0
-	#echo 40000 > ${CGMEM_DIR}/memory.cooling_period
-	#echo 4000 > ${CGMEM_DIR}/memory.adjust_period
+        echo 5111M > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low_1" ]]; then
         BENCH_PATH="${PWD}"
 	BENCH="bash ${BENCH_PATH}/dp_ht_2c_1.sh small low 12tenants"
@@ -182,10 +190,12 @@ elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "config8" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config8"
+	elif [[ "$3" == "motiv-cpu_dlrm_small_high" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high motiv-cpu_dlrm_small_high"
 	else
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
 	fi
-        echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+        echo 4G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_med_low" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "config5" ]]; then

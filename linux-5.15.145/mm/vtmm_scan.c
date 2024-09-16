@@ -311,7 +311,7 @@ SYSCALL_DEFINE2(vtmm_register_pid,
                         if(memcg_list[i]->vtmm_enabled && use_dram_determination) {
                                 WRITE_ONCE(memcg_list[i]->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
                                 WRITE_ONCE(memcg_list[i]->max_nr_dram_pages, mttm_local_dram / current_tenants);
-				memcg_list[i]->vtmm_init_dram_size = memcg_list[i]->max_nr_dram_pages;
+				memcg_list[i]->init_dram_size = memcg_list[i]->max_nr_dram_pages;
                                 pr_info("[%s] [ %s ] dram size set to %lu MB\n",
                                         __func__, memcg_list[i]->tenant_name, memcg_list[i]->max_nr_dram_pages >> 8);
                         }
@@ -748,14 +748,14 @@ static void determine_local_dram(struct mem_cgroup *memcg,
 	unsigned long nr_hot = 0;
 	unsigned long cur_rss = get_anon_rss(memcg);
 	int idx_hot;
-	unsigned long lower_limit = memcg->vtmm_init_dram_size * 75 / 100;
-	unsigned long upper_limit = memcg->vtmm_init_dram_size * 125 / 100;
+	unsigned long lower_limit = memcg->init_dram_size * 75 / 100;
+	unsigned long upper_limit = memcg->init_dram_size * 125 / 100;
 	unsigned long remained_available_dram;
 	int remained_tenant = 0, i;
 
 	if(!use_dram_determination)
 		return;
-	if(memcg->vtmm_init_dram_size == 0)
+	if(memcg->init_dram_size == 0)
 		return;
 
 	if(cur_rss - get_nr_bucket_pages(memcg->page_bucket[0]) >= 8 * cur_rss / 10) {

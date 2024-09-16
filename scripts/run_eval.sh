@@ -7,6 +7,7 @@ conda_activate=/root/anaconda3/bin/activate
 function run_mttm_region
 {
 	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
 	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo $1 > /proc/sys/vm/mttm_local_dram_string
@@ -17,11 +18,29 @@ function run_mttm_region
 function run_mttm_hi
 {
 	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 0 > /proc/sys/vm/use_region_separation
 	echo 1 > /proc/sys/vm/use_hotness_intensity
 	echo $1 > /proc/sys/vm/mttm_local_dram_string
 	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/hi_$1_$2_$3.txt
 	dmesg > ./evaluation/hi_$1_$2_$3_dmesg.txt
+}
+
+function run_memstrata
+{
+	dmesg --clear
+	echo 0 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_dram_determination
+	echo 1 > /proc/sys/vm/use_memstrata_policy
+	#echo 4000 > /proc/sys/vm/donor_threshold
+	#echo 4000 > /proc/sys/vm/acceptor_threshold
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	echo 1 > /proc/sys/vm/print_more_info
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/fmmr/memstrata_$1_$2_$3.txt
+	dmesg > ./evaluation/fmmr/memstrata_$1_$2_$3_dmesg.txt
 }
 
 function run_vtmm
@@ -146,11 +165,81 @@ run_mttm_hi 48G config10 250
 run_mttm_region 19G config10 250
 run_mttm_hi 19G config10 250
 END
-#2nd exp
-#conda deactivate
+
+#1st exp
+set_130
+source $conda_activate dlrm_cpu
+run_memstrata 63G config4 130
+run_memstrata 25G config4 130
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_memstrata 63G config4 192
+run_memstrata 25G config4 192
+
+conda deactivate
 set_250
-run_vtmm 51G config6 250
-run_vtmm 21G config6 250
+source $conda_activate dlrm_cpu
+run_memstrata 63G config4 250
+run_memstrata 25G config4 250
+
+#2nd exp
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_memstrata 51G config6 130
+run_memstrata 21G config6 130
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_memstrata 51G config6 192
+run_memstrata 21G config6 192
+
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+run_memstrata 51G config6 250
+run_memstrata 21G config6 250
+
+#3rd exp
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_memstrata 50G config8 130
+run_memstrata 20G config8 130
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_memstrata 50G config8 192
+run_memstrata 20G config8 192
+
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+run_memstrata 50G config8 250
+run_memstrata 20G config8 250
+
+#4th exp
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_memstrata 48G config10 130
+run_memstrata 19G config10 130
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_memstrata 48G config10 192
+run_memstrata 19G config10 192
+
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+run_memstrata 48G config10 250
+run_memstrata 19G config10 250
 
 set_130
 

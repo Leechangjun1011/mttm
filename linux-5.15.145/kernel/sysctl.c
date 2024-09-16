@@ -198,6 +198,9 @@ extern unsigned long store_sample_period;
 extern unsigned long hotness_intensity_threshold;
 extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
+extern unsigned int use_memstrata_policy;
+extern unsigned long donor_threshold;
+extern unsigned long acceptor_threshold;
 extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
@@ -2965,6 +2968,27 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_memstrata_policy",
+		.data		= &use_memstrata_policy,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "donor_threshold",
+		.data		= &donor_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "acceptor_threshold",
+		.data		= &acceptor_threshold,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
 		.procname	= "use_region_separation",

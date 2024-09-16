@@ -377,6 +377,7 @@ struct mem_cgroup {
 	unsigned long		nr_store;
 	unsigned long		nr_local;
 	unsigned long		nr_remote;
+	unsigned long		fmmr;
 	unsigned long		promoted_pages;
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
@@ -422,7 +423,7 @@ struct mem_cgroup {
 	ktime_t			block_time;
 	struct xarray		*basepage_xa;
 
-	unsigned long		vtmm_init_dram_size;
+	unsigned long		init_dram_size;
 	struct xarray		*ml_queue[ML_QUEUE_MAX];
 	struct list_head	*page_bucket[BUCKET_MAX];
 	spinlock_t		*bucket_lock[BUCKET_MAX];

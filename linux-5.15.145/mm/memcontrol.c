@@ -5265,6 +5265,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_store = 0;
 	memcg->nr_local = 0;
 	memcg->nr_remote = 0;
+	memcg->fmmr = 0;
 	memcg->nr_alloc = 0;
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
@@ -5296,7 +5297,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_vtmm_tlb_miss = 0;
 	memcg->vtmm_mm = NULL;
 	memcg->vtmm_pid = 0;
-	memcg->vtmm_init_dram_size = 0;
+	memcg->init_dram_size = 0;
 
 	for(i = 0; i < 16; i++)
 		memcg->hotness_hg[i] = 0;

@@ -27,7 +27,7 @@ echo 10007 > /proc/sys/vm/pebs_sample_period #10007, 4999, 1999, 997, 499, 199
 echo 50000 > /proc/sys/vm/store_sample_period
 
 #echo 80G > /proc/sys/vm/mttm_local_dram_string
-echo 1 > /proc/sys/vm/use_dram_determination
+#echo 1 > /proc/sys/vm/use_dram_determination
 #echo 1 > /proc/sys/vm/use_region_separation
 #echo 0 > /proc/sys/vm/use_hotness_intensity
 echo 200 > /proc/sys/vm/hotness_intensity_threshold
@@ -43,7 +43,7 @@ echo 50 > /proc/sys/vm/manage_cputime_threshold
 echo 1000 > /proc/sys/vm/kmigrated_period_in_ms
 echo 2000 > /proc/sys/vm/ksampled_trace_period_in_ms
 echo 1 > /proc/sys/vm/check_stable_sample_rate
-echo 0 > /proc/sys/vm/print_more_info
+#echo 0 > /proc/sys/vm/print_more_info
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
@@ -117,6 +117,18 @@ elif [[ "$1" == "12tenants" ]]; then
 	workload[10]="silo"
 	workload[11]="fotonik"
 	workload[12]="cpu_dlrm_small_low_2"
+elif [[ "$1" == "motiv" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="xsbench"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "motiv-pr" ]]; then
+	workload[1]="gapbs-pr"
+elif [[ "$1" == "motiv-xsbench" ]]; then
+	workload[1]="xsbench"
+elif [[ "$1" == "motiv-xindex" ]]; then
+	workload[1]="xindex"
+elif [[ "$1" == "motiv-cpu_dlrm_small_high" ]]; then
+	workload[1]="cpu_dlrm_small_high"
 else
 	i=1
 	for arg in "$@"

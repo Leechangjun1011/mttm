@@ -84,6 +84,18 @@ elif [[ "$1" == "12tenants" ]]; then
 	workload[10]="silo"
 	workload[11]="fotonik"
 	workload[12]="cpu_dlrm_small_low_2"
+elif [[ "$1" == "motiv" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="xsbench"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "motiv-pr" ]]; then
+	workload[1]="gapbs-pr"
+elif [[ "$1" == "motiv-xsbench" ]]; then
+	workload[1]="xsbench"
+elif [[ "$1" == "motiv-xindex" ]]; then
+	workload[1]="xindex"
+elif [[ "$1" == "motiv-cpu_dlrm_small_high" ]]; then
+	workload[1]="cpu_dlrm_small_high"
 else
 	i=1
 	for arg in "$@"

@@ -69,6 +69,10 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 18"
+	elif [[ "$3" == "motiv" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	elif [[ "$3" == "motiv-pr" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 6"
 	fi
@@ -99,6 +103,10 @@ elif [[ "$2" == "xsbench" ]]; then
 		BENCH="${BENCH_PATH}/XSBench -t 4 -g 25000 -p 12000000"
 	elif [[ "$3" == "12tenants" ]]; then
 		BENCH="${BENCH_PATH}/XSBench -t 2 -g 25000 -p 11000000"
+	elif [[ "$3" == "motiv" ]]; then
+		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
+	elif [[ "$3" == "motiv-xsbench" ]]; then
+		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 20000000"
 	else
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
@@ -111,6 +119,8 @@ elif [[ "$2" == "xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 50"
 	elif [[ "$3" == "config8" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
+	elif [[ "$3" == "motiv-xindex" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	else
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	fi
@@ -145,6 +155,8 @@ elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low 6tenants"
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low 12tenants"
+	elif [[ "$3" == "motiv" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low motiv"
 	else
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
 	fi
@@ -165,6 +177,8 @@ elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "config8" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config8"
+	elif [[ "$3" == "motiv-cpu_dlrm_small_high" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high motiv-cpu_dlrm_small_high"
 	else
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
 	fi

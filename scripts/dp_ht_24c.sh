@@ -38,6 +38,8 @@ if [[ "$1" == "small" ]]; then
 		elif [[ "$3" == "12tenants" ]]; then
 			NUM_BATCH=80
 			INSTANCES=2
+		elif [[ "$3" == "motiv" ]]; then
+			NUM_BATCH=150
 		else
 			NUM_BATCH=150
 		fi
@@ -49,6 +51,8 @@ if [[ "$1" == "small" ]]; then
 	elif [[ "$2" == "high" ]]; then
 		if [[ "$3" == "config8" ]]; then
 			NUM_BATCH=450 
+		elif [[ "$3" == "motiv-cpu_dlrm_small_high" ]]; then
+			NUM_BATCH=300
 		else
 			NUM_BATCH=300
 		fi
