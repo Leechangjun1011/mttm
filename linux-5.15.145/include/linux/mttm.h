@@ -1,6 +1,6 @@
 #include <uapi/linux/perf_event.h>
 
-#define KSAMPLED_CPU		0
+#define KSAMPLED_CPU		24//run at node 1
 #define KPTSCAND_CPU		0
 #define LIMIT_TENANTS		20
 #define CORES_PER_SOCKET	24

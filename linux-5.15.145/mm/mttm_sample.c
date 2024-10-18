@@ -62,6 +62,8 @@ struct task_struct *ksampled_thread = NULL;
 struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
 
+unsigned int ksampled_cpu = 0;
+
 extern int enabled_kptscand;
 extern struct task_struct *kptscand_thread;
 
@@ -2031,7 +2033,7 @@ static void distribute_local_dram_mpki(void)
 
 static int ksampled(void *dummy)
 {
-	unsigned long sleep_timeout = usecs_to_jiffies(20000);
+	unsigned long sleep_timeout = usecs_to_jiffies(2000);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
@@ -2119,7 +2121,7 @@ static int ksampled_run(void)
 			}
 		}
 
-		ksampled_thread = kthread_run_on_cpu(ksampled, NULL, KSAMPLED_CPU, "ksampled");
+		ksampled_thread = kthread_run_on_cpu(ksampled, NULL, ksampled_cpu, "ksampled");
 		//ksampled_thread = kthread_run(ksampled, NULL, "ksampled");
 		if(IS_ERR(ksampled_thread)) {
 			pr_err("Failed to start ksampled\n");

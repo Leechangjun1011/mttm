@@ -75,6 +75,7 @@
 
 #ifdef CONFIG_MTTM
 extern unsigned int use_dram_determination;
+extern unsigned long period_factor;
 #endif
 
 struct cgroup_subsys memory_cgrp_subsys __read_mostly;
@@ -5270,8 +5271,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->promoted_pages = 0;
 	memcg->demoted_pages = 0;
 	memcg->cooling_clock = 0;
-	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
-	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
+	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD * period_factor;
+	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD * period_factor;
 	memcg->hotness_scan_cnt = 1;
 	if(use_dram_determination) {
 		memcg->region_determined = false;

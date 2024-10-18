@@ -54,7 +54,9 @@ extern unsigned int check_stable_sample_rate;
 extern unsigned int use_xa_basepage;
 extern unsigned int hotset_size_threshold;
 extern unsigned long hotness_intensity_threshold;
+extern unsigned long period_factor = 1;
 
+unsigned int kmigrated_cpu = 1;
 unsigned long kmigrated_period_in_ms = 1000;
 
 
@@ -1362,15 +1364,15 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	tot_huge_pages = tot_pages >> 9;
 
 	//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
-	if(tot_huge_pages > (memcg->cooling_period >> 2)) {
+	if(tot_huge_pages > ((memcg->cooling_period / period_factor)>> 2)) {
 		if(*hotness_scanned > 0 &&
 			use_dram_determination && 
 			((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))){
 			// reset
 			*hotness_scanned = 0;			
 		}
-		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
-		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
+		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD*period_factor);
+		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD*period_factor);
 	}
 
 	target_cooling = READ_ONCE(memcg->hotness_scan_cnt);
@@ -1770,7 +1772,8 @@ int kmigrated_init(struct mem_cgroup *memcg)
 
 	spin_lock_init(&memcg->kmigrated_lock);
 	init_waitqueue_head(&memcg->kmigrated_wait);
-	memcg->kmigrated = kthread_run(kmigrated, memcg, "kmigrated%d", mem_cgroup_id(memcg));
+	memcg->kmigrated = kthread_run_on_cpu(kmigrated, memcg, kmigrated_cpu, "kmigrated");
+	//kthread_run(kmigrated, memcg, "kmigrated%d", mem_cgroup_id(memcg));
 	if(IS_ERR(memcg->kmigrated)) {
 		memcg->kmigrated = NULL;
 		return -1;

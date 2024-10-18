@@ -191,7 +191,10 @@ static int max_extfrag_threshold = 1000;
 #ifdef CONFIG_MTTM
 extern int enable_ksampled;
 extern int enable_kptscand;
+extern unsigned int ksampled_cpu;
+extern unsigned int kmigrated_cpu;
 extern char mttm_local_dram_string[];
+extern unsigned long period_factor;
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
@@ -2900,6 +2903,20 @@ static struct ctl_table vm_table[] = {
 		.extra2		= SYSCTL_ONE,
 	},
 	{
+		.procname	= "ksampled_cpu",
+		.data		= &ksampled_cpu,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "kmigrated_cpu",
+		.data		= &kmigrated_cpu,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
 		.procname	= "kptscand_period_in_us",
 		.data		= &kptscand_period_in_us,
 		.maxlen		= sizeof(unsigned int),
@@ -2919,6 +2936,13 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "period_factor",
+		.data		= &period_factor,
+		.maxlen		= sizeof(unsigned long),
+		.mode		= 0644,
+		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
 		.procname	= "pebs_sample_period",
