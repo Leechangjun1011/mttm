@@ -25,7 +25,6 @@ echo 0 > /proc/sys/vm/print_more_info
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 0 > /proc/sys/vm/use_dma_completion_interrupt
-echo 0 > /proc/sys/vm/use_xa_basepage
 echo 0 > /proc/sys/vm/use_all_stores
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000

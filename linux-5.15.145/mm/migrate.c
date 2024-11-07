@@ -64,7 +64,6 @@
 #include "internal.h"
 
 extern unsigned int use_dma_migration;
-extern unsigned int use_xa_basepage;
 
 int isolate_movable_page(struct page *page, isolate_mode_t mode)
 {
@@ -1295,26 +1294,7 @@ static int unmap_and_move(new_page_t get_new_page,
 	if (rc == MIGRATEPAGE_SUCCESS) {
 		set_page_owner_migrate_reason(newpage, reason);
 #ifdef CONFIG_MTTM
-		if(memcg->mttm_enabled) {
-			if(use_xa_basepage && memcg->basepage_xa) {
-				pginfo_t *old_pginfo = xa_erase(memcg->basepage_xa, page_to_pfn(page));
-				if(old_pginfo) {
-					int xa_ret;
-					check_base_cooling(old_pginfo, newpage);
-
-					xa_lock(memcg->basepage_xa);
-					xa_ret = __xa_insert(memcg->basepage_xa, page_to_pfn(newpage),
-							(void *)old_pginfo, GFP_KERNEL);
-					xa_unlock(memcg->basepage_xa);
-					if(xa_ret == -EBUSY)
-						pr_err("[%s] xa_insert fail. Entry already exist.\n",__func__);
-					else if(xa_ret == -ENOMEM)
-						pr_err("[%s] xa_insert fail. No free memory\n",__func__);
-					
-				}
-			}
-		}
-		else if(memcg->vtmm_enabled) {
+		if(memcg->vtmm_enabled) {
 			cmpxchg_vtmm_page(memcg, page, newpage);
 		}
 #endif

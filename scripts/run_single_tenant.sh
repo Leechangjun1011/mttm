@@ -47,10 +47,11 @@ else
         CPUSETS="0-7"
 fi
 
+: << END
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
-
+END
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
@@ -89,7 +90,8 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	fi
-       	echo 3G > ${CGMEM_DIR}/memory.max_at_node0
+       	echo 4G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 20000 > ${CGMEM_DIR}/memory.cooling_period
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
@@ -308,5 +310,5 @@ then
 	sleep 2s
 fi
 
-./run_bench ${BENCH} & release_cpuset
-wait
+./run_bench ${BENCH} #& release_cpuset
+#wait

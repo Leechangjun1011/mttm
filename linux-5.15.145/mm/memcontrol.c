@@ -5326,7 +5326,13 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->lev4_size = 0;
 
 	memcg->nr_pingpong = 0;
-	memcg->basepage_xa = NULL;
+
+	memcg->ac_page_list = NULL;
+	memcg->meta_bitmap = NULL;
+	memcg->ac_bitmap_list = NULL;
+	memcg->meta_bitmap_size = 0;
+	memcg->ac_bitmap_size = 0;
+	spin_lock_init(&memcg->ac_bitmap_lock);
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		memcg->ml_queue[i] = NULL;

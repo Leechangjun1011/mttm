@@ -910,6 +910,7 @@ void split_page(struct page *page, unsigned int order);
 void copy_huge_page(struct page *dst, struct page *src);
 #ifdef CONFIG_MTTM
 void copy_huge_page_dma(struct page *dst, struct page *src);
+void zeroing_ac_pages(struct mem_cgroup *memcg);
 #endif
 
 /*

@@ -196,7 +196,6 @@ extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
 extern unsigned long hotness_intensity_threshold;
-extern unsigned int hotset_size_threshold;
 extern unsigned int use_dram_determination;
 extern unsigned int use_memstrata_policy;
 extern unsigned long donor_threshold;
@@ -216,10 +215,10 @@ extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
 extern unsigned int use_dma_completion_interrupt;
 extern unsigned int use_all_stores;
-extern unsigned int use_xa_basepage;
 extern unsigned int kptscand_period_in_us;
-extern unsigned int weak_hot_offset;
 extern unsigned int remote_latency;
+extern unsigned int scanless_cooling;
+extern unsigned int reduce_scan;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2956,13 +2955,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
-		.procname	= "hotset_size_threshold",
-		.data		= &hotset_size_threshold,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},	
-	{
 		.procname	= "use_dram_determination",
 		.data		= &use_dram_determination,
 		.maxlen		= sizeof(unsigned int),
@@ -3045,17 +3037,24 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
-	},
+	},	
 	{
-		.procname	= "weak_hot_offset",
-		.data		= &weak_hot_offset,
+		.procname	= "remote_latency",
+		.data		= &remote_latency,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
-		.procname	= "remote_latency",
-		.data		= &remote_latency,
+		.procname	= "scanless_cooling",
+		.data		= &scanless_cooling,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "reduce_scan",
+		.data		= &reduce_scan,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
@@ -3095,13 +3094,6 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
 	},
-	{
-		.procname	= "use_xa_basepage",
-		.data		= &use_xa_basepage,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},	
 #endif
 #ifdef CONFIG_HUGETLB_PAGE
 	{

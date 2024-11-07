@@ -421,7 +421,12 @@ struct mem_cgroup {
 	unsigned long		cold_region_dram_sensitivity;
 	unsigned long		nr_pingpong;
 	ktime_t			block_time;
-	struct xarray		*basepage_xa;
+	uint32_t**		ac_page_list;//scanless cooling
+	unsigned long*		meta_bitmap;//for 2 tier bitmap
+	unsigned long**		ac_bitmap_list;//bitmap for 1GB
+	unsigned int		meta_bitmap_size;
+	unsigned int		ac_bitmap_size;
+	spinlock_t		ac_bitmap_lock;// lock for bitmap
 
 	unsigned long		init_dram_size;
 	struct xarray		*ml_queue[ML_QUEUE_MAX];

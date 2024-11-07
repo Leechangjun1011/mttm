@@ -284,8 +284,16 @@ typedef struct { pgdval_t pgd; } pgd_t;
 
 #ifdef CONFIG_MTTM /* pginfo_t */
 typedef struct {
-	uint32_t nr_accesses;
-	uint32_t prev_accesses;
+	union {
+		struct {
+			uint32_t nr_accesses;
+			uint32_t dummy;
+		};
+		struct {
+			uint32_t meta_bitmap_idx;
+			uint32_t ac_bitmap_idx;
+		};
+	};
 	uint16_t cooling_clock;
 	unsigned char promoted;
 	unsigned char demoted;

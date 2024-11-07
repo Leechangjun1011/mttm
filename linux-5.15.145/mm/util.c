@@ -26,6 +26,8 @@
 #ifdef CONFIG_MTTM
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
+#include <linux/ktime.h>
+#include <linux/hrtimer.h>
 #endif
 
 #include <linux/uaccess.h>
@@ -858,10 +860,28 @@ void copy_huge_page(struct page *dst, struct page *src)
 
 #ifdef CONFIG_MTTM
 
-static void dma_callback(void *param)
+static DECLARE_COMPLETION(timer_done);
+
+static enum hrtimer_restart timer_callback(struct hrtimer *timer)
 {
-	struct completion *cmp = param;
-	complete(cmp);
+	complete(&timer_done);
+	return HRTIMER_NORESTART;
+}
+
+void nsec_interruptible(unsigned long nsec)
+{
+	struct hrtimer timer;
+	ktime_t kt;
+
+	kt = ktime_set(0, nsec);
+	hrtimer_init(&timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	timer.function = &timer_callback;
+
+	hrtimer_start(&timer, kt, HRTIMER_MODE_REL);
+
+	if(wait_for_completion_interruptible(&timer_done)) {
+		hrtimer_cancel(&timer);
+	}
 }
 
 void copy_huge_page_dma(struct page *dst, struct page *src)
@@ -873,7 +893,6 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	int total_available_chans = DMA_CHAN_PER_PAGE;
 	int i;
 	enum dma_ctrl_flags flag = 0;
-	struct completion cmp;
 	int interrupt_idx, interrupt_copy_chan;
 
 	struct mem_cgroup *memcg = page_memcg(dst);
@@ -890,12 +909,7 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 
 	if(!tx || !cookie || !unmap)
 		goto out;
-	*/
-
-	
-
-	if(use_dma_completion_interrupt)
-		init_completion(&cmp);
+	*/	
 
 	for(i = 0; i < total_available_chans; i++) {
 		unmap[i] = dmaengine_get_unmap_data(copy_dev[chan_start + i]->dev, 2 * total_available_chans, GFP_NOWAIT);
@@ -929,12 +943,7 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	
 
 	for(i = 0; i < total_available_chans; i++) {
-		if(use_dma_completion_interrupt) {
-			if(i == total_available_chans - 1)
-				flag = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
-			else
-				flag = 0;
-		}
+		flag = 0;	
 		tx[i] = copy_dev[chan_start + i]->device_prep_dma_memcpy(copy_chan[chan_start + i],
 						unmap[i]->addr[i + total_available_chans],
 						unmap[i]->addr[i],
@@ -949,8 +958,6 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 
 		if(use_dma_completion_interrupt) {
 			if(i == total_available_chans - 1) {
-				tx[i]->callback = dma_callback;
-				tx[i]->callback_param = (void *)&cmp;
 				interrupt_idx = i;
 				interrupt_copy_chan = chan_start + i;
 			}
@@ -967,16 +974,13 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 	}
 
 	if(use_dma_completion_interrupt) {
-		if(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
+		// Wait for last channel through periodic sleep
+		while(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
 					cookie[interrupt_idx], NULL, NULL) != DMA_COMPLETE) {
-			wait_for_completion(&cmp);
-			if(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
-					cookie[interrupt_idx], NULL, NULL) != DMA_COMPLETE) {
-				ret_val = -6;
-				pr_err("%s: dma does not complete at chan %d\n",__func__, i);
-			}
+			nsec_interruptible(100000);	
 		}
 
+		// Check the completion of remaining channels
 		for(i = 0; i < total_available_chans; i++) {
 			if(dma_async_is_tx_complete(copy_chan[chan_start + i],
 					cookie[i], NULL, NULL) != DMA_COMPLETE) {
@@ -1010,6 +1014,69 @@ unmap_dma:
 	if(unmap)
 		kfree(unmap);
 */
+}
+
+// only called when scanless_cooling
+void zeroing_ac_pages(struct mem_cgroup *memcg)
+{
+	int i;
+	
+	for(i = 0; i < memcg->meta_bitmap_size; i++)
+		memset(memcg->ac_page_list[i], 0, memcg->ac_bitmap_size * sizeof(uint32_t));
+	/*struct dma_async_tx_descriptor *tx;
+	dma_cookie_t cookie;
+	enum dma_ctrl_flags flag = 0;
+	size_t dma_size;
+	dma_addr_t dma_dst;
+
+	int chan_start;
+
+	if(memcg)
+		chan_start = memcg->dma_chan_start;
+	else
+		chan_start = 0;	
+	
+	dma_size = memcg->ac_bitmap_size * sizeof(uint32_t);
+	dma_dst = dma_map_single(copy_dev[chan_start]->dev, memcg->ac_pages, dma_size, DMA_TO_DEVICE);
+	if(dma_mapping_error(copy_dev[chan_start]->dev, dma_dst)) {
+		pr_info("[%s] failed to dma_map_single\n",
+			__func__);
+		return;
+	}
+
+	tx = copy_dev[chan_start]->device_prep_dma_memset(copy_chan[chan_start],
+								dma_dst,
+								0,
+								dma_size,
+								flag);
+	if(!tx)
+		goto unmap_dma;
+
+	cookie = dmaengine_submit(tx);
+	if(dma_submit_error(cookie)) {
+		pr_err("%s: submission error\n",__func__);
+		goto unmap_dma;
+	}
+
+	dma_async_issue_pending(copy_chan[chan_start]);
+
+	if(use_dma_completion_interrupt) {
+		while(dma_async_is_tx_complete(copy_chan[chan_start],
+					cookie, NULL, NULL) != DMA_COMPLETE) {
+			nsec_interruptible(100000);	
+		}	
+	}
+	else {
+		if(dma_sync_wait(copy_chan[chan_start], cookie) != DMA_COMPLETE) {
+			pr_err("%s: dma does not complete\n",__func__);
+		}
+	}
+
+
+unmap_dma:
+	dma_unmap_single(copy_dev[chan_start]->dev, dma_dst, dma_size, DMA_TO_DEVICE);
+	*/
+
 }
 
 #endif

@@ -88,6 +88,9 @@
 
 static struct kmem_cache *anon_vma_cachep;
 static struct kmem_cache *anon_vma_chain_cachep;
+#ifdef CONFIG_MTTM
+extern unsigned int scanless_cooling;
+#endif
 
 static inline struct anon_vma *anon_vma_alloc(void)
 {
@@ -1013,6 +1016,7 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 		if(pvmw.pte) {
 			struct page *pte_page;
 			pte_t *pte = pvmw.pte;
+			uint32_t nr_accesses;
 
 			pte_page = virt_to_page((unsigned long)pte);
 			if(!PageMttm(pte_page))
@@ -1022,7 +1026,12 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 			if(!pginfo)
 				continue;
 
-			cur_idx = get_idx(pginfo->nr_accesses);
+			if(scanless_cooling)
+				nr_accesses = mca->memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx];
+			else
+				nr_accesses = pginfo->nr_accesses;
+
+			cur_idx = get_idx(nr_accesses);
 			active_threshold = mca->memcg->active_threshold;
 			if(cur_idx >= mca->memcg->active_threshold)
 				mca->page_is_hot = 2;

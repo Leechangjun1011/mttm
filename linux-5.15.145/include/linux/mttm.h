@@ -57,7 +57,6 @@ extern void copy_transhuge_pginfo(struct page *page, struct page *newpage);
 
 extern bool node_is_toptier(int nid);
 extern int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm);
-extern pginfo_t *get_pginfo_from_xa(struct xarray *xa, struct page *page);
 extern void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page);
 extern void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg);
 extern void check_base_cooling(pginfo_t *pginfo, struct page *page);

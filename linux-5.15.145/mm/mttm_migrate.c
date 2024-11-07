@@ -15,6 +15,7 @@
 #include <linux/mttm.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/mm.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/mttm.h>
@@ -46,14 +47,12 @@ extern unsigned int use_hotness_intensity;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
 unsigned long pingpong_reduce_limit = 1;
-unsigned int weak_hot_offset = 1;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int use_lru_manage_reduce;
 extern unsigned int check_stable_sample_rate;
-extern unsigned int use_xa_basepage;
-extern unsigned int hotset_size_threshold;
-extern unsigned long hotness_intensity_threshold;
+extern unsigned int scanless_cooling;
+extern unsigned int reduce_scan;
 
 unsigned long kmigrated_period_in_ms = 1000;
 
@@ -314,10 +313,16 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 		if(PageAnon(page)) {
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
+				uint32_t nr_accesses;
+
 				if(!meta_page)
 					goto keep_locked;
+
+				nr_accesses = scanless_cooling ?
+						memcg->ac_page_list[meta_page->meta_bitmap_idx][meta_page->ac_bitmap_idx] :
+						meta_page->nr_accesses;
 				if(memcg->use_warm &&
-					get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->warm_threshold))
+					get_idx(nr_accesses) >= READ_ONCE(memcg->warm_threshold))
 					goto keep_locked;
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					meta_page->demoted = 1;
@@ -336,17 +341,17 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 			else {
 				unsigned int idx;
 				pginfo_t *pginfo = NULL;
-				if(use_xa_basepage) {
-					pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-				}
-				else {
-					pginfo = get_pginfo_from_page(page);
-				}
+				uint32_t nr_accesses;
+
+				pginfo = get_pginfo_from_page(page);	
 				if(!pginfo) {
-					//pr_err("[%s] NULL pginfo\n",__func__);
 					goto keep_locked;
 				}
-				idx = get_idx(pginfo->nr_accesses);
+				nr_accesses = scanless_cooling ?
+						memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx] :
+						pginfo->nr_accesses;
+
+				idx = get_idx(nr_accesses);
 				if(memcg->use_warm &&
 					idx >= READ_ONCE(memcg->warm_threshold))
 					goto keep_locked;
@@ -589,12 +594,8 @@ static unsigned long promote_page_list(struct list_head *page_list,
 			}
 			else {
 				pginfo_t *pginfo = NULL;
-				if(use_xa_basepage) {
-					pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-				}
-				else {
-					pginfo = get_pginfo_from_page(page);
-				}
+				pginfo = get_pginfo_from_page(page);
+				
 				if(!pginfo) {
 					//pr_err("[%s] NULL pginfo\n",__func__);
 					goto keep_locked;
@@ -839,40 +840,6 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 }
 
 
-static int cooling_page_xa(struct mem_cgroup *memcg, struct page *page)
-{
-	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-	unsigned int memcg_cclock;
-	unsigned int cur_idx;
-	int ret = 0;
-
-	if(!pginfo) {
-		//pr_err("[%s] page pginfo null\n",__func__);
-		return ret;
-	}
-
-	spin_lock(&memcg->access_lock);
-	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	if(memcg_cclock > pginfo->cooling_clock) {
-		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
-		unsigned int active_threshold_cooled = (memcg->active_threshold > 1) ?
-				memcg->active_threshold - 1 : memcg->active_threshold;
-		pginfo->nr_accesses >>= diff;
-
-		cur_idx = get_idx(pginfo->nr_accesses);
-		memcg->hotness_hg[cur_idx]++;
-
-		if(cur_idx >= active_threshold_cooled)
-			ret = 2;
-		else
-			ret = 1;
-		pginfo->cooling_clock = memcg_cclock;
-	}
-	spin_unlock(&memcg->access_lock);
-
-	return ret;
-}
-
 static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum lru_list lru, unsigned long *nr_active_cooled, unsigned long *nr_active_still_hot)
 {
@@ -923,10 +890,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 				}
 			}
 			else {
-				if(use_xa_basepage)
-					still_hot = cooling_page_xa(memcg, page);
-				else
-					still_hot = cooling_page(page, lruvec_memcg(lruvec));
+				still_hot = cooling_page(page, lruvec_memcg(lruvec));
 			}
 
 			if(still_hot == 2) {
@@ -1020,25 +984,88 @@ re_cooling:
 	WRITE_ONCE(pn->need_cooling, false);
 }
 
-static int page_check_hotness_xa(struct page *page, struct mem_cgroup *memcg)
+static unsigned long move_to_inactive(unsigned long nr_to_scan, struct lruvec *lruvec,
+					enum lru_list lru)
 {
-	pginfo_t *pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-	unsigned int cur_idx;
-	int ret = 0;
+	unsigned long nr_taken;
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+	pg_data_t *pgdat = lruvec_pgdat(lruvec);
+	LIST_HEAD(l_hold);
+	LIST_HEAD(l_to_inactive);
+	int file = is_file_lru(lru);
 
-	if(!pginfo) {
-		//pr_err("[%s] page pginfo null\n",__func__);
-		return ret;
+	lru_add_drain();
+
+	spin_lock_irq(&lruvec->lru_lock);
+	nr_taken = isolate_lru_pages(nr_to_scan, lruvec, lru, &l_hold, 0);
+	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, nr_taken);
+	spin_unlock_irq(&lruvec->lru_lock);
+
+	cond_resched();
+	while(!list_empty(&l_hold)) {
+		struct page *page;
+
+		page = lru_to_page(&l_hold);
+		list_del(&page->lru);
+		if(unlikely(!page_evictable(page))) {
+			putback_lru_page(page);
+			continue;
+		}
+
+		ClearPageActive(page);
+		SetPageWorkingset(page);
+		list_add(&page->lru, &l_to_inactive);
 	}
 
-	cur_idx = get_idx(pginfo->nr_accesses);
-	if(cur_idx >= memcg->active_threshold)
-		ret = 2;
-	else
-		ret = 1;	
+	spin_lock_irq(&lruvec->lru_lock);
+	move_pages_to_lru(lruvec, &l_to_inactive);
 
-	return ret;
+	__mod_node_page_state(pgdat, NR_ISOLATED_ANON + file, -nr_taken);
+	spin_unlock_irq(&lruvec->lru_lock);
+
+	mem_cgroup_uncharge_list(&l_to_inactive);
+	free_unref_page_list(&l_to_inactive);
+
+	return nr_taken;
 }
+
+
+static void move_all_to_inactive(pg_data_t *pgdat, struct mem_cgroup *memcg)
+{
+	unsigned long nr_to_scan, nr_scanned = 0, nr_max_scan = 12;
+	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	struct mem_cgroup_per_node *pn = memcg->nodeinfo[pgdat->node_id];
+	enum lru_list lru = LRU_ACTIVE_ANON;
+
+	nr_to_scan = lruvec_lru_size(lruvec, lru, MAX_NR_ZONES);
+	do {
+		unsigned long scan = nr_to_scan >> 3; // 12.5%
+		if(!scan)
+			scan = nr_to_scan;
+	
+		nr_scanned += move_to_inactive(scan, lruvec, lru);
+
+		nr_max_scan--;
+	} while (nr_scanned < nr_to_scan && nr_max_scan);
+
+	// active file list
+	move_to_inactive(lruvec_lru_size(lruvec, LRU_ACTIVE_FILE, MAX_NR_ZONES),
+			lruvec, LRU_ACTIVE_FILE);
+
+	WRITE_ONCE(pn->need_cooling, false);
+}
+
+static void scanless_cooling_node(struct mem_cgroup *memcg)
+{
+	// Zeroing ac_pages with DMA
+	zeroing_ac_pages(memcg);	
+
+	// Move all active lru mttm pages to inactive lru.
+	move_all_to_inactive(NODE_DATA(0), memcg);
+	move_all_to_inactive(NODE_DATA(1), memcg);
+
+}
+
 
 static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum lru_list lru, unsigned long *nr_to_active_one, unsigned long *nr_to_inactive_one)
@@ -1078,17 +1105,20 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 		
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
+			uint32_t nr_accesses;
 
-			if(get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->active_threshold))
+			if(scanless_cooling)
+				nr_accesses = memcg->ac_page_list[meta_page->meta_bitmap_idx][meta_page->ac_bitmap_idx];
+			else
+				nr_accesses = meta_page->nr_accesses;
+
+			if(get_idx(nr_accesses) >= READ_ONCE(memcg->active_threshold))
 				status = 2;
 			else
 				status = 1;
 		}
 		else {
-			if(use_xa_basepage)
-				status = page_check_hotness_xa(page, memcg);
-			else
-				status = page_check_hotness(page, memcg);
+			status = page_check_hotness(page, memcg);
 		}
 
 		if(status == 2) {
@@ -1239,12 +1269,8 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 		}
 		else {
 			pginfo_t *pginfo = NULL;
-			if(use_xa_basepage) {
-				pginfo = get_pginfo_from_xa(memcg->basepage_xa, page);
-			}
-			else {
-				pginfo = get_pginfo_from_page(page);
-			}
+			pginfo = get_pginfo_from_page(page);
+			
 			if(!pginfo) {
 				list_add(&page->lru, &l_scanned);
 				continue;
@@ -1443,17 +1469,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				
 				pr_info("[%s] [ %s ]. region [hot : %lu MB, cold : %lu MB]. access [hot : %lu, cold : %lu]\n",
 					__func__, memcg->tenant_name, memcg->hot_region >> 8, memcg->cold_region >> 8,
-					memcg->nr_hot_region_access, memcg->nr_cold_region_access);
-
-				/*if(memcg->nr_hot_region_access / memcg->nr_cold_region_access < 10 &&
-					memcg->hot_region * 100 / memcg->cold_region > 80) {
-					pr_info("[%s] [ %s ] weak hot offset added\n",
-						__func__, memcg->tenant_name);
-
-					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold - memcg->threshold_offset);
-					WRITE_ONCE(memcg->threshold_offset, weak_hot_offset);
-					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
-				}*/
+					memcg->nr_hot_region_access, memcg->nr_cold_region_access);	
 				
 				WRITE_ONCE(memcg->region_determined, true);
 			}
@@ -1468,15 +1484,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 
 				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,
-					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);
-
-				/*if(memcg->hotness_intensity < hotness_intensity_threshold) {
-					WRITE_ONCE(memcg->threshold_offset, weak_hot_offset);
-					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
-					if(memcg->use_warm)
-						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-
-				}*/
+					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);	
 				
 				WRITE_ONCE(memcg->hi_determined, true);
 			}
@@ -1544,7 +1552,10 @@ static int kmigrated(void *p)
 			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
-			cooling_node(NODE_DATA(0), memcg, &nr_cooled, &nr_still_hot);
+			if(scanless_cooling)
+				scanless_cooling_node(memcg);
+			else
+				cooling_node(NODE_DATA(0), memcg, &nr_cooled, &nr_still_hot);
 			tot_nr_cooled += nr_cooled;
 			tot_nr_cool_failed += nr_still_hot;
 			one_cooling_cputime += (jiffies - stamp);
@@ -1572,7 +1583,8 @@ static int kmigrated(void *p)
 			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
-			cooling_node(NODE_DATA(1), memcg, &nr_cooled, &nr_still_hot);
+			if(!scanless_cooling)
+				cooling_node(NODE_DATA(1), memcg, &nr_cooled, &nr_still_hot);
 			tot_nr_cooled += nr_cooled;
 			tot_nr_cool_failed += nr_still_hot;
 			one_cooling_cputime += (jiffies - stamp);
