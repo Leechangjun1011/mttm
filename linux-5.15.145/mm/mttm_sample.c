@@ -109,6 +109,39 @@ unsigned int get_idx(unsigned long num)
 	return cnt;
 }
 
+void find_bitmap_idx(struct mem_cgroup *memcg, unsigned int *giga_idx,
+			unsigned int *huge_idx, unsigned int *base_idx)
+{
+	*giga_idx = find_first_zero_bit(memcg->giga_bitmap, memcg->giga_bitmap_size);
+	if(*giga_idx == memcg->giga_bitmap_size) {
+		pr_info("[%s] No zero bit in giga_bitmap\n",
+			__func__);
+		*giga_idx = 0;
+		*huge_idx = 0;
+		*base_idx = 0;
+	}
+	else {
+		*huge_idx = find_first_zero_bit(memcg->huge_bitmap[*giga_idx], memcg->huge_bitmap_size);
+		*base_idx = find_first_zero_bit(memcg->base_bitmap[*giga_idx][*huge_idx], memcg->base_bitmap_size);
+		
+		set_bit(*base_idx, memcg->base_bitmap[*giga_idx][*huge_idx]);
+		memcg->free_base_bits[*giga_idx][*huge_idx]--;
+		if(memcg->free_base_bits[*giga_idx][*huge_idx] == 0) {
+			set_bit(*huge_idx, memcg->huge_bitmap[*giga_idx]);
+			memcg->free_huge_bits[*giga_idx]--;
+			if(memcg->free_huge_bits[*giga_idx] == 0) {
+				set_bit(*giga_idx, memcg->giga_bitmap);
+				memcg->free_giga_bits--;
+			}
+		}	
+	}
+
+}
+
+
+
+
+// Basepage initiallization
 // Called after pte_alloc_one in memory.c to initialize pginfo in pte.
 int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 {
@@ -116,7 +149,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	struct page *pte_page;
 	pginfo_t *pginfo;
 	int initial_hotness;
-	unsigned int meta_idx = 0, idx = 0, i;
+	unsigned int giga_idx = 0, huge_idx = 0, base_idx = 0, i;
 
 	if(!memcg)
 		return 0;
@@ -132,32 +165,12 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	initial_hotness = 0; //get_accesses_from_idx(memcg->active_threshold + 1);
 
 	if(scanless_cooling) {
-		spin_lock(&memcg->ac_bitmap_lock);
-		meta_idx = find_first_zero_bit(memcg->meta_bitmap, memcg->meta_bitmap_size);
-		if(meta_idx == memcg->meta_bitmap_size) {
-			pr_info("[%s] No zero bit in meta_bitmap\n",
-				__func__);
-			pginfo->meta_bitmap_idx = 0;
-			pginfo->ac_bitmap_idx = 0;
-		}
-		else {
-			idx = find_first_zero_bit(memcg->ac_bitmap_list[meta_idx], memcg->ac_bitmap_size);
-			// It shouldn't be ac_bitmap_size
-			if(idx == memcg->ac_bitmap_size) {
-				pr_info("[%s] No zero bit in ac_bitmap\n",
-					__func__);
-				pginfo->meta_bitmap_idx = meta_idx;
-				pginfo->ac_bitmap_idx = 0;
-			}
-			else {
-				set_bit(idx, memcg->ac_bitmap_list[meta_idx]);
-				if(idx == memcg->ac_bitmap_size - 1)
-					set_bit(meta_idx, memcg->meta_bitmap);
-				pginfo->meta_bitmap_idx = meta_idx;
-				pginfo->ac_bitmap_idx = idx;
-			}
-		}
-		spin_unlock(&memcg->ac_bitmap_lock);
+		spin_lock(&memcg->bitmap_lock);
+		find_bitmap_idx(memcg, &giga_idx, &huge_idx, &base_idx);
+		pginfo->giga_bitmap_idx = giga_idx;
+		pginfo->huge_bitmap_idx = huge_idx;
+		pginfo->base_bitmap_idx = base_idx;
+		spin_unlock(&memcg->bitmap_lock);
 		/*if(!memcg->ac_page_list[pginfo->meta_bitmap_idx]) {
 			pr_info("pginfo->meta_bitmap_idx : %u\n", pginfo->meta_bitmap_idx);
 			pr_info("meta_idx : %u\n", meta_idx);
@@ -169,7 +182,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 					i, test_bit(i, memcg->ac_bitmap_list[0]) ? 1 : 0);
 			BUG();
 		}*/
-		memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx] = initial_hotness;
+		memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] = initial_hotness;
 	}
 	else
 		pginfo->nr_accesses = initial_hotness;
@@ -196,7 +209,7 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 {
 	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
 	int initial_hotness = 0; //memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
-	unsigned int meta_idx = 0, idx = 0;
+	unsigned int giga_idx = 0, huge_idx = 0, base_idx = 0;
 
 	SetPageMttm(&page[3]);
 
@@ -204,34 +217,13 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 		return;
 
 	if(scanless_cooling) {	
-		spin_lock(&memcg->ac_bitmap_lock);
-		meta_idx = find_first_zero_bit(memcg->meta_bitmap, memcg->meta_bitmap_size);
-		if(meta_idx == memcg->meta_bitmap_size) {
-			pr_info("[%s] No zero bit in meta_bitmap\n",
-				__func__);
-			page[3].meta_bitmap_idx = 0;
-			page[3].ac_bitmap_idx = 0;
-		}
-		else {
-			idx = find_first_zero_bit(memcg->ac_bitmap_list[meta_idx], memcg->ac_bitmap_size);
-			// It shouldn't be ac_bitmap_size
-			if(idx == memcg->ac_bitmap_size) {
-				pr_info("[%s] No zero bit in ac_bitmap\n",
-					__func__);
-				page[3].meta_bitmap_idx = meta_idx;
-				page[3].ac_bitmap_idx = 0;
-			}
-			else {
-				set_bit(idx, memcg->ac_bitmap_list[meta_idx]);
-				if(idx == memcg->ac_bitmap_size - 1)
-					set_bit(meta_idx, memcg->meta_bitmap);
-				page[3].meta_bitmap_idx = meta_idx;
-				page[3].ac_bitmap_idx = idx;
-			}
-		}
-		spin_unlock(&memcg->ac_bitmap_lock);
-
-		memcg->ac_page_list[page[3].meta_bitmap_idx][page[3].ac_bitmap_idx] = initial_hotness;
+		spin_lock(&memcg->bitmap_lock);
+		find_bitmap_idx(memcg, &giga_idx, &huge_idx, &base_idx);
+		page[3].giga_bitmap_idx = giga_idx;
+		page[3].huge_bitmap_idx = huge_idx;
+		page[3].base_bitmap_idx = base_idx;
+		spin_unlock(&memcg->bitmap_lock);
+		memcg->ac_page_list[page[3].giga_bitmap_idx][page[3].huge_bitmap_idx][page[3].base_bitmap_idx] = initial_hotness;
 	}
 	else
 		page[3].nr_accesses = initial_hotness;
@@ -263,8 +255,9 @@ void copy_transhuge_pginfo(struct page *page, struct page *newpage)
 		return ;
 
 	if(scanless_cooling) {
-		newpage[3].meta_bitmap_idx = page[3].meta_bitmap_idx;
-		newpage[3].ac_bitmap_idx = page[3].ac_bitmap_idx;
+		newpage[3].giga_bitmap_idx = page[3].giga_bitmap_idx;
+		newpage[3].huge_bitmap_idx = page[3].huge_bitmap_idx;
+		newpage[3].base_bitmap_idx = page[3].base_bitmap_idx;
 	}
 	else
 		newpage[3].nr_accesses = page[3].nr_accesses;
@@ -288,7 +281,7 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 {
 	struct page *pte_page;
 	unsigned int idx;
-	unsigned int ac_idx, meta_idx;
+	unsigned int giga_idx, huge_idx, base_idx;
 	pginfo_t *pginfo;
 
 	if(!memcg)
@@ -305,15 +298,28 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		return;
 
 	if(scanless_cooling) {
-		spin_lock(&memcg->ac_bitmap_lock);
-		meta_idx = pginfo->meta_bitmap_idx;
-		ac_idx = pginfo->ac_bitmap_idx;
-		idx = get_idx(memcg->ac_page_list[meta_idx][ac_idx]);
-		if(!test_bit(ac_idx, memcg->ac_bitmap_list[meta_idx]))
-			pr_info("[%s] allocated bitmap is not set\n",__func__);
-		clear_bit(ac_idx, memcg->ac_bitmap_list[meta_idx]);
-		clear_bit(meta_idx, memcg->meta_bitmap);
-		spin_unlock(&memcg->ac_bitmap_lock);
+		spin_lock(&memcg->bitmap_lock);
+		giga_idx = pginfo->giga_bitmap_idx;
+		huge_idx = pginfo->huge_bitmap_idx;
+		base_idx = pginfo->base_bitmap_idx;
+		idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
+		if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
+			pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
+				__func__, giga_idx, huge_idx, base_idx);
+		}
+		else {
+			clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
+			memcg->free_base_bits[giga_idx][huge_idx]++;
+			if(memcg->free_base_bits[giga_idx][huge_idx] == 1) {
+				clear_bit(huge_idx, memcg->huge_bitmap[giga_idx]);
+				memcg->free_huge_bits[giga_idx]++;
+				if(memcg->free_huge_bits[giga_idx] == 1) {
+					clear_bit(giga_idx, memcg->giga_bitmap);
+					memcg->free_giga_bits++;
+				}
+			}
+		}
+		spin_unlock(&memcg->bitmap_lock);
 	}
 	else
 		idx = get_idx(pginfo->nr_accesses);
@@ -329,7 +335,7 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 {
 	unsigned int nr_pages = thp_nr_pages(page);
 	unsigned int idx;
-	unsigned int meta_idx, ac_idx;
+	unsigned int giga_idx, huge_idx, base_idx;
 
 
 	if(!memcg)
@@ -342,13 +348,27 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 		struct page *meta_page = get_meta_page(page);
 
 		if(scanless_cooling) {
-			spin_lock(&memcg->ac_bitmap_lock);
-			meta_idx = meta_page->meta_bitmap_idx;
-			ac_idx = meta_page->ac_bitmap_idx;
-			idx = get_idx(memcg->ac_page_list[meta_idx][ac_idx]);
-			clear_bit(ac_idx, memcg->ac_bitmap_list[meta_idx]);
-			clear_bit(meta_idx, memcg->meta_bitmap);
-			spin_unlock(&memcg->ac_bitmap_lock);
+			spin_lock(&memcg->bitmap_lock);
+			giga_idx = meta_page->giga_bitmap_idx;
+			huge_idx = meta_page->huge_bitmap_idx;
+			base_idx = meta_page->base_bitmap_idx;
+			idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
+			if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]))
+				pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
+					__func__, giga_idx, huge_idx, base_idx);
+			else {
+				clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
+				memcg->free_base_bits[giga_idx][huge_idx]++;
+				if(memcg->free_base_bits[giga_idx][huge_idx] == 1) {
+					clear_bit(huge_idx, memcg->huge_bitmap[giga_idx]);
+					memcg->free_huge_bits[giga_idx]++;
+					if(memcg->free_huge_bits[giga_idx] == 1) {
+						clear_bit(giga_idx, memcg->giga_bitmap);
+						memcg->free_giga_bits++;
+					}
+				}
+			}
+			spin_unlock(&memcg->bitmap_lock);
 		}
 		else
 			idx = get_idx(meta_page->nr_accesses);
@@ -492,12 +512,13 @@ static void pebs_update_period(uint64_t value)
 SYSCALL_DEFINE2(mttm_register_pid,
 		pid_t, pid, const char __user *, u_name)
 {
-	int i;
+	int i, j;
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	char name[PATH_MAX];
 	
-	size_t max_rss_in_GB = 200;//200GB when use only basepage
+	size_t max_rss_in_GB = 100;//100GB when use only basepage
 	size_t ac_page_size = 0;
+	size_t giga_bitmap_size = 0, huge_bitmap_size = 0, base_bitmap_size = 0;
 	bool alloc_fail = false;
 
 	spin_lock(&register_lock);
@@ -538,45 +559,70 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	}
 
 	if(scanless_cooling) {
-		spin_lock(&memcg->ac_bitmap_lock);
-		ac_page_size = ((max_rss_in_GB << 30) / PAGE_SIZE) * sizeof(uint32_t);//single access count(ac) is uint32_t
-		memcg->ac_page_list = kzalloc(max_rss_in_GB * sizeof(uint32_t *), GFP_KERNEL);
-		memcg->meta_bitmap = bitmap_zalloc(max_rss_in_GB, GFP_KERNEL);//check util per 1GB
-		memcg->ac_bitmap_list = kzalloc(max_rss_in_GB * sizeof(unsigned long *), GFP_KERNEL);//bitmap pointer for max_rss_in_GB ea.
-		memcg->ac_bitmap_size = (1UL << 30) / PAGE_SIZE;//number of bits
-		memcg->meta_bitmap_size = max_rss_in_GB;
-		if(memcg->ac_page_list && memcg->ac_bitmap_list && memcg->meta_bitmap) {
-			for(i = 0; i < max_rss_in_GB; i++) {
-				memcg->ac_bitmap_list[i] = bitmap_zalloc(memcg->ac_bitmap_size, GFP_KERNEL);
-				memcg->ac_page_list[i] = vzalloc(memcg->ac_bitmap_size * sizeof(uint32_t));
-				if(!memcg->ac_bitmap_list[i] || !memcg->ac_page_list[i]) {
-					alloc_fail = true;
-					break;
-				}
-			}
-			if(alloc_fail) {
-				for(i = 0; i < max_rss_in_GB; i++) {
-					if(memcg->ac_bitmap_list[i])
-						bitmap_free(memcg->ac_bitmap_list[i]);
-					if(memcg->ac_page_list[i])
-						kvfree(memcg->ac_page_list[i]);
-				}
-				kfree(memcg->ac_page_list);
-				bitmap_free(memcg->meta_bitmap);
-				kfree(memcg->ac_bitmap_list);
-				pr_info("[%s] [ %s ] alloc fail\n",__func__, memcg->tenant_name);
+		spin_lock(&memcg->bitmap_lock);
+		ac_page_size = ((1UL << 30) / HPAGE_SIZE) * sizeof(uint32_t);//single access count page size
+		giga_bitmap_size = max_rss_in_GB;
+		huge_bitmap_size = ((1UL << 30) / HPAGE_SIZE);
+		base_bitmap_size = (HPAGE_SIZE / PAGE_SIZE);
+
+		// Alloc ac_page_list
+		memcg->ac_page_list = kzalloc(giga_bitmap_size * sizeof(uint32_t **), GFP_KERNEL);
+		BUG_ON(!memcg->ac_page_list);
+		for(i = 0; i < giga_bitmap_size; i++) {
+			memcg->ac_page_list[i] = kzalloc(huge_bitmap_size * sizeof(uint32_t *), GFP_KERNEL);
+			BUG_ON(!memcg->ac_page_list[i]);
+		}
+		for(i = 0; i < giga_bitmap_size; i++) {
+			for(j = 0; j < huge_bitmap_size; j++) {
+				memcg->ac_page_list[i][j] = kzalloc(base_bitmap_size * sizeof(uint32_t), GFP_KERNEL);
+				BUG_ON(!memcg->ac_page_list[i][j]);
 			}
 		}
-		else {
-			if(memcg->ac_page_list)
-				kfree(memcg->ac_page_list);
-			if(memcg->meta_bitmap)
-				bitmap_free(memcg->meta_bitmap);
-			if(memcg->ac_bitmap_list)
-				kfree(memcg->ac_bitmap_list);
-			pr_info("[%s] [ %s ] alloc fail\n",__func__, memcg->tenant_name);
+
+		// Alloc bitmaps
+		memcg->giga_bitmap = bitmap_zalloc(giga_bitmap_size, GFP_KERNEL);
+		BUG_ON(!memcg->giga_bitmap);
+		memcg->huge_bitmap = kzalloc(giga_bitmap_size * sizeof(unsigned long *), GFP_KERNEL);
+		BUG_ON(!memcg->huge_bitmap);
+		for(i = 0; i < giga_bitmap_size; i++) {
+			memcg->huge_bitmap[i] = bitmap_zalloc(huge_bitmap_size, GFP_KERNEL);
+			BUG_ON(!memcg->huge_bitmap[i]);
 		}
-		spin_unlock(&memcg->ac_bitmap_lock);
+		memcg->base_bitmap = kzalloc(giga_bitmap_size * sizeof(unsigned long **), GFP_KERNEL);
+		BUG_ON(!memcg->base_bitmap);
+		for(i = 0; i < giga_bitmap_size; i++) {
+			memcg->base_bitmap[i] = kzalloc(huge_bitmap_size * sizeof(unsigned long *), GFP_KERNEL);
+			BUG_ON(!memcg->base_bitmap[i]);
+		}
+		for(i = 0; i < giga_bitmap_size; i++) {
+			for(j = 0; j < huge_bitmap_size; j++) {
+				memcg->base_bitmap[i][j] = bitmap_zalloc(base_bitmap_size, GFP_KERNEL);
+				BUG_ON(!memcg->base_bitmap[i][j]);
+			}
+		}
+
+		memcg->free_giga_bits = giga_bitmap_size;
+		memcg->free_huge_bits = kzalloc(giga_bitmap_size * sizeof(unsigned int), GFP_KERNEL);
+		BUG_ON(!memcg->free_huge_bits);
+		for(i = 0; i < giga_bitmap_size; i++)
+			memcg->free_huge_bits[i] = huge_bitmap_size;
+		memcg->free_base_bits = kzalloc(giga_bitmap_size * sizeof(unsigned int *), GFP_KERNEL);
+		BUG_ON(!memcg->free_base_bits);
+		for(i = 0; i < giga_bitmap_size; i++) {
+			memcg->free_base_bits[i] = kzalloc(huge_bitmap_size * sizeof(unsigned int), GFP_KERNEL);
+			BUG_ON(!memcg->free_base_bits[i]);
+		}
+		for(i = 0; i < giga_bitmap_size; i++) {
+			for(j = 0; j < huge_bitmap_size; j++) {
+				memcg->free_base_bits[i][j] = base_bitmap_size;
+			}
+		}
+
+		memcg->giga_bitmap_size = giga_bitmap_size;
+		memcg->huge_bitmap_size = huge_bitmap_size;
+		memcg->base_bitmap_size = base_bitmap_size;
+
+		spin_unlock(&memcg->bitmap_lock);
 	}
 
 
@@ -591,9 +637,8 @@ SYSCALL_DEFINE2(mttm_register_pid,
 SYSCALL_DEFINE1(mttm_unregister_pid,
 		pid_t, pid)
 {
-	int i;
+	int i, j;
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
-	size_t max_rss_in_GB = 200;
 	spin_lock(&register_lock);
 
 	current_tenants--;
@@ -607,20 +652,37 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	}
 
 	if(scanless_cooling) {
-		spin_lock(&memcg->ac_bitmap_lock);
-		for(i = 0; i < max_rss_in_GB; i++) {
-			if(memcg->ac_bitmap_list[i])
-				bitmap_free(memcg->ac_bitmap_list[i]);
+		spin_lock(&memcg->bitmap_lock);
+
+		for(i = 0; i < memcg->giga_bitmap_size; i++) {
+			for(j = 0; j < memcg->huge_bitmap_size; j++) {
+				if(memcg->base_bitmap[i][j])
+					bitmap_free(memcg->base_bitmap[i][j]);
+				if(memcg->ac_page_list[i][j])
+					kfree(memcg->ac_page_list[i][j]);
+			}
+			if(memcg->base_bitmap[i])
+				kfree(memcg->base_bitmap[i]);
+			if(memcg->huge_bitmap[i])
+				bitmap_free(memcg->huge_bitmap[i]);
 			if(memcg->ac_page_list[i])
-				kvfree(memcg->ac_page_list[i]);
+				kfree(memcg->ac_page_list[i]);
+			if(memcg->free_base_bits[i])
+				kfree(memcg->free_base_bits[i]);
 		}
+		if(memcg->giga_bitmap)
+			bitmap_free(memcg->giga_bitmap);
+		if(memcg->huge_bitmap)
+			kfree(memcg->huge_bitmap);
+		if(memcg->base_bitmap)
+			kfree(memcg->base_bitmap);
 		if(memcg->ac_page_list)
 			kfree(memcg->ac_page_list);
-		if(memcg->meta_bitmap)
-			bitmap_free(memcg->meta_bitmap);
-		if(memcg->ac_bitmap_list)
-			kfree(memcg->ac_bitmap_list);
-		spin_unlock(&memcg->ac_bitmap_lock);
+		if(memcg->free_huge_bits)
+			kfree(memcg->free_huge_bits);
+		if(memcg->free_base_bits)
+			kfree(memcg->free_base_bits);
+		spin_unlock(&memcg->bitmap_lock);
 	}
 
 	// Re-distribute local DRAM
@@ -984,7 +1046,7 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 	uint32_t *ac;
 
 	if(scanless_cooling) {
-		ac = &memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx];
+		ac = &memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx];
 		prev_idx = get_idx(*ac);
 		(*ac) += HPAGE_PMD_NR;
 		cur_idx = get_idx(*ac);
@@ -1022,7 +1084,7 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 	meta_page = get_meta_page(page);
 
 	if(scanless_cooling) {
-		ac = &memcg->ac_page_list[meta_page->meta_bitmap_idx][meta_page->ac_bitmap_idx];
+		ac = &memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
 		prev_idx = get_idx(*ac);
 		(*ac)++;
 		cur_idx = get_idx(*ac);
@@ -2226,19 +2288,21 @@ static int ksampled(void *dummy)
 				interval_start = cur;
 				if(scanless_cooling) {
 					for(i = 0; i < LIMIT_TENANTS; i++) {
-						int j, tot_weight = 0;
+						int j, k, tot_weight = 0;
 						memcg = READ_ONCE(memcg_list[i]);
 						if(memcg) {
-							pr_info("[%s] [ %s ] meta bitmap util : %u / %u\n",
+							pr_info("[%s] [ %s ] giga bitmap util : %u / %u\n",
 								__func__, memcg->tenant_name,
-								bitmap_weight(memcg->meta_bitmap, memcg->meta_bitmap_size),
-								 memcg->meta_bitmap_size);
-							for(j = 0; j < memcg->meta_bitmap_size / 2; j++) {
-								tot_weight += bitmap_weight(memcg->ac_bitmap_list[j], memcg->ac_bitmap_size);
+								bitmap_weight(memcg->giga_bitmap, memcg->giga_bitmap_size),
+								 memcg->giga_bitmap_size);
+							for(j = 0; j < memcg->giga_bitmap_size; j++) {
+								for(k = 0; k < memcg->huge_bitmap_size; k++) {
+									tot_weight += bitmap_weight(memcg->base_bitmap[j][k], memcg->base_bitmap_size);
+								}
 							}
 							pr_info("[%s] [ %s ] tot ac bitmap util : %u / %u\n",
 								__func__, memcg->tenant_name, tot_weight,
-								memcg->ac_bitmap_size * memcg->meta_bitmap_size);
+								memcg->giga_bitmap_size * memcg->huge_bitmap_size * memcg->base_bitmap_size);
 						}
 					}
 				}

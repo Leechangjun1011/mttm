@@ -1027,7 +1027,7 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 				continue;
 
 			if(scanless_cooling)
-				nr_accesses = mca->memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx];
+				nr_accesses = mca->memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx];
 			else
 				nr_accesses = pginfo->nr_accesses;
 

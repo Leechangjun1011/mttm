@@ -319,7 +319,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 					goto keep_locked;
 
 				nr_accesses = scanless_cooling ?
-						memcg->ac_page_list[meta_page->meta_bitmap_idx][meta_page->ac_bitmap_idx] :
+						memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx] :
 						meta_page->nr_accesses;
 				if(memcg->use_warm &&
 					get_idx(nr_accesses) >= READ_ONCE(memcg->warm_threshold))
@@ -348,7 +348,7 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 					goto keep_locked;
 				}
 				nr_accesses = scanless_cooling ?
-						memcg->ac_page_list[pginfo->meta_bitmap_idx][pginfo->ac_bitmap_idx] :
+						memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] :
 						pginfo->nr_accesses;
 
 				idx = get_idx(nr_accesses);
@@ -1108,7 +1108,7 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 			uint32_t nr_accesses;
 
 			if(scanless_cooling)
-				nr_accesses = memcg->ac_page_list[meta_page->meta_bitmap_idx][meta_page->ac_bitmap_idx];
+				nr_accesses = memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
 			else
 				nr_accesses = meta_page->nr_accesses;
 

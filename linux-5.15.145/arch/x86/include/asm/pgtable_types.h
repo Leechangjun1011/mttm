@@ -287,11 +287,13 @@ typedef struct {
 	union {
 		struct {
 			uint32_t nr_accesses;
-			uint32_t dummy;
+			uint32_t dummy1;
+			uint32_t dummy2;
 		};
 		struct {
-			uint32_t meta_bitmap_idx;
-			uint32_t ac_bitmap_idx;
+			uint32_t giga_bitmap_idx;
+			uint32_t huge_bitmap_idx;
+			uint32_t base_bitmap_idx;
 		};
 	};
 	uint16_t cooling_clock;

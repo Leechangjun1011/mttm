@@ -47,7 +47,7 @@ echo 1 > /proc/sys/vm/check_stable_sample_rate
 
 echo 1 > /proc/sys/vm/use_dma_migration
 echo 1 > /proc/sys/vm/use_dma_completion_interrupt
-echo 0 > /proc/sys/vm/scanless_cooling
+echo 1 > /proc/sys/vm/scanless_cooling
 echo 0 > /proc/sys/vm/reduce_scan
 
 echo 0 > /proc/sys/vm/use_all_stores

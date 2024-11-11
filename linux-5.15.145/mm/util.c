@@ -1019,10 +1019,12 @@ unmap_dma:
 // only called when scanless_cooling
 void zeroing_ac_pages(struct mem_cgroup *memcg)
 {
-	int i;
+	int i, j;
 	
-	for(i = 0; i < memcg->meta_bitmap_size; i++)
-		memset(memcg->ac_page_list[i], 0, memcg->ac_bitmap_size * sizeof(uint32_t));
+	for(i = 0; i < memcg->giga_bitmap_size; i++) {
+		for(j = 0; j < memcg->huge_bitmap_size; j++)
+			memset(memcg->ac_page_list[i][j], 0, memcg->base_bitmap_size * sizeof(uint32_t));
+	}
 	/*struct dma_async_tx_descriptor *tx;
 	dma_cookie_t cookie;
 	enum dma_ctrl_flags flag = 0;

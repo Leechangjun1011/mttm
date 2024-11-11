@@ -5328,11 +5328,16 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_pingpong = 0;
 
 	memcg->ac_page_list = NULL;
-	memcg->meta_bitmap = NULL;
-	memcg->ac_bitmap_list = NULL;
-	memcg->meta_bitmap_size = 0;
-	memcg->ac_bitmap_size = 0;
-	spin_lock_init(&memcg->ac_bitmap_lock);
+	memcg->giga_bitmap = NULL;
+	memcg->huge_bitmap = NULL;
+	memcg->base_bitmap = NULL;
+	memcg->free_giga_bits = 0;
+	memcg->free_huge_bits = NULL;
+	memcg->free_base_bits = NULL;
+	memcg->giga_bitmap_size = 0;
+	memcg->huge_bitmap_size = 0;
+	memcg->base_bitmap_size = 0;
+	spin_lock_init(&memcg->bitmap_lock);
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		memcg->ml_queue[i] = NULL;
