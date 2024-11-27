@@ -942,6 +942,8 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 			struct page *pte_page;
 			unsigned int memcg_cclock;
 			unsigned int cur_idx;
+			unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+							MTTM_INIT_THRESHOLD : 9;
 			pte_t *pte = pvmw.pte;
 
 			pte_page = virt_to_page((unsigned long)pte);
@@ -954,8 +956,8 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 
 			memcg_cclock = READ_ONCE(mca->memcg->cooling_clock);
 			if(memcg_cclock > pginfo->cooling_clock) {
-				unsigned int active_threshold_cooled =  
-						MTTM_INIT_THRESHOLD + READ_ONCE(mca->memcg->threshold_offset);
+				unsigned int active_threshold_cooled =
+								init_threshold + READ_ONCE(mca->memcg->threshold_offset);
 
 				/*active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
 						mca->memcg->active_threshold - 1 : mca->memcg->active_threshold;*/

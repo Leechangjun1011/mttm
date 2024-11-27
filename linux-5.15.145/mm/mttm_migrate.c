@@ -54,6 +54,8 @@ extern unsigned int check_stable_sample_rate;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
 
+unsigned int basepage_period_factor = 40;
+unsigned int basepage_shift_factor = 9;
 unsigned long kmigrated_period_in_ms = 1000;
 
 
@@ -1245,15 +1247,19 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 		
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
-			idx = get_idx(meta_page->nr_accesses);
+			uint32_t nr_accesses = scanless_cooling ?
+						memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx] :
+						meta_page->nr_accesses;
+
+			idx = get_idx(nr_accesses);
 			if(use_region_separation) {
 				if(idx >= 2) {
 					*hot_region_size = (*hot_region_size) + HPAGE_PMD_NR;
-					*hot_region_access = (*hot_region_access) + meta_page->nr_accesses;
+					*hot_region_access = (*hot_region_access) + nr_accesses;
 				}
 				else if(idx == 1) {
 					*cold_region_size = (*cold_region_size) + HPAGE_PMD_NR;
-					*cold_region_access = (*cold_region_access) + meta_page->nr_accesses;
+					*cold_region_access = (*cold_region_access) + nr_accesses;
 				}
 			}
 			else if(use_hotness_intensity) {
@@ -1269,32 +1275,36 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 		}
 		else {
 			pginfo_t *pginfo = NULL;
+			uint32_t nr_accesses; 
 			pginfo = get_pginfo_from_page(page);
 			
 			if(!pginfo) {
 				list_add(&page->lru, &l_scanned);
 				continue;
 			}
+			nr_accesses = scanless_cooling ? 
+					memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] :
+					pginfo->nr_accesses;
 
-			idx = get_idx(pginfo->nr_accesses);
+			idx = get_idx(nr_accesses);
 			if(use_region_separation) {
-				if(idx >= 2) {
+				if(idx >= 10) {
 					*hot_region_size = (*hot_region_size) + 1;
-					*hot_region_access = (*hot_region_access) + (pginfo->nr_accesses / HPAGE_PMD_NR);
+					*hot_region_access = (*hot_region_access) + (nr_accesses / HPAGE_PMD_NR);
 				}
-				else if(idx == 1) {
+				else if(idx == 9) {
 					*cold_region_size = (*cold_region_size) + 1;
-					*cold_region_access = (*cold_region_access) + (pginfo->nr_accesses / HPAGE_PMD_NR);
+					*cold_region_access = (*cold_region_access) + (nr_accesses / HPAGE_PMD_NR);
 				}
 			}
 			else if(use_hotness_intensity) {
-				if(idx >= 1)
+				if(idx >= 9)
 					*lev1_size = (*lev1_size) + 1;
-				if(idx >= 2)
+				if(idx >= 10)
 					*lev2_size = (*lev2_size) + 1;
-				if(idx >= 3)
+				if(idx >= 11)
 					*lev3_size = (*lev3_size) + 1;
-				if(idx >= 4)
+				if(idx >= 12)
 					*lev4_size = (*lev4_size) + 1;
 			}
 		}
@@ -1345,7 +1355,8 @@ re_scan:
 		__func__, (lru == LRU_ACTIVE_ANON) ? "ACTIVE_ANON" : "INACTIVE_ANON",
 		nr_to_scan, nr_scanned);
 	*/
-	if(lru == LRU_ACTIVE_ANON) {
+	
+	if(lru == LRU_ACTIVE_ANON && test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
 		lru = LRU_INACTIVE_ANON;
 		goto re_scan;
 	}
@@ -1378,6 +1389,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	unsigned long tot_pages;
 	unsigned long tot_huge_pages;
 	unsigned int target_cooling = 0;
+	int shift_factor, period_factor;
 	
 	pn0 = memcg->nodeinfo[0];
 	pn1 = memcg->nodeinfo[1];
@@ -1387,16 +1399,24 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	tot_pages = get_anon_rss(memcg);
 	tot_huge_pages = tot_pages >> 9;
 
-	//if(tot_huge_pages > (memcg->cooling_period >> 1) + (MTTM_INIT_COOLING_PERIOD >> 2)) {
-	if(tot_huge_pages > (memcg->cooling_period >> 2)) {
+	if(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
+		shift_factor = 2;
+		period_factor = 1;
+	}
+	else {
+		shift_factor = basepage_shift_factor;
+		period_factor = basepage_period_factor;
+	}
+
+	if(tot_huge_pages > (memcg->cooling_period >> shift_factor)) {
 		if(*hotness_scanned > 0 &&
 			use_dram_determination && 
 			((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))){
 			// reset
 			*hotness_scanned = 0;			
 		}
-		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD);
-		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD);
+		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD * period_factor);
+		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD * period_factor);
 	}
 
 	target_cooling = READ_ONCE(memcg->hotness_scan_cnt);
@@ -1500,8 +1520,10 @@ static int kmigrated(void *p)
 	unsigned long tot_promoted = 0, tot_demoted = 0;
 	unsigned int hotness_scanned = 0;
 	unsigned int active_lru_overflow_cnt = 0;
+	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ? 
+					MTTM_INIT_THRESHOLD : 9;
 
-	unsigned long total_time, total_cputime = 0, total_mig_cputime = 0;
+	unsigned long total_time, total_cputime = 0, total_adjusting_cputime = 0, total_adjusting_overflow_cputime = 0, total_cooling_cputime = 0, total_mig_cputime = 0;
 	unsigned long one_mig_cputime, one_do_mig_cputime, one_manage_cputime, one_pingpong, one_cooling_cputime;
 	unsigned long stamp;
 	unsigned long trace_period = msecs_to_jiffies(10000);
@@ -1608,26 +1630,35 @@ static int kmigrated(void *p)
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
 		// Handle active lru overflow
-		//stamp = jiffies;
+		stamp = jiffies;
 		if(active_lru_overflow(memcg)) {
-			// It may not fix the active lru overflow immediately
-			WRITE_ONCE(memcg->hg_mismatch, true);
-			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
+			if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) && 
+				use_dram_determination &&
+				((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
 
-			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
-			tot_nr_adjusted += nr_adjusted_active;
-			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
-			tot_nr_adjusted += nr_adjusted_active;
+			}
 
-			if(memcg->use_warm && READ_ONCE(memcg->active_threshold) > MTTM_INIT_THRESHOLD)
-				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-			else
-				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+			else {
+				// It may not fix the active lru overflow immediately
+				WRITE_ONCE(memcg->hg_mismatch, true);
+				WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
 
-			active_lru_overflow_cnt++;
-			//interval_manage_cnt++;
+				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
+				tot_nr_adjusted += nr_adjusted_active;
+				adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
+				tot_nr_adjusted += nr_adjusted_active;
+
+				if(memcg->use_warm && READ_ONCE(memcg->active_threshold) > init_threshold)
+					WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+				else
+					WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+
+				active_lru_overflow_cnt++;
+				//interval_manage_cnt++;
+			}
 		}
-		//one_manage_cputime += (jiffies - stamp);
+		total_adjusting_overflow_cputime += (jiffies - stamp);
+		one_manage_cputime += (jiffies - stamp);
 
 		one_mig_cputime = jiffies;
 		one_do_mig_cputime = 0;
@@ -1684,6 +1715,8 @@ static int kmigrated(void *p)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
 
 		total_cputime += (one_cooling_cputime + one_manage_cputime + one_mig_cputime);
+		total_adjusting_cputime += one_manage_cputime;
+		total_cooling_cputime += one_cooling_cputime;
 		total_mig_cputime += one_mig_cputime;
 		interval_manage_cputime += (one_manage_cputime + one_cooling_cputime);
 		interval_mig_cputime += one_mig_cputime;
@@ -1767,8 +1800,9 @@ static int kmigrated(void *p)
 	pr_info("[%s] name : %s. tot_promoted : %lu MB, tot_demoted : %lu MB, nr_pingpong : %lu MB, block_time : %llu ns\n",
 		__func__, memcg->tenant_name, tot_promoted >> 8, tot_demoted >> 8,
 		memcg->nr_pingpong >> 8, READ_ONCE(memcg->block_time));
-	pr_info("[%s] name : %s. total_time : %lu, total_cputime : %lu, total_mig_cputime : %lu\n",
-		__func__, memcg->tenant_name, total_time, total_cputime, total_mig_cputime);
+	pr_info("[%s] name : %s. total_time : %lu, total_cputime : %lu [adjusting : %lu (overflow : %lu), cooling : %lu, mig : %lu]\n",
+		__func__, memcg->tenant_name, total_time, total_cputime,
+		total_adjusting_cputime, total_adjusting_overflow_cputime, total_cooling_cputime, total_mig_cputime);
 
 	return 0;
 }

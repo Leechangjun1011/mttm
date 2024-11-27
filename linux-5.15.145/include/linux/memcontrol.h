@@ -372,6 +372,7 @@ struct mem_cgroup {
 	unsigned long		max_anon_rss;
 	unsigned long		nr_alloc;
 	unsigned long		nr_sampled;
+	unsigned long		nr_tot_local;
 	unsigned long		interval_nr_sampled;
 	unsigned long		nr_load;
 	unsigned long		nr_store;

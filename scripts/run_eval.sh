@@ -15,6 +15,39 @@ function run_mttm_region
 	dmesg > ./evaluation/region_$1_$2_$3_dmesg.txt
 }
 
+function run_mttm_region_basepage_opt
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo 1 > /proc/sys/vm/scanless_cooling
+	echo 1 > /proc/sys/vm/reduce_scan
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/basepage/region_opt_$1_$2_$3.txt
+	dmesg > ./evaluation/basepage/region_opt_$1_$2_$3_dmesg.txt
+}
+
+function run_mttm_region_basepage_scan
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/scanless_cooling
+	echo 0 > /proc/sys/vm/reduce_scan
+	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/basepage/region_scan_$1_$2_$3.txt
+	dmesg > ./evaluation/basepage/region_scan_$1_$2_$3_dmesg.txt
+}
+
+function run_local_basepage
+{
+	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local_$1.txt
+}
+
 function run_mttm_hi
 {
 	dmesg --clear
@@ -76,6 +109,36 @@ function set_250
 	cd $cur_path
 	echo 250 > /proc/sys/vm/remote_latency
 }
+
+source $conda_activate dlrm_cpu
+run_mttm_region_basepage_opt 63G config4 130
+#run_mttm_region_basepage_scan 63G config4 130
+
+: << END
+
+#run_mttm_region_basepage_opt 51G config6 130
+#run_mttm_region_basepage_scan 51G config6 130
+
+conda deactivate
+source $conda_activate dlrm_cpu
+run_mttm_region_basepage_opt 50G config8 130
+run_mttm_region_basepage_scan 50G config8 130
+
+conda deactivate
+source $conda_activate dlrm_cpu
+run_mttm_region_basepage_opt 48G config10 130
+run_mttm_region_basepage_scan 48G config10 130
+
+conda deactivate
+run_local_basepage config6
+
+source $conda_activate dlrm_cpu
+run_local_basepage config8
+
+conda deactivate
+source $conda_activate dlrm_cpu
+run_local_basepage config10
+END
 : << END
 #1st exp
 set_130
@@ -164,7 +227,6 @@ run_mttm_region 48G config10 250
 run_mttm_hi 48G config10 250
 run_mttm_region 19G config10 250
 run_mttm_hi 19G config10 250
-END
 
 #1st exp
 set_130
@@ -240,6 +302,7 @@ set_250
 source $conda_activate dlrm_cpu
 run_memstrata 48G config10 250
 run_memstrata 19G config10 250
+END
 
 set_130
 

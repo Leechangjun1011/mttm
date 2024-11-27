@@ -47,11 +47,9 @@ else
         CPUSETS="0-7"
 fi
 
-: << END
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
-END
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
@@ -68,9 +66,9 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g26.sg -n 26"
 	else
-	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
+	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 7"
 	fi
-	echo 2G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 8G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
 	if [[ "$3" == "config1" ]]; then
@@ -88,10 +86,9 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	elif [[ "$3" == "motiv-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	else
-	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 5"
 	fi
        	echo 4G > ${CGMEM_DIR}/memory.max_at_node0
-	echo 20000 > ${CGMEM_DIR}/memory.cooling_period
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
@@ -159,9 +156,9 @@ elif [[ "$2" == "silo" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 		BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
-	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=1100000000 --slow-exit"
+	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 240000 --ops-per-worker=200000000"
 	fi
-	echo 40221M > ${CGMEM_DIR}/memory.max_at_node0
+	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "config1" ]]; then
@@ -288,7 +285,7 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33 90"
+        BENCH="${BENCH_PATH}/gups 8 5000000000 35 8 33 90"
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
@@ -310,5 +307,5 @@ then
 	sleep 2s
 fi
 
-./run_bench ${BENCH} #& release_cpuset
-#wait
+./run_bench ${BENCH} & release_cpuset
+wait

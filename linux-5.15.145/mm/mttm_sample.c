@@ -52,6 +52,8 @@ unsigned int use_lru_manage_reduce = 1;
 unsigned int use_dma_migration = 0;
 struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
+struct dma_chan *memset_chan[NUM_AVAIL_DMA_CHAN];
+struct dma_device *memset_dev[NUM_AVAIL_DMA_CHAN];
 unsigned int use_all_stores = 0;
 int current_tenants = 0;
 struct mem_cgroup **memcg_list = NULL;
@@ -304,8 +306,8 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		base_idx = pginfo->base_bitmap_idx;
 		idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 		if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
-			pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
-				__func__, giga_idx, huge_idx, base_idx);
+			//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
+			//	__func__, giga_idx, huge_idx, base_idx);
 		}
 		else {
 			clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
@@ -701,8 +703,8 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 
 	spin_unlock(&register_lock);
 
-	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total sample : %lu\n",
-		__func__, pid, memcg->tenant_name, current_tenants, memcg->nr_sampled);
+	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total sample : %lu [local : %lu, remote : %lu]\n",
+		__func__, pid, memcg->tenant_name, current_tenants, memcg->nr_sampled, memcg->nr_tot_local, memcg->nr_sampled - memcg->nr_tot_local);
 	return 0;
 }
 
@@ -779,7 +781,7 @@ void set_lru_adjusting(struct mem_cgroup *memcg, bool inc_thres)
 		if(!pn)
 			continue;
 		WRITE_ONCE(pn->need_adjusting, true);
-		if(inc_thres)
+		if(inc_thres && !reduce_scan)
 			WRITE_ONCE(pn->need_adjusting_all, true);
 
 	}
@@ -794,12 +796,19 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	//bool need_warm = false;
 	int idx_hot;
 	unsigned int prev_threshold = READ_ONCE(memcg->active_threshold);
+	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					MTTM_INIT_THRESHOLD : 9;
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
 		// Not need to adjust since threshold not changed.
 		//set_lru_adjusting(memcg, true);
 		return;
 	}
+	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) &&
+		use_dram_determination &&
+		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined)))
+		return;
+
 
 	spin_lock(&memcg->access_lock);
 
@@ -817,14 +826,14 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_unlock(&memcg->access_lock);
 
-	if(idx_hot < MTTM_INIT_THRESHOLD) {
-		idx_hot = MTTM_INIT_THRESHOLD;
+	if(idx_hot < init_threshold) {
+		idx_hot = init_threshold;
 	}
 
 	// histogram is reset before cooling
 	// some pages may not be reflected in the histogram when cooling happens
 	if(memcg->cooled) {
-		WRITE_ONCE(memcg->active_threshold, MTTM_INIT_THRESHOLD + memcg->threshold_offset);
+		WRITE_ONCE(memcg->active_threshold, init_threshold + memcg->threshold_offset);
 		/*if(memcg->active_threshold > MTTM_INIT_THRESHOLD)
 			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold - 1);*/
 		memcg->cooled = false;
@@ -836,7 +845,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	if(memcg->active_threshold != prev_threshold)
 		set_lru_adjusting(memcg, true);
 
-	if(memcg->use_warm && (memcg->active_threshold > MTTM_INIT_THRESHOLD))
+	if(memcg->use_warm && (memcg->active_threshold > init_threshold))
 		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 	else
 		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
@@ -1269,6 +1278,7 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		memcg->nr_sampled++;
 		memcg->interval_nr_sampled++;
 		if(get_pebs_event(e) == DRAM_LLC_LOAD_MISS) {
+			memcg->nr_tot_local++;
 			memcg->nr_local++;
 			memcg->nr_load++;
 		}
@@ -1404,20 +1414,24 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 	}
 }
 
+
+
+
 static void check_rate_change(struct mem_cgroup *memcg)
 {
 	int j;
+	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long std_rate = 2000 * sampling_factor;//mar is 2000 when pebs_sample_period is 10007.
+
+	if(remote_latency > 200)
+		std_rate /= 2;
+
 	if((memcg->highest_rate * 6 / 5) < memcg->mean_rate) {
 		// access rate increased more than 50% of highest one
 		memcg->lowered_cnt = 0;
 
-		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);
-		if(remote_latency < 200)
-			WRITE_ONCE(memcg->hotness_scan_cnt,
-				max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / 2000));
-		else
-			WRITE_ONCE(memcg->hotness_scan_cnt,
-				max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / 1000));
+		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);		
+		WRITE_ONCE(memcg->hotness_scan_cnt, max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / std_rate));
 
 		pr_info("[%s] [ %s ] highest rate updated to %lu. scan_cnt updated to %lu\n",
 			__func__, memcg->tenant_name, memcg->highest_rate, memcg->hotness_scan_cnt);
@@ -1431,8 +1445,9 @@ static void check_rate_change(struct mem_cgroup *memcg)
 				}
 			}
 		}*/
-	}	
-	else if(memcg->highest_rate / 20 > memcg->mean_rate &&
+	}
+	//TODO lowered necessary?	
+	/*else if(memcg->highest_rate / 20 > memcg->mean_rate &&
 		memcg->mean_rate > 50) {
 		// access rate decreased to lower than 5% of highest one
 		memcg->lowered_cnt++;
@@ -1454,7 +1469,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 	}
 	else {
 		memcg->lowered_cnt = 0;
-	}
+	}*/
 
 }
 
@@ -1565,6 +1580,19 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 	return cold0 + cold1 + hot0 + hot1;
 }
 
+static unsigned long calculate_valid_rate(unsigned long sample_rate)
+{
+	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long std_rate = 6000 * sampling_factor;//sample rate is 6000 when pebs_sample_period is 10007
+	unsigned long extra_rate;
+
+	if(sample_rate > std_rate) {
+		extra_rate = sample_rate - std_rate;
+		return std_rate + (extra_rate / 10);
+	}
+	return sample_rate;
+}
+
 static void calculate_dram_sensitivity(void)
 {
 	int i;
@@ -1586,12 +1614,7 @@ static void calculate_dram_sensitivity(void)
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined)) {
 				if(!READ_ONCE(memcg->dram_fixed)) {
-					unsigned long valid_rate = memcg->highest_rate;
-					unsigned long extra_rate;
-					if(valid_rate > 6000) {
-						extra_rate = valid_rate - 6000;
-						valid_rate = 6000 + (extra_rate / 10);
-					}
+					unsigned long valid_rate = calculate_valid_rate(memcg->highest_rate);
 
 					memcg->hot_region_access_rate = valid_rate * memcg->nr_hot_region_access /
 									(memcg->nr_hot_region_access + memcg->nr_cold_region_access);
@@ -1601,8 +1624,8 @@ static void calculate_dram_sensitivity(void)
 					memcg->cold_region_dram_sensitivity = memcg->cold_region_access_rate * 1000 / (memcg->cold_region >> 8);
 
 					if(!not_region_determined)
-						pr_info("[%s] [ %s ] access rate : %lu, region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
-							__func__, memcg->tenant_name, valid_rate,
+						pr_info("[%s] [ %s ] access rate : [raw : %lu, valid : %lu], region access rate : [hot : %lu, cold : %lu], dram sensitivity : [hot : %lu, cold : %lu]\n",
+							__func__, memcg->tenant_name, memcg->highest_rate, valid_rate,
 							memcg->hot_region_access_rate, memcg->cold_region_access_rate,
 							memcg->hot_region_dram_sensitivity, memcg->cold_region_dram_sensitivity);
 				}
@@ -1910,12 +1933,7 @@ static unsigned long get_tot_rate(enum workload_type w_type)
 		if(memcg) {
 			if(READ_ONCE(memcg->hi_determined)) {
 				if(get_workload_type(memcg) == w_type) {
-					unsigned long valid_rate = memcg->highest_rate;
-					if(valid_rate > 6000) {
-						unsigned long extra_rate = valid_rate - 6000;
-						valid_rate = 6000 + (extra_rate / 10);
-					}
-					tot_rate += valid_rate;
+					tot_rate += calculate_valid_rate(memcg->highest_rate);
 				}
 			}
 		}
@@ -1929,17 +1947,12 @@ static unsigned long calculate_strong_hot_dram_size(struct mem_cgroup *memcg,
 			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long valid_rate = memcg->highest_rate;
-	unsigned long extra_rate;
+	unsigned long valid_rate = calculate_valid_rate(memcg->highest_rate);
 	unsigned long available_dram;
 	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
 	int i;
 	struct mem_cgroup *memcg_iter;
 
-	if(valid_rate > 6000) {
-		extra_rate = valid_rate - 6000;
-		valid_rate = 6000 + (extra_rate / 10);
-	}
 	available_dram = tot_free_dram * valid_rate / tot_rate;
 
 	// Calculate remained required dram
@@ -1970,17 +1983,12 @@ static unsigned long calculate_weak_hot_dram_size(struct mem_cgroup *memcg,
 			int *dram_determined)
 {
 	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long valid_rate = memcg->highest_rate;
-	unsigned long extra_rate;
+	unsigned long valid_rate = calculate_valid_rate(memcg->highest_rate);
 	unsigned long available_dram;
 	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
 	int i;
 	struct mem_cgroup *memcg_iter;
 
-	if(valid_rate > 6000) {
-		extra_rate = valid_rate - 6000;
-		valid_rate = 6000 + (extra_rate / 10);
-	}
 	available_dram = tot_free_dram * valid_rate / tot_rate;
 
 	// Calculate remained required dram
@@ -2075,11 +2083,7 @@ static void distribute_local_dram_hi(void)
 
 		// Determine dram size 
 		memcg = READ_ONCE(memcg_list[idx]);
-		valid_rate = memcg->highest_rate;
-		if(valid_rate > 6000) {
-			unsigned long extra_rate = valid_rate - 6000;
-			valid_rate = 6000 + (extra_rate / 10);
-		}	
+		valid_rate = calculate_valid_rate(memcg->highest_rate);	
 		dram_size[idx] = calculate_strong_hot_dram_size(memcg, tot_free_dram,
 							tot_strong_hot_rate, dram_determined);
 		dram_determined[idx] = 1;
@@ -2105,11 +2109,7 @@ static void distribute_local_dram_hi(void)
 
 		// Determine dram size 
 		memcg = READ_ONCE(memcg_list[idx]);
-		valid_rate = memcg->highest_rate;
-		if(valid_rate > 6000) {
-			unsigned long extra_rate = valid_rate - 6000;
-			valid_rate = 6000 + (extra_rate / 10);
-		}
+		valid_rate = calculate_valid_rate(memcg->highest_rate);
 		dram_size[idx] = calculate_weak_hot_dram_size(memcg, tot_free_dram,
 							tot_weak_hot_rate, dram_determined);
 		dram_determined[idx] = 1;
@@ -2244,7 +2244,7 @@ static void distribute_local_dram_mpki(void)
 
 static int ksampled(void *dummy)
 {
-	unsigned long sleep_timeout = usecs_to_jiffies(20000);
+	unsigned long sleep_timeout = usecs_to_jiffies(200);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
@@ -2286,7 +2286,7 @@ static int ksampled(void *dummy)
 				}
 				
 				interval_start = cur;
-				if(scanless_cooling) {
+				/*if(scanless_cooling) {
 					for(i = 0; i < LIMIT_TENANTS; i++) {
 						int j, k, tot_weight = 0;
 						memcg = READ_ONCE(memcg_list[i]);
@@ -2305,7 +2305,7 @@ static int ksampled(void *dummy)
 								memcg->giga_bitmap_size * memcg->huge_bitmap_size * memcg->base_bitmap_size);
 						}
 					}
-				}
+				}*/
 			}
 		}
 
@@ -2323,7 +2323,7 @@ static int ksampled(void *dummy)
 static int ksampled_run(void)
 {
 	int ret = 0, cpu, event, i;
-	dma_cap_mask_t copy_mask;
+	dma_cap_mask_t copy_mask, memset_mask;
 
 	if (!ksampled_thread) {
 		pfe = kzalloc(sizeof(struct perf_event **) * CORES_PER_SOCKET, GFP_KERNEL);
@@ -2364,22 +2364,42 @@ static int ksampled_run(void)
 			if(use_dma_migration) {
 				dma_cap_zero(copy_mask);
 				dma_cap_set(DMA_MEMCPY, copy_mask);
+				//dma_cap_set(DMA_MEMSET, copy_mask);
+				//dma_cap_zero(memset_mask);
+				//dma_cap_set(DMA_MEMSET, memset_mask);
 				dmaengine_get();
 			
 				for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
 					if(!copy_chan[i])
 						copy_chan[i] = dma_request_channel(copy_mask, NULL, NULL);
 					if(!copy_chan[i]) {
-						pr_err("%s: cannot grap channel: %d\n", __func__, i);
+						pr_err("%s: cannot grap copy channel: %d\n", __func__, i);
 						continue;
 					}
 
 					copy_dev[i] = copy_chan[i]->device;
 					if(!copy_dev[i]) {
-						pr_err("%s: no device: %d\n", __func__, i);
+						pr_err("%s: no copy device: %d\n", __func__, i);
 						continue;
 					}
 				}
+
+				/*
+				for(i = 0; i < NUM_AVAIL_DMA_CHAN/2; i++) {
+					if(!memset_chan[i])
+						memset_chan[i] = dma_request_channel(memset_mask, NULL, NULL);
+					if(!memset_chan[i]) {
+						pr_err("%s: cannot grap memset channel: %d\n", __func__, i);
+						continue;
+					}
+
+					memset_dev[i] = memset_chan[i]->device;
+					if(!memset_dev[i]) {
+						pr_err("%s: no memset device: %d\n", __func__, i);
+						continue;
+					}
+				}*/
+
 
 				pr_info("[%s] dma channel opened\n",__func__);
 			}
@@ -2419,6 +2439,11 @@ static void ksampled_stop(void)
 				dma_release_channel(copy_chan[i]);
 				copy_chan[i] = NULL;
 				copy_dev[i] = NULL;
+			}
+			if(memset_chan[i]) {
+				dma_release_channel(memset_chan[i]);
+				memset_chan[i] = NULL;
+				memset_dev[i] = NULL;
 			}
 		}
 

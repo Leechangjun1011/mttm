@@ -219,6 +219,8 @@ extern unsigned int kptscand_period_in_us;
 extern unsigned int remote_latency;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
+extern unsigned int basepage_shift_factor;
+extern unsigned int basepage_period_factor;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -3055,6 +3057,20 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "reduce_scan",
 		.data		= &reduce_scan,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "basepage_shift_factor",
+		.data		= &basepage_shift_factor,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "basepage_period_factor",
+		.data		= &basepage_period_factor,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

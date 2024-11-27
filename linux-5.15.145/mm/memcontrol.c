@@ -75,6 +75,7 @@
 
 #ifdef CONFIG_MTTM
 extern unsigned int use_dram_determination;
+extern unsigned int basepage_period_factor;
 #endif
 
 struct cgroup_subsys memory_cgrp_subsys __read_mostly;
@@ -5260,6 +5261,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->max_nr_dram_pages = ULONG_MAX;
 	memcg->max_anon_rss = 0;
 	memcg->nr_sampled = 0;
+	memcg->nr_tot_local = 0;
 	memcg->interval_nr_sampled = 0;
 	memcg->nr_load = 0;
 	memcg->nr_store = 0;
@@ -5272,6 +5274,15 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->cooling_clock = 0;
 	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
+	memcg->active_threshold = MTTM_INIT_THRESHOLD;
+	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+
+	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
+		memcg->cooling_period *= basepage_period_factor;
+		memcg->adjust_period *= basepage_period_factor;
+		memcg->active_threshold = 9;
+		memcg->warm_threshold = 9;
+	}
 	memcg->hotness_scan_cnt = 1;
 	if(use_dram_determination) {
 		memcg->region_determined = false;
@@ -5284,8 +5295,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->dram_fixed = true;
 	}
 	memcg->dram_expanded = false;
-	memcg->active_threshold = MTTM_INIT_THRESHOLD;
-	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
 
 	memcg->threshold_offset = 0;
 	memcg->dma_chan_start = 0;
