@@ -1018,7 +1018,8 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 		if(pvmw.pte) {
 			struct page *pte_page;
 			pte_t *pte = pvmw.pte;
-			uint32_t nr_accesses;
+			uint32_t nr_accesses = 0;
+			uint32_t *ac;
 
 			pte_page = virt_to_page((unsigned long)pte);
 			if(!PageMttm(pte_page))
@@ -1028,8 +1029,12 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 			if(!pginfo)
 				continue;
 
-			if(scanless_cooling)
-				nr_accesses = mca->memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx];
+			if(scanless_cooling) {
+				ac = get_ac_pointer(mca->memcg, pginfo->giga_bitmap_idx,
+					pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
+				if(ac)
+					nr_accesses = *ac;
+			}
 			else
 				nr_accesses = pginfo->nr_accesses;
 

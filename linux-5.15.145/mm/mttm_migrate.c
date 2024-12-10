@@ -315,14 +315,21 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 		if(PageAnon(page)) {
 			if(PageTransHuge(page)) {
 				struct page *meta_page = get_meta_page(page);
-				uint32_t nr_accesses;
+				uint32_t nr_accesses = 0;
+				uint32_t *ac;
 
 				if(!meta_page)
 					goto keep_locked;
 
-				nr_accesses = scanless_cooling ?
-						memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx] :
-						meta_page->nr_accesses;
+				if(scanless_cooling) {
+					ac = get_ac_pointer(memcg, meta_page->giga_bitmap_idx,
+						meta_page->huge_bitmap_idx, meta_page->base_bitmap_idx);
+					if(ac)
+						nr_accesses = *ac;
+				}
+				else
+					nr_accesses = meta_page->nr_accesses;
+
 				if(memcg->use_warm &&
 					get_idx(nr_accesses) >= READ_ONCE(memcg->warm_threshold))
 					goto keep_locked;
@@ -343,15 +350,22 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 			else {
 				unsigned int idx;
 				pginfo_t *pginfo = NULL;
-				uint32_t nr_accesses;
+				uint32_t nr_accesses = 0;
+				uint32_t *ac;
 
 				pginfo = get_pginfo_from_page(page);	
 				if(!pginfo) {
 					goto keep_locked;
 				}
-				nr_accesses = scanless_cooling ?
-						memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] :
-						pginfo->nr_accesses;
+
+				if(scanless_cooling) {
+					ac = get_ac_pointer(memcg, pginfo->giga_bitmap_idx,
+						pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
+					if(ac)
+						nr_accesses = *ac;
+				}
+				else
+					nr_accesses = pginfo->nr_accesses;
 
 				idx = get_idx(nr_accesses);
 				if(memcg->use_warm &&
@@ -1107,10 +1121,15 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 		
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
-			uint32_t nr_accesses;
+			uint32_t nr_accesses = 0;
+			uint32_t *ac;
 
-			if(scanless_cooling)
-				nr_accesses = memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
+			if(scanless_cooling) {
+				ac = get_ac_pointer(memcg, meta_page->giga_bitmap_idx,
+					meta_page->huge_bitmap_idx, meta_page->base_bitmap_idx);
+				if(ac)
+					nr_accesses = *ac;
+			}
 			else
 				nr_accesses = meta_page->nr_accesses;
 
@@ -1247,9 +1266,17 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 		
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
-			uint32_t nr_accesses = scanless_cooling ?
-						memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx] :
-						meta_page->nr_accesses;
+			uint32_t nr_accesses = 0;
+			uint32_t *ac;
+
+			if(scanless_cooling) {
+				ac = get_ac_pointer(memcg, meta_page->giga_bitmap_idx,
+					meta_page->huge_bitmap_idx, meta_page->base_bitmap_idx);
+				if(ac)
+					nr_accesses = *ac;
+			}
+			else
+				nr_accesses = meta_page->nr_accesses;
 
 			idx = get_idx(nr_accesses);
 			if(use_region_separation) {
@@ -1275,16 +1302,23 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 		}
 		else {
 			pginfo_t *pginfo = NULL;
-			uint32_t nr_accesses; 
+			uint32_t nr_accesses = 0; 
+			uint32_t *ac;
 			pginfo = get_pginfo_from_page(page);
 			
 			if(!pginfo) {
 				list_add(&page->lru, &l_scanned);
 				continue;
 			}
-			nr_accesses = scanless_cooling ? 
-					memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] :
-					pginfo->nr_accesses;
+
+			if(scanless_cooling) {
+				ac = get_ac_pointer(memcg, pginfo->giga_bitmap_idx,
+					pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
+				if(ac)
+					nr_accesses = *ac;
+			}
+			else
+				nr_accesses = pginfo->nr_accesses;
 
 			idx = get_idx(nr_accesses);
 			if(use_region_separation) {

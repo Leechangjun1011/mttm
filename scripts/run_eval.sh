@@ -4,14 +4,22 @@ cur_path=$PWD
 emul_path=/home/cjlee/CXL-emulation.code/NUMA_setting/slow-memory-emulation
 conda_activate=/root/anaconda3/bin/activate
 
-function run_mttm_region
+function run_mttm_region_hugepage
 {
+	#config, dram size, remote latency
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
 	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo $1 > /proc/sys/vm/mttm_local_dram_string
-	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/region_$1_$2_$3.txt
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+
+	echo 10007 > /proc/sys/vm/pebs_sample_period
+	echo 1 > /proc/sys/vm/scanless_cooling
+	echo 1 > /proc/sys/vm/reduce_scan
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/region_$1_$2_$3.txt
 	dmesg > ./evaluation/region_$1_$2_$3_dmesg.txt
 }
 
@@ -22,10 +30,16 @@ function run_mttm_region_basepage_opt
 	echo 1 > /proc/sys/vm/use_region_separation
 	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+
+	echo 101 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
-	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/basepage/region_opt_$1_$2_$3.txt
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+	echo 10 > /proc/sys/vm/basepage_shift_factor
+	echo 40 > /proc/sys/vm/basepage_period_factor
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_opt_$1_$2_$3.txt
 	dmesg > ./evaluation/basepage/region_opt_$1_$2_$3_dmesg.txt
 }
 
@@ -36,10 +50,10 @@ function run_mttm_region_basepage_scan
 	echo 1 > /proc/sys/vm/use_region_separation
 	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $1 > /proc/sys/vm/mttm_local_dram_string
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/scanless_cooling
 	echo 0 > /proc/sys/vm/reduce_scan
-	./run_multi_tenants.sh $2 2>&1 | cat > ./evaluation/basepage/region_scan_$1_$2_$3.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_scan_$1_$2_$3.txt
 	dmesg > ./evaluation/basepage/region_scan_$1_$2_$3_dmesg.txt
 }
 
@@ -110,8 +124,9 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
+set_130
 source $conda_activate dlrm_cpu
-run_mttm_region_basepage_opt 63G config4 130
+run_mttm_region_hugepage config4 63G 250
 #run_mttm_region_basepage_scan 63G config4 130
 
 : << END

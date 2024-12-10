@@ -72,7 +72,8 @@ extern bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg);
 extern unsigned long nr_promotion_target(pg_data_t *pgdat, struct mem_cgroup *memcg);
 bool promotion_available(int nid, struct mem_cgroup *memcg, unsigned long *nr, bool expanded);
 
-extern unsigned int get_idx(unsigned long num);
+extern unsigned int get_idx(uint32_t num);
+extern uint32_t *get_ac_pointer(struct mem_cgroup *memcg, unsigned int gi, unsigned int hi, unsigned int bi);
 extern void mttm_mm_init(struct mm_struct *mm);
 extern unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat);
 extern int kmigrated_init(struct mem_cgroup *memcg);

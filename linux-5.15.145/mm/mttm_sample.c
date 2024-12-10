@@ -93,7 +93,7 @@ static unsigned int get_accesses_from_idx(unsigned int idx)
 	return accesses;
 }
 
-unsigned int get_idx(unsigned long num)
+unsigned int get_idx(uint32_t num)
 {
 	unsigned int cnt = 0;
 
@@ -109,6 +109,16 @@ unsigned int get_idx(unsigned long num)
 	}
 
 	return cnt;
+}
+
+uint32_t *get_ac_pointer(struct mem_cgroup *memcg, unsigned int giga_bitmap_idx,
+			unsigned int huge_bitmap_idx, unsigned int base_bitmap_idx)
+{
+	if(giga_bitmap_idx >= memcg->giga_bitmap_size ||
+		huge_bitmap_idx >= memcg->huge_bitmap_size ||
+		base_bitmap_idx >= memcg->base_bitmap_size)
+		return NULL;
+	return &memcg->ac_page_list[giga_bitmap_idx][huge_bitmap_idx][base_bitmap_idx];
 }
 
 void find_bitmap_idx(struct mem_cgroup *memcg, unsigned int *giga_idx,
@@ -152,6 +162,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	pginfo_t *pginfo;
 	int initial_hotness;
 	unsigned int giga_idx = 0, huge_idx = 0, base_idx = 0, i;
+	uint32_t *ac;
 
 	if(!memcg)
 		return 0;
@@ -172,7 +183,6 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 		pginfo->giga_bitmap_idx = giga_idx;
 		pginfo->huge_bitmap_idx = huge_idx;
 		pginfo->base_bitmap_idx = base_idx;
-		spin_unlock(&memcg->bitmap_lock);
 		/*if(!memcg->ac_page_list[pginfo->meta_bitmap_idx]) {
 			pr_info("pginfo->meta_bitmap_idx : %u\n", pginfo->meta_bitmap_idx);
 			pr_info("meta_idx : %u\n", meta_idx);
@@ -184,7 +194,12 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 					i, test_bit(i, memcg->ac_bitmap_list[0]) ? 1 : 0);
 			BUG();
 		}*/
-		memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx] = initial_hotness;
+		ac = get_ac_pointer(memcg, pginfo->giga_bitmap_idx,
+			pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
+		if(ac)
+			*ac = initial_hotness;
+
+		spin_unlock(&memcg->bitmap_lock);
 	}
 	else
 		pginfo->nr_accesses = initial_hotness;
@@ -212,6 +227,7 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
 	int initial_hotness = 0; //memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
 	unsigned int giga_idx = 0, huge_idx = 0, base_idx = 0;
+	uint32_t *ac;
 
 	SetPageMttm(&page[3]);
 
@@ -224,8 +240,11 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 		page[3].giga_bitmap_idx = giga_idx;
 		page[3].huge_bitmap_idx = huge_idx;
 		page[3].base_bitmap_idx = base_idx;
+		ac = get_ac_pointer(memcg, page[3].giga_bitmap_idx,
+			page[3].huge_bitmap_idx, page[3].base_bitmap_idx);
+		if(ac)
+			*ac = initial_hotness;
 		spin_unlock(&memcg->bitmap_lock);
-		memcg->ac_page_list[page[3].giga_bitmap_idx][page[3].huge_bitmap_idx][page[3].base_bitmap_idx] = initial_hotness;
 	}
 	else
 		page[3].nr_accesses = initial_hotness;
@@ -304,6 +323,10 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		giga_idx = pginfo->giga_bitmap_idx;
 		huge_idx = pginfo->huge_bitmap_idx;
 		base_idx = pginfo->base_bitmap_idx;
+		if(!memcg->ac_page_list) {
+			spin_unlock(&memcg->bitmap_lock);
+			return;
+		}
 		idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 		if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
 			//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
@@ -325,6 +348,9 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 	}
 	else
 		idx = get_idx(pginfo->nr_accesses);
+
+	if(idx > 15 || idx < 0)
+		return;
 
 	spin_lock(&memcg->access_lock);
 	if(memcg->hotness_hg[idx] > 0)
@@ -354,10 +380,15 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 			giga_idx = meta_page->giga_bitmap_idx;
 			huge_idx = meta_page->huge_bitmap_idx;
 			base_idx = meta_page->base_bitmap_idx;
+			if(!memcg->ac_page_list) {
+				spin_unlock(&memcg->bitmap_lock);
+				return;
+			}
 			idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
-			if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]))
-				pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
-					__func__, giga_idx, huge_idx, base_idx);
+			if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
+				//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
+				//	__func__, giga_idx, huge_idx, base_idx);
+			}
 			else {
 				clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
 				memcg->free_base_bits[giga_idx][huge_idx]++;
@@ -374,6 +405,9 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 		}
 		else
 			idx = get_idx(meta_page->nr_accesses);
+
+		if(idx > 15 || idx < 0)
+			return;
 
 		spin_lock(&memcg->access_lock);
 		if(memcg->hotness_hg[idx] >= nr_pages)
@@ -678,8 +712,10 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 			kfree(memcg->huge_bitmap);
 		if(memcg->base_bitmap)
 			kfree(memcg->base_bitmap);
-		if(memcg->ac_page_list)
+		if(memcg->ac_page_list) {
 			kfree(memcg->ac_page_list);
+			memcg->ac_page_list = NULL;
+		}
 		if(memcg->free_huge_bits)
 			kfree(memcg->free_huge_bits);
 		if(memcg->free_base_bits)
@@ -1047,15 +1083,19 @@ void check_base_cooling(pginfo_t *pginfo, struct page *page)
 	spin_unlock(&memcg->access_lock);
 }
 
-static void update_base_page(struct vm_area_struct *vma, struct page *page,
+void update_base_page(struct vm_area_struct *vma, struct page *page,
 				pginfo_t *pginfo, unsigned long address)
 {
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
-	unsigned long prev_idx, cur_idx;
+	unsigned int prev_idx, cur_idx;
 	uint32_t *ac;
 
+
 	if(scanless_cooling) {
-		ac = &memcg->ac_page_list[pginfo->giga_bitmap_idx][pginfo->huge_bitmap_idx][pginfo->base_bitmap_idx];
+		ac = get_ac_pointer(memcg, pginfo->giga_bitmap_idx,
+			pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
+		if(!ac)
+			return;
 		prev_idx = get_idx(*ac);
 		(*ac) += HPAGE_PMD_NR;
 		cur_idx = get_idx(*ac);
@@ -1082,18 +1122,67 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 
 }
 
-static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
+/*void debug_ac_page_list(struct mem_cgroup *memcg, struct page *meta_page,
+			unsigned int *prev_idx, unsigned int *cur_idx)
+{
+	uint32_t *ac;
+
+	if(!memcg->mttm_enabled)
+		pr_info("[%s] memcg mttm disabled\n",__func__);
+	if(!memcg->ac_page_list)
+		pr_info("[%s] null ac_page_list. gi:%u, hi:%u, bi:%u\n",
+			__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
+			meta_page->base_bitmap_idx);
+	else if(!memcg->ac_page_list[meta_page->giga_bitmap_idx])
+		pr_info("[%s] null giga bitmap. gi:%u, hi:%u, bi:%u\n"
+			,__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
+			meta_page->base_bitmap_idx);
+	else if(!memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx])
+		pr_info("[%s] null huge bitmap. gi:%u, hi:%u, bi:%u\n",
+			__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
+			meta_page->base_bitmap_idx);
+	ac = &memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
+	*prev_idx = get_idx(*ac);
+	(*ac)++;
+	*cur_idx = get_idx(*ac);
+}
+
+void debug_hg(struct mem_cgroup *memcg, unsigned int prev_idx, unsigned int cur_idx)
+{
+	spin_lock(&memcg->access_lock);
+	if(prev_idx != cur_idx) {
+		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
+			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
+		else
+			memcg->hotness_hg[prev_idx] = 0;
+		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+	}
+	spin_unlock(&memcg->access_lock);
+}
+
+void debug_move_page(struct mem_cgroup *memcg, struct page *page, unsigned int cur_idx)
+{
+	if(cur_idx >= READ_ONCE(memcg->active_threshold))
+		move_page_to_active_lru(page);
+	else if(PageActive(page))
+		move_page_to_inactive_lru(page);
+}*/
+
+void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 			struct page *page, unsigned long address)
 {
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
 	struct page *meta_page;
-	unsigned long prev_idx, cur_idx;
+	unsigned int prev_idx, cur_idx;
 	uint32_t *ac;
 	
 	meta_page = get_meta_page(page);
 
-	if(scanless_cooling) {
-		ac = &memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
+	if(scanless_cooling) {	
+		ac = get_ac_pointer(memcg, meta_page->giga_bitmap_idx,
+			meta_page->huge_bitmap_idx, meta_page->base_bitmap_idx);
+		if(!ac)
+			return;
 		prev_idx = get_idx(*ac);
 		(*ac)++;
 		cur_idx = get_idx(*ac);
@@ -1122,7 +1211,7 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 
 }
 
-static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
+int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
 				unsigned long address)
 {
 	pte_t *pte, pte_struct;
@@ -1167,7 +1256,7 @@ pte_unlock:
 	return ret;
 }
 
-static int __update_pmd_pginfo(struct vm_area_struct *vma, pud_t *pud,
+int __update_pmd_pginfo(struct vm_area_struct *vma, pud_t *pud,
 				unsigned long address)
 {
 	pmd_t *pmd, pmdval;
@@ -1214,7 +1303,7 @@ pmd_unlock:
 }
 
 
-static int __update_pginfo(struct vm_area_struct *vma, unsigned long address)
+int __update_pginfo(struct vm_area_struct *vma, unsigned long address)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -1235,7 +1324,7 @@ static int __update_pginfo(struct vm_area_struct *vma, unsigned long address)
 	return __update_pmd_pginfo(vma, pud, address);
 }
 
-static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
+void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 {
 	struct pid *pid_struct = find_get_pid(pid);
 	struct task_struct *p = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
@@ -1308,7 +1397,7 @@ put_task:
 	put_pid(pid_struct);
 }
 
-static void ksampled_do_work(void)
+void ksampled_do_work(void)
 {
 	int cpu, event, i, cond = true;
 	int nr_skip = 0;
@@ -1398,13 +1487,16 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 				unsigned long stdev, unsigned long mean,
 				unsigned long mean_rate)
 {
+	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long std_rate = 100 * sampling_factor;
+
 	if(stdev >= mean) {
 		if(memcg->stable_cnt > 0) {
 			memcg->stable_cnt = 0;
 			WRITE_ONCE(memcg->stable_status, false);
 		}
 	}
-	else if(mean_rate > 50) {
+	else if(mean_rate > std_rate) {
 		memcg->stable_cnt++;
 		if(memcg->stable_cnt >= SAMPLE_RATE_STABLE_CNT) {
 			WRITE_ONCE(memcg->stable_status, true);
@@ -1413,7 +1505,6 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 		}
 	}
 }
-
 
 
 
@@ -1474,7 +1565,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 }
 
 
-static void calculate_sample_rate_stat(void)
+void calculate_sample_rate_stat(void)
 {
 	unsigned long mean, std_deviation, sum_sample, variance, mean_rate;
 	int i, j;
@@ -1593,7 +1684,7 @@ static unsigned long calculate_valid_rate(unsigned long sample_rate)
 	return sample_rate;
 }
 
-static void calculate_dram_sensitivity(void)
+void calculate_dram_sensitivity(void)
 {
 	int i;
 	struct mem_cgroup *memcg;
@@ -1762,7 +1853,7 @@ static unsigned long find_highest_dram_sensitivity(int *hs_idx, bool *hot,
 }
 
 
-static void distribute_local_dram_region(void)
+void distribute_local_dram_region(void)
 {
 	int i;
 	unsigned long required_dram = 0, tot_free_dram = mttm_local_dram;
