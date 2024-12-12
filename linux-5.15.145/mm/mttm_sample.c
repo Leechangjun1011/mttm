@@ -1511,7 +1511,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 {
 	int j;
 	unsigned long sampling_factor = 10007 / pebs_sample_period;
-	unsigned long std_rate = 2000 * sampling_factor;//mar is 2000 when pebs_sample_period is 10007.
+	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
 
 	if(remote_latency > 200)
 		std_rate /= 2;
@@ -1864,6 +1864,9 @@ void distribute_local_dram_region(void)
 	unsigned long dram_size[LIMIT_TENANTS][NR_REGION] = {0,};
 	int tenant_idx, region_idx;
 	unsigned long cur_sensitivity = 0;
+	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
+	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
+	unsigned long tot_extra_priority = 0;
 
 	// Check that not classified workload exist.
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -1910,27 +1913,58 @@ void distribute_local_dram_region(void)
 	}
 
 	// When extra local DRAM exist
-	// TODO : give extra to 
-	/*if(tot_free_dram > 0) {
+	if(tot_free_dram > 0) {
 		for(i = 0; i < LIMIT_TENANTS; i++) {
+			bool all_region_done = true;
+			unsigned long tenant_dram = 0;
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
-				if(READ_ONCE(memcg->region_determined) &&
-					dram_determined[i][0] == 1 &&
-					dram_determined[i][1] == 1) {
-					unsigned long remained_rss = get_anon_rss(memcg)
-								- dram_size[i][0] - dram_size[i][1];
-					unsigned long additional_dram = min_t(unsigned long, remained_rss,
-						tot_free_dram * memcg->highest_rate / get_tot_highest_rate());
-					// Extra local DRAM is added to cold region size
-					dram_size[i][1] += additional_dram;
-					pr_info("[%s] [ %s ] %lu / %lu MB extra dram added\n",
-						__func__, memcg->tenant_name, additional_dram >> 8,
-						tot_free_dram >> 8);
+				if(READ_ONCE(memcg->region_determined)) {
+					for(j = 0; j < NR_REGION; j++) {
+						if(dram_determined[i][j] == 0)
+							all_region_done = false;
+					}
+					if(all_region_done) {
+						for(j = 0; j < NR_REGION; j++)
+							tenant_dram += dram_size[i][j];
+						extra_priority[i] = get_anon_rss(memcg) * 100 / tenant_dram;
+						// give extra dram to tenant that receives small dram compared to rss.
+						tot_extra_priority += extra_priority[i];
+					}
 				}
 			}
 		}
-	}*/
+		
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			bool all_region_done = true;
+			unsigned long tenant_dram = 0;
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->region_determined)) {
+					for(j = 0; j < NR_REGION; j++) {
+						if(dram_determined[i][j] == 0)
+							all_region_done = false;
+					}
+					if(all_region_done) {
+						for(j = 0; j < NR_REGION; j++)
+							tenant_dram += dram_size[i][j];
+
+						extra_dram[i] = min_t(unsigned long, 
+									extra_priority[i] * tot_free_dram / tot_extra_priority, 
+									get_anon_rss(memcg) - tenant_dram);
+						tot_extra_priority -= extra_priority[i];
+						tot_free_dram -= extra_dram[i];
+						if(all_region_determined)
+							pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
+								__func__, memcg->tenant_name, extra_dram[i] >> 8,
+								extra_priority[i]);
+					}
+				}
+			}
+		}
+		
+
+	}
 
 
 	// Set dram size
@@ -1948,6 +1982,7 @@ void distribute_local_dram_region(void)
 					tenant_dram = 0;
 					for(j = 0; j < NR_REGION; j++)
 						tenant_dram += dram_size[i][j];
+					tenant_dram += extra_dram[i];
 					if(all_region_determined) {
 						pr_info("[%s] [ %s ] dram set to %lu MB\n",
 							__func__, memcg->tenant_name, tenant_dram >> 8);

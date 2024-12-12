@@ -1469,7 +1469,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			scan_hotness_node(NODE_DATA(1), memcg, region_size, nr_region_access, lev_size);
 
 			if(use_region_separation && 
-				(region_size[1] >> 8) > 100UL) {
+				((region_size[1] + region_size[2]) >> 8) > 100UL) {
 				(*hotness_scanned)++;
 
 				for(i = 0; i < NR_REGION; i++) {
@@ -1786,6 +1786,7 @@ static int kmigrated(void *p)
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold &&
+					(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) || ((!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) && READ_ONCE(memcg->region_determined) && use_region_separation)) &&
 					memcg->threshold_offset < pingpong_reduce_limit) {
 
 					high_pingpong_cnt++;

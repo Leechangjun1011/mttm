@@ -36,11 +36,11 @@ function run_mttm_region_basepage_opt
 	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	echo 10 > /proc/sys/vm/basepage_shift_factor
-	echo 40 > /proc/sys/vm/basepage_period_factor
+	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
+	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
 
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_opt_$1_$2_$3.txt
-	dmesg > ./evaluation/basepage/region_opt_$1_$2_$3_dmesg.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_$1_$2_$3.txt
+	dmesg > ./evaluation/basepage/region_$1_$2_$3_dmesg.txt
 }
 
 function run_mttm_region_basepage_scan
@@ -59,6 +59,7 @@ function run_mttm_region_basepage_scan
 
 function run_local_basepage
 {
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local_$1.txt
 }
 
@@ -124,11 +125,12 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
-#set_130
-#source $conda_activate dlrm_cpu
+set_130
+source $conda_activate dlrm_cpu
+#run_local_basepage config4
 #run_mttm_region_hugepage config4 63G 130
-#run_mttm_region_basepage_scan 63G config4 192
-
+run_mttm_region_basepage_opt config8 50G 130
+: << END
 #conda deactivate
 set_130
 run_mttm_region_hugepage config6 51G 130
@@ -183,7 +185,7 @@ conda deactivate
 set_250
 source $conda_activate dlrm_cpu
 run_mttm_region_hugepage config10 48G 250
-
+END
 
 
 
