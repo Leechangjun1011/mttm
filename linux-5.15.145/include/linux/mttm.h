@@ -1,3 +1,6 @@
+#ifndef	_MTTM_H
+#define	_MTTM_H
+
 #include <uapi/linux/perf_event.h>
 
 #define KSAMPLED_CPU		0
@@ -21,6 +24,7 @@
 #define MTTM_INIT_COOLING_PERIOD	20000
 #define MTTM_INIT_ADJUST_PERIOD		4000
 
+#define NR_REGION		5
 //#define KMIGRATED_PERIOD_IN_MS	50
 
 
@@ -41,7 +45,7 @@ struct mttm_event {
 enum eventtype {
 	DRAMREAD = 0,
 	CXLREAD = 1,
-	MEMWRITE = 2,
+	MEMSTORE = 2,
 	NR_EVENTTYPE,
 };
 
@@ -79,3 +83,5 @@ extern unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *
 extern int kmigrated_init(struct mem_cgroup *memcg);
 extern void kmigrated_stop(struct mem_cgroup *memcg);
 extern void kmigrated_wakeup(struct mem_cgroup *memcg);
+
+#endif

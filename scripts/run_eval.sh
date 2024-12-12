@@ -124,10 +124,68 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
+#set_130
+#source $conda_activate dlrm_cpu
+#run_mttm_region_hugepage config4 63G 130
+#run_mttm_region_basepage_scan 63G config4 192
+
+#conda deactivate
+set_130
+run_mttm_region_hugepage config6 51G 130
+
 set_130
 source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config8 50G 130
+
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config10 48G 130
+
+
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config4 63G 192
+#run_mttm_region_basepage_scan 63G config4 192
+
+conda deactivate
+set_192
+run_mttm_region_hugepage config6 51G 192
+
+set_192
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config8 50G 192
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config10 48G 192
+
+
+
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
 run_mttm_region_hugepage config4 63G 250
-#run_mttm_region_basepage_scan 63G config4 130
+#run_mttm_region_basepage_scan 63G config4 192
+
+conda deactivate
+set_250
+run_mttm_region_hugepage config6 51G 250
+
+set_250
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config8 50G 250
+
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config10 48G 250
+
+
+
 
 : << END
 

@@ -24,6 +24,7 @@
 
 #ifdef CONFIG_MTTM
 #include <linux/vtmm.h>
+#define NR_REGION	5//sync with linux/mttm.h
 #endif
 
 struct mem_cgroup;
@@ -412,14 +413,10 @@ struct mem_cgroup {
 	struct mm_struct	*vtmm_mm;
 	pid_t			vtmm_pid;
 	unsigned int		dma_chan_start;
-	unsigned long		hot_region;
-	unsigned long		cold_region;
-	unsigned long		nr_hot_region_access;
-	unsigned long		nr_cold_region_access;
-	unsigned long		hot_region_access_rate;
-	unsigned long		cold_region_access_rate;
-	unsigned long		hot_region_dram_sensitivity;
-	unsigned long		cold_region_dram_sensitivity;
+
+	unsigned long		region_size[NR_REGION];//dram sensitivity
+	unsigned long		nr_region_access[NR_REGION];
+
 	unsigned long		nr_pingpong;
 	ktime_t			block_time;
 	uint32_t***		ac_page_list;//scanless cooling

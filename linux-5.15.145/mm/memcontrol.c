@@ -5320,15 +5320,11 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->stable_status = false;
 	memcg->cooled = false;
 
-	memcg->hot_region = 0;
-	memcg->cold_region = 0;
-	memcg->nr_hot_region_access = 0;
-	memcg->nr_cold_region_access = 0;
-	memcg->hot_region_access_rate = 0;
-	memcg->cold_region_access_rate = 0;
-	memcg->hot_region_dram_sensitivity = 0;
-	memcg->cold_region_dram_sensitivity = 0;
-
+	for(i = 0; i < NR_REGION; i++) {
+		memcg->region_size[i] = 0;
+		memcg->nr_region_access[i] = 0;
+	}
+	
 	memcg->hotness_intensity = 0;
 	memcg->lev2_size = 0;
 	memcg->lev3_size = 0;
