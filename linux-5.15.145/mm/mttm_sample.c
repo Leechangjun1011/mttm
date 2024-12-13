@@ -37,6 +37,7 @@ unsigned long donor_threshold = 4000;
 unsigned long acceptor_threshold = 50;
 unsigned int use_region_separation = 1;
 unsigned int use_hotness_intensity = 0;
+unsigned int use_naive_hi = 0;
 unsigned int use_pingpong_reduce = 1;
 unsigned int remote_latency = 130;
 unsigned int print_more_info = 0;
@@ -1512,6 +1513,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 	int j;
 	unsigned long sampling_factor = 10007 / pebs_sample_period;
 	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
+	unsigned long hard_max = 12;
 
 	if(remote_latency > 200)
 		std_rate /= 2;
@@ -1521,7 +1523,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 		memcg->lowered_cnt = 0;
 
 		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);		
-		WRITE_ONCE(memcg->hotness_scan_cnt, max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / std_rate));
+		WRITE_ONCE(memcg->hotness_scan_cnt, min_t(unsigned long, hard_max, max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / std_rate)));
 
 		pr_info("[%s] [ %s ] highest rate updated to %lu. scan_cnt updated to %lu\n",
 			__func__, memcg->tenant_name, memcg->highest_rate, memcg->hotness_scan_cnt);
@@ -2175,7 +2177,7 @@ static void distribute_local_dram_hi(void)
 	unsigned long tot_free_dram = mttm_local_dram;
 	unsigned long tot_strong_hot_rate = 0, tot_weak_hot_rate = 0;
 	struct mem_cgroup *memcg;
-	bool not_hi_determined = false, all_fixed = true;
+	bool all_hi_determined = true, all_fixed = true;
 	unsigned long cur_highest_rate = 0;
 	int dram_determined[LIMIT_TENANTS] = {0,};
 	unsigned long dram_size[LIMIT_TENANTS] = {0,};
@@ -2186,7 +2188,7 @@ static void distribute_local_dram_hi(void)
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			if(!READ_ONCE(memcg->hi_determined)) {
-				not_hi_determined = true;
+				all_hi_determined = false;
 				tot_free_dram -= memcg->max_nr_dram_pages;
 			}
 			if(!READ_ONCE(memcg->dram_fixed))
@@ -2218,7 +2220,7 @@ static void distribute_local_dram_hi(void)
 		tot_free_dram -= dram_size[idx];
 		tot_strong_hot_rate -= valid_rate;
 
-		if(!not_hi_determined)
+		if(all_hi_determined)
 			pr_info("[%s] [ %s ] strong hot. dram set to %lu MB. rate : %lu\n",
 				__func__, memcg->tenant_name, dram_size[idx] >> 8, valid_rate);
 
@@ -2244,7 +2246,7 @@ static void distribute_local_dram_hi(void)
 		tot_free_dram -= dram_size[idx];
 		tot_weak_hot_rate -= valid_rate;
 
-		if(!not_hi_determined)
+		if(all_hi_determined)
 			pr_info("[%s] [ %s ] weak hot. dram set to %lu MB. rate : %lu\n",
 				__func__, memcg->tenant_name, dram_size[idx] >> 8, valid_rate);
 
@@ -2256,15 +2258,17 @@ static void distribute_local_dram_hi(void)
 		if(memcg) {
 			if(READ_ONCE(memcg->hi_determined) &&
 				dram_determined[i] == 1) {
-				set_dram_size(memcg, dram_size[i], !not_hi_determined);
+				set_dram_size(memcg, dram_size[i], all_hi_determined);
 			}
 		}
 	}
 
-	if(!not_hi_determined)
+	if(all_hi_determined)
 		pr_info("[%s] remained DRAM : %lu MB\n",
 			__func__, tot_free_dram >> 8);
 }
+
+
 
 static unsigned long find_lowest_access_rate_level(int level, int *idx, int *ranked)
 {
@@ -2408,7 +2412,7 @@ static int ksampled(void *dummy)
 						distribute_local_dram_region();
 					}
 					else if(use_hotness_intensity) {
-						distribute_local_dram_hi();//hotness_intensity
+						//distribute_local_dram_hi();//hotness_intensity
 					}
 				}
 				

@@ -42,16 +42,16 @@ elif [[ "$1" == "config4" ]]; then
 	workload[3]="cpu_dlrm_large_low"
 elif [[ "$1" == "config5" ]]; then
 	workload[1]="gapbs-pr"
-	workload[2]="silo"
-	workload[3]="cpu_dlrm_med_low"
+	workload[2]="roms"
+	workload[3]="cpu_dlrm_large_low"
 elif [[ "$1" == "config6" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
 elif [[ "$1" == "config7" ]]; then
-	workload[1]="gapbs-tc"
-	workload[2]="gapbs-bc"
-	workload[3]="xindex"
+	workload[1]="xsbench"
+	workload[2]="fotonik"
+	workload[3]="silo"
 elif [[ "$1" == "config8" ]]; then
 	workload[1]="cpu_dlrm_small_high"
 	workload[2]="gapbs-bc"

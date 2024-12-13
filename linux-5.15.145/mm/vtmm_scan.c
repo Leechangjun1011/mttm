@@ -653,7 +653,7 @@ mmap_unlock:
 
 }
 
-static void scan_ml_queue(struct mem_cgroup *memcg)
+void scan_ml_queue(struct mem_cgroup *memcg)
 {
 	int i;
 	unsigned long pfn;
@@ -704,7 +704,7 @@ static unsigned long get_nr_bucket_hot_pages(struct list_head *page_bucket)
 }
 
 
-static void determine_active_threshold(struct mem_cgroup *memcg)
+void determine_active_threshold(struct mem_cgroup *memcg)
 {
 	unsigned long nr_active = 0;
         unsigned long max_nr_pages = memcg->max_nr_dram_pages -
@@ -741,7 +741,7 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram)
 }
 
 
-static void determine_local_dram(struct mem_cgroup *memcg,
+void determine_local_dram(struct mem_cgroup *memcg,
 				unsigned long *available_dram, int tenant_idx)
 {
 	// Select top 80% hotest page with page degree >= 3
@@ -820,7 +820,7 @@ static int kptscand(void *dummy)
 
 		kptscand_do_work();
 
-		/*if(jiffies - cur >= trace_period) {
+		if(jiffies - cur >= trace_period) {
 			for(i = 0; i < LIMIT_TENANTS; i++) {
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
@@ -866,7 +866,7 @@ static int kptscand(void *dummy)
 				}
 			}
 			cur = jiffies;
-		}*/
+		}
 
 		total_cputime += (jiffies - one_cputime);
 		schedule_timeout_interruptible(sleep_timeout);

@@ -1434,7 +1434,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			use_dram_determination && 
 			((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))){
 			// reset
-			*hotness_scanned = 0;			
+			*hotness_scanned = 0;
 		}
 		WRITE_ONCE(memcg->cooling_period, memcg->cooling_period + MTTM_INIT_COOLING_PERIOD * period_factor);
 		WRITE_ONCE(memcg->adjust_period, memcg->adjust_period + MTTM_INIT_ADJUST_PERIOD * period_factor);
@@ -1525,13 +1525,14 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev3_size /= (*hotness_scanned);
 				memcg->lev2_size /= (*hotness_scanned);
 
-				memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
+				/*memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
-								tot_pages / memcg->lev2_size;
+								tot_pages / memcg->lev2_size;*/
+				memcg->hotness_intensity = tot_pages * 100 / memcg->lev2_size;
 
-				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB, lev3 : %lu MB, lev4 : %lu MB\n",
+				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,
-					memcg->lev2_size >> 8, memcg->lev3_size >> 8, memcg->lev4_size >> 8);	
+					memcg->lev2_size >> 8);	
 				
 				WRITE_ONCE(memcg->hi_determined, true);
 			}
@@ -1786,7 +1787,7 @@ static int kmigrated(void *p)
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold &&
-					(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) || ((!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) && READ_ONCE(memcg->region_determined) && use_region_separation)) &&
+					(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) || ((!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) && ((READ_ONCE(memcg->region_determined) && use_region_separation) || (READ_ONCE(memcg->hi_determined) && use_hotness_intensity)))) &&
 					memcg->threshold_offset < pingpong_reduce_limit) {
 
 					high_pingpong_cnt++;

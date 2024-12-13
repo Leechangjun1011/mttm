@@ -202,6 +202,7 @@ extern unsigned long donor_threshold;
 extern unsigned long acceptor_threshold;
 extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
+extern unsigned int use_naive_hi;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_limit;
 extern unsigned int print_more_info;
@@ -2994,6 +2995,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_hotness_intensity",
 		.data		= &use_hotness_intensity,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_naive_hi",
+		.data		= &use_naive_hi,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

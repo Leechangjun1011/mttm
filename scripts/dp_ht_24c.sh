@@ -62,11 +62,7 @@ elif [[ "$1" == "med" ]]; then
 	TOP_MLP=384-192-1
 	EMBS='128,1000000,120,150'
 	if [[ "$2" == "low" ]]; then
-		if [[ "$3" == "config5" ]]; then
-			NUM_BATCH=80
-		else
-			NUM_BATCH=80
-		fi
+		NUM_BATCH=80
 	else
 		NUM_BATCH=80
 	fi
@@ -79,6 +75,8 @@ elif [[ "$1" == "large" ]]; then
 			NUM_BATCH=40
 		elif [[ "$3" == "config4" ]]; then
 			NUM_BATCH=80
+		elif [[ "$3" == "config5" ]]; then
+			NUM_BATCH=35
 		else
 			NUM_BATCH=40
 		fi
