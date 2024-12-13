@@ -160,13 +160,23 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
+# vTMM
+#set_130
+#source $conda_activate dlrm_cpu
+#run_vtmm_hugepage config5 64G 130
+
+conda deactivate
+set_130
+run_vtmm_hugepage config7 50G 130
 
 set_130
 source $conda_activate dlrm_cpu
-run_vtmm_hugepage config5 64G 130
+run_vtmm_hugepage config8 50G 130
 
-
-
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config10 48G 130
 
 
 

@@ -794,12 +794,14 @@ void kptscand_do_work(void)
 	unsigned long tot_local_dram = mttm_local_dram;
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
+		spin_lock(&vtmm_register_lock);
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			scan_ml_queue(memcg);
 			determine_local_dram(memcg, &tot_local_dram, i);
 			determine_active_threshold(memcg);
 		}
+		spin_unlock(&vtmm_register_lock);
 	}
 
 }
@@ -822,6 +824,7 @@ static int kptscand(void *dummy)
 
 		if(jiffies - cur >= trace_period) {
 			for(i = 0; i < LIMIT_TENANTS; i++) {
+				spin_lock(&vtmm_register_lock);
 				memcg = READ_ONCE(memcg_list[i]);
 				if(memcg) {
 					unsigned long nr_xa_pages = 0, nr_xa_basepages = 0, nr_xa_tot = 0;
@@ -831,7 +834,6 @@ static int kptscand(void *dummy)
 					unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
 					int j;
 	
-					spin_lock(&vtmm_register_lock);
 					nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 								LRU_ACTIVE_ANON, MAX_NR_ZONES) +
 							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
@@ -862,8 +864,8 @@ static int kptscand(void *dummy)
 									__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
 						}
 					}
-					spin_unlock(&vtmm_register_lock);
 				}
+				spin_unlock(&vtmm_register_lock);
 			}
 			cur = jiffies;
 		}
