@@ -1456,6 +1456,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			memcg->lev4_size = 0;
 			memcg->lev3_size = 0;
 			memcg->lev2_size = 0;
+			memcg->lev1_size = 0;
 			return;
 		}
 
@@ -1492,6 +1493,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				(lev_size[2] >> 8) > 100UL) {
 				(*hotness_scanned)++;
 
+				memcg->lev1_size += lev_size[1];		
 				memcg->lev2_size += lev_size[2];
 				memcg->lev3_size += lev_size[3];
 				memcg->lev4_size += lev_size[4];
@@ -1524,15 +1526,16 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev4_size /= (*hotness_scanned);
 				memcg->lev3_size /= (*hotness_scanned);
 				memcg->lev2_size /= (*hotness_scanned);
+				memcg->lev1_size /= (*hotness_scanned);
 
 				/*memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 								tot_pages / memcg->lev2_size;*/
 				memcg->hotness_intensity = tot_pages * 100 / memcg->lev2_size;
 
-				pr_info("[%s] [ %s ]. hotness intensity : %lu. lev2 : %lu MB\n",
+				pr_info("[%s] [ %s ]. hotness intensity: %lu. lev2: %lu MB. lev1: %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,
-					memcg->lev2_size >> 8);	
+					memcg->lev2_size >> 8, memcg->lev1_size >> 8);	
 				
 				WRITE_ONCE(memcg->hi_determined, true);
 			}

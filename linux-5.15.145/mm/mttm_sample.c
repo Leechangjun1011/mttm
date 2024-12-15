@@ -2269,6 +2269,218 @@ static void distribute_local_dram_hi(void)
 }
 
 
+static void rank_tenants(int *rank, bool reverse)
+{
+	unsigned long first_hi, second_hi;
+	int first_idx, second_idx, winner_idx;
+	unsigned long first_mar, second_mar;
+	int i, rank_idx = 0;
+	int ranked[LIMIT_TENANTS] = {0,};
+	struct mem_cgroup *memcg;
+
+	while(1) {
+		if(reverse) {
+			first_hi = ULONG_MAX;
+			second_hi = ULONG_MAX;
+		}
+		else {
+			first_hi = 0;
+			second_hi = 0;
+		}
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->hi_determined) && ranked[i] == 0) {
+					if(reverse) {
+						if(memcg->hotness_intensity < first_hi) {
+							if(first_hi < ULONG_MAX) {
+								second_hi = first_hi;
+								second_idx = first_idx;
+								second_mar = first_mar;
+							}
+							first_hi = memcg->hotness_intensity;
+							first_idx = i;
+							first_mar = calculate_valid_rate(memcg->highest_rate);	
+						}
+					}
+					else {
+						if(memcg->hotness_intensity > first_hi) {
+							if(first_hi > 0) {
+								second_hi = first_hi;
+								second_idx = first_idx;
+								second_mar = first_mar;
+							}
+							first_hi = memcg->hotness_intensity;
+							first_idx = i;
+							first_mar = calculate_valid_rate(memcg->highest_rate);	
+						}
+					}
+				}
+			}
+		}
+
+		if(reverse) {
+			if(first_hi < ULONG_MAX) {
+				if(second_hi < ULONG_MAX) {
+					if(second_hi - first_hi < 20) {
+						if(first_mar >= second_mar)
+							winner_idx = first_idx;	
+						else
+							winner_idx = second_idx;
+					}
+					else 
+						winner_idx = first_idx;
+				}
+				else
+					winner_idx = first_idx;
+				rank[rank_idx] = winner_idx;
+				rank_idx++;
+				ranked[winner_idx] = 1;
+			}
+			else
+				break;
+		}
+
+		else {
+			if(first_hi > 0) {
+				if(second_hi > 0) {
+					if(first_hi - second_hi < 20) {
+						if(first_mar >= second_mar)
+							winner_idx = first_idx;	
+						else
+							winner_idx = second_idx;
+					}
+					else 
+						winner_idx = first_idx;
+				}
+				else
+					winner_idx = first_idx;
+				rank[rank_idx] = winner_idx;
+				rank_idx++;
+				ranked[winner_idx] = 1;
+			}
+			else
+				break;
+
+		}
+	}
+
+
+}
+
+static void distribute_local_dram_naive_hi(void)
+{
+	int i, idx;
+	unsigned long tot_free_dram = mttm_local_dram;
+	struct mem_cgroup *memcg;
+	bool all_hi_determined = true, all_fixed = true;
+	int dram_determined[LIMIT_TENANTS] = {0,};
+	unsigned long dram_size[LIMIT_TENANTS] = {0,};
+	unsigned long available_dram;
+	int rank[LIMIT_TENANTS];
+
+	// Check that not classified workload exist.
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(!READ_ONCE(memcg->hi_determined)) {
+				all_hi_determined = false;
+				tot_free_dram -= memcg->max_nr_dram_pages;
+			}
+			if(!READ_ONCE(memcg->dram_fixed))
+				all_fixed = false;
+		}
+		rank[i] = -1;
+	}
+
+	if(all_fixed)
+		return;
+
+	// 1. Rank tenants based on the value of (RSS / lev2)
+	// 1.1. If two tenants show similar value, order them based on the MAR.
+	// 2. Distribute the lev2 amount of dram to each tenant, higher rank first.
+
+	// 3. Reversely rank tenants with step 1. (low value of RSS / lev2)
+	// 3.1. Use MAR like step 1.1.
+	// 4. Distribute the extra dram based on the rank.
+
+	rank_tenants(rank, false);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(rank[i] >= 0) {
+			memcg = READ_ONCE(memcg_list[rank[i]]);
+			if(memcg && tot_free_dram) {
+				available_dram = min_t(unsigned long, tot_free_dram, memcg->lev2_size);
+				dram_size[rank[i]] = available_dram;
+				dram_determined[rank[i]] = 1;
+				tot_free_dram -= available_dram;
+			}
+		}
+	}
+	if(all_hi_determined) {
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			if(rank[i] >= 0) {
+				memcg = READ_ONCE(memcg_list[rank[i]]);
+				if(memcg)
+					pr_info("[%s] rank %d: [ %s ], HI: %lu, MAR: %lu, dram: %lu MB\n",
+						__func__, i, memcg->tenant_name,
+						memcg->hotness_intensity, calculate_valid_rate(memcg->highest_rate),
+						dram_size[rank[i]] >> 8); 
+			}
+		}
+	}
+
+
+	if(tot_free_dram) {
+		for(i = 0; i < LIMIT_TENANTS; i++)
+			rank[i] = -1;
+		rank_tenants(rank, true);
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			if(rank[i] >= 0) {
+				memcg = READ_ONCE(memcg_list[rank[i]]);
+				if(memcg && tot_free_dram) {
+					available_dram = min_t(unsigned long, tot_free_dram, get_anon_rss(memcg) - dram_size[rank[i]]);
+					dram_size[rank[i]] += available_dram;
+					tot_free_dram -= available_dram;
+				}
+			}
+		}
+		if(all_hi_determined) {
+			for(i = 0; i < LIMIT_TENANTS; i++) {
+				if(rank[i] >= 0) {
+					memcg = READ_ONCE(memcg_list[rank[i]]);
+					if(memcg)
+						pr_info("[%s] reverse rank %d: [ %s ], HI: %lu, MAR: %lu, dram: %lu MB\n",
+							__func__, i, memcg->tenant_name,
+							memcg->hotness_intensity, calculate_valid_rate(memcg->highest_rate),
+							dram_size[rank[i]] >> 8); 
+				}
+			}
+		}
+	}
+
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined) &&
+				dram_determined[i] == 1) {
+				set_dram_size(memcg, dram_size[i], all_hi_determined);
+
+				if(all_hi_determined)
+					pr_info("[%s] [ %s ] dram set to %lu MB\n",
+						__func__, memcg->tenant_name, dram_size[i] >> 8);
+			}
+		}
+	}
+
+	if(all_hi_determined)
+		pr_info("[%s] remained DRAM : %lu MB\n",
+			__func__, tot_free_dram >> 8);
+}
+
+
+
+
 
 static unsigned long find_lowest_access_rate_level(int level, int *idx, int *ranked)
 {
@@ -2412,7 +2624,10 @@ static int ksampled(void *dummy)
 						distribute_local_dram_region();
 					}
 					else if(use_hotness_intensity) {
-						//distribute_local_dram_hi();//hotness_intensity
+						if(use_naive_hi)
+							distribute_local_dram_naive_hi();
+						//else
+							//distribute_local_dram_hi();//hotness_intensity
 					}
 				}
 				

@@ -69,6 +69,25 @@ function run_local_basepage
 	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local_$1.txt
 }
 
+function run_naive_hi_hugepage 
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 0 > /proc/sys/vm/use_region_separation
+	echo 1 > /proc/sys/vm/use_hotness_intensity
+	echo 1 > /proc/sys/vm/use_naive_hi
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+
+	echo 10007 > /proc/sys/vm/pebs_sample_period
+	echo 0 > /proc/sys/vm/scanless_cooling
+	echo 0 > /proc/sys/vm/reduce_scan
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/hi_$1_$2_$3.txt
+	dmesg > ./evaluation/hi_$1_$2_$3_dmesg.txt
+}
+
 function run_mttm_hi_hugepage
 {
 	dmesg --clear
@@ -160,23 +179,96 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
-# vTMM
-#set_130
+# Hotness intensity
+: << END
+set_130
 #source $conda_activate dlrm_cpu
-#run_vtmm_hugepage config5 64G 130
+#run_naive_hi_hugepage config5 64G 130
+
+
+#conda deactivate
+set_130
+run_naive_hi_hugepage config7 50G 130
+
+set_130
+source $conda_activate dlrm_cpu
+run_naive_hi_hugepage config8 50G 130
+
+conda deactivate
+set_130
+source $conda_activate dlrm_cpu
+run_naive_hi_hugepage config10 48G 130
+END
+
+# vTMM
+: << END
+set_130
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config5 64G 130
+run_vtmm_hugepage config5 25G 130
 
 conda deactivate
 set_130
 run_vtmm_hugepage config7 50G 130
+run_vtmm_hugepage config7 20G 130
 
 set_130
 source $conda_activate dlrm_cpu
 run_vtmm_hugepage config8 50G 130
+run_vtmm_hugepage config8 20G 130
 
 conda deactivate
 set_130
 source $conda_activate dlrm_cpu
 run_vtmm_hugepage config10 48G 130
+run_vtmm_hugepage config10 19G 130
+
+#192
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config5 64G 192
+run_vtmm_hugepage config5 25G 192
+
+conda deactivate
+set_192
+run_vtmm_hugepage config7 50G 192
+run_vtmm_hugepage config7 20G 192
+
+set_192
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config8 50G 192
+run_vtmm_hugepage config8 20G 192
+
+conda deactivate
+set_192
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config10 48G 192
+run_vtmm_hugepage config10 19G 192
+
+#250
+conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config5 64G 250
+run_vtmm_hugepage config5 25G 250
+
+conda deactivate
+set_250
+run_vtmm_hugepage config7 50G 250
+run_vtmm_hugepage config7 20G 250
+
+set_250
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config8 50G 250
+run_vtmm_hugepage config8 20G 250
+END
+#conda deactivate
+set_250
+source $conda_activate dlrm_cpu
+#run_vtmm_hugepage config10 48G 250
+run_vtmm_hugepage config10 19G 250
+
 
 
 

@@ -410,7 +410,7 @@ static void demote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
 }
 
 
-static void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
+void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 			struct mem_cgroup *memcg)
 {
 	struct page *page;
@@ -669,7 +669,7 @@ void scan_ml_queue(struct mem_cgroup *memcg)
 
 }
 
-static unsigned long get_nr_bucket_pages(struct list_head *page_bucket)
+unsigned long get_nr_bucket_pages(struct list_head *page_bucket)
 {
 	unsigned long nr_pages = 0;
 	struct vtmm_page *vp;
@@ -794,14 +794,12 @@ void kptscand_do_work(void)
 	unsigned long tot_local_dram = mttm_local_dram;
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
-		spin_lock(&vtmm_register_lock);
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			scan_ml_queue(memcg);
 			determine_local_dram(memcg, &tot_local_dram, i);
 			determine_active_threshold(memcg);
 		}
-		spin_unlock(&vtmm_register_lock);
 	}
 
 }

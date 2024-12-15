@@ -395,6 +395,7 @@ struct mem_cgroup {
 	unsigned long		stable_cnt;
 	unsigned long		lowered_cnt;
 	unsigned long		hotness_intensity;
+	unsigned long		lev1_size;
 	unsigned long		lev2_size;
 	unsigned long		lev3_size;
 	unsigned long		lev4_size;
