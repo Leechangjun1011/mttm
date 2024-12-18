@@ -15,6 +15,7 @@ function run_mttm_region_hugepage
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 
 	echo 10007 > /proc/sys/vm/pebs_sample_period
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
@@ -33,6 +34,7 @@ function run_mttm_region_basepage_opt
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 
 	echo 101 > /proc/sys/vm/pebs_sample_period
+	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
 	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
@@ -80,6 +82,7 @@ function run_naive_hi_hugepage
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 
 	echo 10007 > /proc/sys/vm/pebs_sample_period
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 	echo 0 > /proc/sys/vm/scanless_cooling
 	echo 0 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
@@ -179,183 +182,164 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
+
+
 # Hotness intensity
+#130
+set_130
+run_naive_hi_hugepage config1 54G 130
+run_naive_hi_hugepage config1 21G 130
 : << END
-set_130
-#source $conda_activate dlrm_cpu
-#run_naive_hi_hugepage config5 64G 130
-
-
-#conda deactivate
-set_130
-run_naive_hi_hugepage config7 50G 130
-
-set_130
 source $conda_activate dlrm_cpu
-run_naive_hi_hugepage config8 50G 130
+run_naive_hi_hugepage config2 34G 130
+run_naive_hi_hugepage config2 13G 130
 
-conda deactivate
-set_130
-source $conda_activate dlrm_cpu
-run_naive_hi_hugepage config10 48G 130
+run_naive_hi_hugepage config3 84G 130
+run_naive_hi_hugepage config3 33G 130
+
+run_naive_hi_hugepage config9 46G 130
+run_naive_hi_hugepage config9 18G 130
 END
-
-# vTMM
-: << END
-set_130
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config5 64G 130
-run_vtmm_hugepage config5 25G 130
-
-conda deactivate
-set_130
-run_vtmm_hugepage config7 50G 130
-run_vtmm_hugepage config7 20G 130
-
-set_130
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config8 50G 130
-run_vtmm_hugepage config8 20G 130
-
-conda deactivate
-set_130
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config10 48G 130
-run_vtmm_hugepage config10 19G 130
-
 #192
-conda deactivate
+#conda deactivate
 set_192
+run_naive_hi_hugepage config1 54G 192
+run_naive_hi_hugepage config1 21G 192
+: << END
 source $conda_activate dlrm_cpu
-run_vtmm_hugepage config5 64G 192
-run_vtmm_hugepage config5 25G 192
+run_naive_hi_hugepage config2 34G 192
+run_naive_hi_hugepage config2 13G 192
 
-conda deactivate
-set_192
-run_vtmm_hugepage config7 50G 192
-run_vtmm_hugepage config7 20G 192
+run_naive_hi_hugepage config3 84G 192
+run_naive_hi_hugepage config3 33G 192
 
-set_192
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config8 50G 192
-run_vtmm_hugepage config8 20G 192
-
-conda deactivate
-set_192
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config10 48G 192
-run_vtmm_hugepage config10 19G 192
+run_naive_hi_hugepage config9 46G 192
+run_naive_hi_hugepage config9 18G 192
+END
 
 #250
-conda deactivate
-set_250
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config5 64G 250
-run_vtmm_hugepage config5 25G 250
-
-conda deactivate
-set_250
-run_vtmm_hugepage config7 50G 250
-run_vtmm_hugepage config7 20G 250
-
-set_250
-source $conda_activate dlrm_cpu
-run_vtmm_hugepage config8 50G 250
-run_vtmm_hugepage config8 20G 250
-END
 #conda deactivate
 set_250
+run_naive_hi_hugepage config1 54G 250
+run_naive_hi_hugepage config1 21G 250
+: << END
 source $conda_activate dlrm_cpu
-#run_vtmm_hugepage config10 48G 250
-run_vtmm_hugepage config10 19G 250
+run_naive_hi_hugepage config2 34G 250
+run_naive_hi_hugepage config2 13G 250
+
+run_naive_hi_hugepage config3 84G 250
+run_naive_hi_hugepage config3 33G 250
+
+run_naive_hi_hugepage config9 46G 250
+run_naive_hi_hugepage config9 18G 250
+END
 
 
-
+: << END
 
 # MTTM region
-: << END
-set_130
-source $conda_activate dlrm_cpu
-#run_local_basepage config4
-run_mttm_region_hugepage config5 64G 130
-run_mttm_region_hugepage config5 25G 130
-#run_mttm_region_basepage_opt config8 50G 130
-#run_mttm_hi_hugepage config10 63G 130
-#run_mttm_hi_basepage config10 63G 130
-#run_local_hugepage config7
-
+#130
 conda deactivate
 set_130
-run_mttm_region_hugepage config7 50G 130
-run_mttm_region_hugepage config7 20G 130
+run_mttm_region_hugepage config1 54G 130
+run_mttm_region_hugepage config1 21G 130
 
-
-set_130
 source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config8 50G 130
-run_mttm_region_hugepage config8 20G 130
+run_mttm_region_hugepage config2 34G 130
+run_mttm_region_hugepage config2 13G 130
 
+run_mttm_region_hugepage config3 84G 130
+run_mttm_region_hugepage config3 33G 130
 
-conda deactivate
-set_130
-source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config10 48G 130
-run_mttm_region_hugepage config10 19G 130
-
+run_mttm_region_hugepage config9 46G 130
+run_mttm_region_hugepage config9 18G 130
 
 # 192
 conda deactivate
 set_192
+run_mttm_region_hugepage config1 54G 192
+run_mttm_region_hugepage config1 21G 192
+
+
 source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config5 64G 192
-run_mttm_region_hugepage config5 25G 192
+run_mttm_region_hugepage config2 34G 192
+run_mttm_region_hugepage config2 13G 192
 
+run_mttm_region_hugepage config3 84G 192
+run_mttm_region_hugepage config3 33G 192
 
-conda deactivate
-set_192
-run_mttm_region_hugepage config7 50G 192
-run_mttm_region_hugepage config7 20G 192
-
-
-set_192
-source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config8 50G 192
-run_mttm_region_hugepage config8 20G 192
-
-
-conda deactivate
-set_192
-source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config10 48G 192
-run_mttm_region_hugepage config10 19G 192
-
+run_mttm_region_hugepage config9 46G 192
+run_mttm_region_hugepage config9 18G 192
 
 # 250
 conda deactivate
 set_250
+run_mttm_region_hugepage config1 54G 250
+run_mttm_region_hugepage config1 21G 250
+
 source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config5 64G 250
-run_mttm_region_hugepage config5 25G 250
+run_mttm_region_hugepage config2 34G 250
+run_mttm_region_hugepage config2 13G 250
+
+run_mttm_region_hugepage config3 84G 250
+run_mttm_region_hugepage config3 33G 250
+
+run_mttm_region_hugepage config9 46G 250
+run_mttm_region_hugepage config9 18G 250
 
 
+# vTMM
+#130
+conda deactivate
+set_130
+run_vtmm_hugepage config1 54G 130
+run_vtmm_hugepage config1 21G 130
+
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config2 34G 130
+run_vtmm_hugepage config2 13G 130
+
+run_vtmm_hugepage config3 84G 130
+run_vtmm_hugepage config3 33G 130
+
+run_vtmm_hugepage config9 46G 130
+run_vtmm_hugepage config9 18G 130
+
+
+#192
+conda deactivate
+set_192
+run_vtmm_hugepage config1 54G 192
+run_vtmm_hugepage config1 21G 192
+
+source $conda_activate dlrm_cpu
+run_vtmm_hugepage config2 34G 192
+run_vtmm_hugepage config2 13G 192
+
+run_vtmm_hugepage config3 84G 192
+run_vtmm_hugepage config3 33G 192
+
+run_vtmm_hugepage config9 46G 192
+run_vtmm_hugepage config9 18G 192
+
+#250
 conda deactivate
 set_250
-run_mttm_region_hugepage config7 50G 250
-run_mttm_region_hugepage config7 20G 250
+run_vtmm_hugepage config1 54G 250
+run_vtmm_hugepage config1 21G 250
 
-
-set_250
 source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config8 50G 250
-run_mttm_region_hugepage config8 20G 250
+run_vtmm_hugepage config2 34G 250
+run_vtmm_hugepage config2 13G 250
 
+run_vtmm_hugepage config3 84G 250
+run_vtmm_hugepage config3 33G 250
 
-conda deactivate
-set_250
-source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config10 48G 250
-run_mttm_region_hugepage config10 19G 250
+run_vtmm_hugepage config9 46G 250
+run_vtmm_hugepage config9 18G 250
+
 END
+
 
 # MTTM basepage
 : << END

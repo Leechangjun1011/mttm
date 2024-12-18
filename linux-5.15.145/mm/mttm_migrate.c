@@ -1498,9 +1498,10 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				memcg->lev3_size += lev_size[3];
 				memcg->lev4_size += lev_size[4];
 
-				pr_info("[%s] [ %s ] scan: %u, lev2: %lu MB, lev3: %lu MB, lev4: %lu MB\n",
+				pr_info("[%s] [ %s ] scan: %u, lev1: %lu MB, lev2: %lu MB, lev3: %lu MB, lev4: %lu MB\n",
 					__func__, memcg->tenant_name, *hotness_scanned,
-					lev_size[2] >> 8, lev_size[3] >> 8, lev_size[4] >> 8);
+					lev_size[1] >> 8, lev_size[2] >> 8,
+					lev_size[3] >> 8, lev_size[4] >> 8);
 			}
 		}
 
@@ -1531,7 +1532,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				/*memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 								tot_pages / memcg->lev2_size;*/
-				memcg->hotness_intensity = tot_pages * 100 / memcg->lev2_size;
+				memcg->hotness_intensity = tot_pages * 100 / memcg->lev1_size;
 
 				pr_info("[%s] [ %s ]. hotness intensity: %lu. lev2: %lu MB. lev1: %lu MB\n",
 					__func__, memcg->tenant_name, memcg->hotness_intensity,

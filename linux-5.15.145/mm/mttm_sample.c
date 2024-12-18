@@ -1675,7 +1675,7 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 static unsigned long calculate_valid_rate(unsigned long sample_rate)
 {
 	unsigned long sampling_factor = 10007 / pebs_sample_period;
-	unsigned long std_rate = 6000 * sampling_factor;//threshold sample rate is 6000 when pebs_sample_period is 10007
+	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 6000 when pebs_sample_period is 10007
 	unsigned long extra_rate;
 
 	if(sample_rate > std_rate) {
@@ -1950,16 +1950,17 @@ void distribute_local_dram_region(void)
 					if(all_region_done) {
 						for(j = 0; j < NR_REGION; j++)
 							tenant_dram += dram_size[i][j];
-
-						extra_dram[i] = min_t(unsigned long, 
-									extra_priority[i] * tot_free_dram / tot_extra_priority, 
-									get_anon_rss(memcg) - tenant_dram);
-						tot_extra_priority -= extra_priority[i];
-						tot_free_dram -= extra_dram[i];
-						if(all_region_determined)
-							pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
-								__func__, memcg->tenant_name, extra_dram[i] >> 8,
-								extra_priority[i]);
+						if(tot_extra_priority) {
+							extra_dram[i] = min_t(unsigned long, 
+										extra_priority[i] * tot_free_dram / tot_extra_priority, 
+										get_anon_rss(memcg) - tenant_dram);
+							tot_extra_priority -= extra_priority[i];
+							tot_free_dram -= extra_dram[i];
+							if(all_region_determined)
+								pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
+									__func__, memcg->tenant_name, extra_dram[i] >> 8,
+									extra_priority[i]);
+						}
 					}
 				}
 			}
@@ -2272,6 +2273,7 @@ static void distribute_local_dram_hi(void)
 static void rank_tenants(int *rank, bool reverse)
 {
 	unsigned long first_hi, second_hi;
+	unsigned long hi_diff_threshold = 10;
 	int first_idx, second_idx, winner_idx;
 	unsigned long first_mar, second_mar;
 	int i, rank_idx = 0;
@@ -2287,17 +2289,14 @@ static void rank_tenants(int *rank, bool reverse)
 			first_hi = 0;
 			second_hi = 0;
 		}
+
+		// find first hi
 		for(i = 0; i < LIMIT_TENANTS; i++) {
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
 				if(READ_ONCE(memcg->hi_determined) && ranked[i] == 0) {
 					if(reverse) {
-						if(memcg->hotness_intensity < first_hi) {
-							if(first_hi < ULONG_MAX) {
-								second_hi = first_hi;
-								second_idx = first_idx;
-								second_mar = first_mar;
-							}
+						if(memcg->hotness_intensity < first_hi) {	
 							first_hi = memcg->hotness_intensity;
 							first_idx = i;
 							first_mar = calculate_valid_rate(memcg->highest_rate);	
@@ -2305,11 +2304,6 @@ static void rank_tenants(int *rank, bool reverse)
 					}
 					else {
 						if(memcg->hotness_intensity > first_hi) {
-							if(first_hi > 0) {
-								second_hi = first_hi;
-								second_idx = first_idx;
-								second_mar = first_mar;
-							}
 							first_hi = memcg->hotness_intensity;
 							first_idx = i;
 							first_mar = calculate_valid_rate(memcg->highest_rate);	
@@ -2319,10 +2313,33 @@ static void rank_tenants(int *rank, bool reverse)
 			}
 		}
 
+		// find second hi
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->hi_determined) && ranked[i] == 0) {
+					if(reverse) {
+						if(memcg->hotness_intensity < second_hi && memcg->hotness_intensity > first_hi) {	
+							second_hi = memcg->hotness_intensity;
+							second_idx = i;
+							second_mar = calculate_valid_rate(memcg->highest_rate);	
+						}
+					}
+					else {
+						if(memcg->hotness_intensity > second_hi && memcg->hotness_intensity < first_hi) {
+							second_hi = memcg->hotness_intensity;
+							second_idx = i;
+							second_mar = calculate_valid_rate(memcg->highest_rate);	
+						}
+					}
+				}
+			}
+		}
+
 		if(reverse) {
 			if(first_hi < ULONG_MAX) {
 				if(second_hi < ULONG_MAX) {
-					if(second_hi - first_hi < 20) {
+					if(second_hi - first_hi < hi_diff_threshold) {
 						if(first_mar >= second_mar)
 							winner_idx = first_idx;	
 						else
@@ -2344,11 +2361,13 @@ static void rank_tenants(int *rank, bool reverse)
 		else {
 			if(first_hi > 0) {
 				if(second_hi > 0) {
-					if(first_hi - second_hi < 20) {
-						if(first_mar >= second_mar)
+					if(first_hi - second_hi < hi_diff_threshold) {
+						if(first_mar >= second_mar) {
 							winner_idx = first_idx;	
-						else
+						}
+						else {
 							winner_idx = second_idx;
+						}
 					}
 					else 
 						winner_idx = first_idx;
@@ -2378,6 +2397,9 @@ static void distribute_local_dram_naive_hi(void)
 	unsigned long dram_size[LIMIT_TENANTS] = {0,};
 	unsigned long available_dram;
 	int rank[LIMIT_TENANTS];
+	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
+	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
+	unsigned long tot_extra_priority = 0;
 
 	// Check that not classified workload exist.
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -2396,20 +2418,12 @@ static void distribute_local_dram_naive_hi(void)
 	if(all_fixed)
 		return;
 
-	// 1. Rank tenants based on the value of (RSS / lev2)
-	// 1.1. If two tenants show similar value, order them based on the MAR.
-	// 2. Distribute the lev2 amount of dram to each tenant, higher rank first.
-
-	// 3. Reversely rank tenants with step 1. (low value of RSS / lev2)
-	// 3.1. Use MAR like step 1.1.
-	// 4. Distribute the extra dram based on the rank.
-
 	rank_tenants(rank, false);
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		if(rank[i] >= 0) {
 			memcg = READ_ONCE(memcg_list[rank[i]]);
-			if(memcg && tot_free_dram) {
-				available_dram = min_t(unsigned long, tot_free_dram, memcg->lev2_size);
+			if(memcg) {
+				available_dram = min_t(unsigned long, tot_free_dram, memcg->lev1_size);
 				dram_size[rank[i]] = available_dram;
 				dram_determined[rank[i]] = 1;
 				tot_free_dram -= available_dram;
@@ -2430,29 +2444,38 @@ static void distribute_local_dram_naive_hi(void)
 	}
 
 
-	if(tot_free_dram) {
-		for(i = 0; i < LIMIT_TENANTS; i++)
-			rank[i] = -1;
-		rank_tenants(rank, true);
+	// When extra local DRAM exist
+	if(tot_free_dram > 0) {
 		for(i = 0; i < LIMIT_TENANTS; i++) {
-			if(rank[i] >= 0) {
-				memcg = READ_ONCE(memcg_list[rank[i]]);
-				if(memcg && tot_free_dram) {
-					available_dram = min_t(unsigned long, tot_free_dram, get_anon_rss(memcg) - dram_size[rank[i]]);
-					dram_size[rank[i]] += available_dram;
-					tot_free_dram -= available_dram;
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->hi_determined)) {	
+					if(dram_determined[i]) {
+						extra_priority[i] = get_anon_rss(memcg) * 100 / dram_size[i];
+						// give extra dram to tenant that receives small dram compared to rss.
+						tot_extra_priority += extra_priority[i];
+					}
 				}
 			}
 		}
-		if(all_hi_determined) {
-			for(i = 0; i < LIMIT_TENANTS; i++) {
-				if(rank[i] >= 0) {
-					memcg = READ_ONCE(memcg_list[rank[i]]);
-					if(memcg)
-						pr_info("[%s] reverse rank %d: [ %s ], HI: %lu, MAR: %lu, dram: %lu MB\n",
-							__func__, i, memcg->tenant_name,
-							memcg->hotness_intensity, calculate_valid_rate(memcg->highest_rate),
-							dram_size[rank[i]] >> 8); 
+		
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(READ_ONCE(memcg->hi_determined)) {
+					if(dram_determined[i]) {
+						if(tot_extra_priority) {
+							extra_dram[i] = min_t(unsigned long, 
+										extra_priority[i] * tot_free_dram / tot_extra_priority, 
+										get_anon_rss(memcg) - dram_size[i]);
+							tot_extra_priority -= extra_priority[i];
+							tot_free_dram -= extra_dram[i];
+							if(all_hi_determined)
+								pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
+									__func__, memcg->tenant_name, extra_dram[i] >> 8,
+									extra_priority[i]);
+						}
+					}
 				}
 			}
 		}
@@ -2464,11 +2487,11 @@ static void distribute_local_dram_naive_hi(void)
 		if(memcg) {
 			if(READ_ONCE(memcg->hi_determined) &&
 				dram_determined[i] == 1) {
-				set_dram_size(memcg, dram_size[i], all_hi_determined);
+				set_dram_size(memcg, dram_size[i] + extra_dram[i], all_hi_determined);
 
 				if(all_hi_determined)
 					pr_info("[%s] [ %s ] dram set to %lu MB\n",
-						__func__, memcg->tenant_name, dram_size[i] >> 8);
+						__func__, memcg->tenant_name, (dram_size[i] + extra_dram[i]) >> 8);
 			}
 		}
 	}

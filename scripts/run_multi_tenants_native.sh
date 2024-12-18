@@ -31,11 +31,19 @@ sudo sysctl kernel.perf_event_max_sample_rate=100000
 if [[ "$1" == "config1" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="gapbs-bc"
-	workload[3]="cpu_dlrm_small_low"
+	workload[3]="xsbench"
+elif [[ "$1" == "config2" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
 elif [[ "$1" == "config3" ]]; then
+	workload[1]="silo"
+	workload[2]="cpu_dlrm_small_low_1"
+	workload[3]="cpu_dlrm_large_low_2"
+elif [[ "$1" == "config9" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
-	workload[3]="cpu_dlrm_large_low"
+	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config4" ]]; then
 	workload[1]="xsbench"
 	workload[2]="roms"
@@ -56,10 +64,6 @@ elif [[ "$1" == "config8" ]]; then
 	workload[1]="cpu_dlrm_small_high"
 	workload[2]="gapbs-bc"
 	workload[3]="xindex"
-elif [[ "$1" == "config9" ]]; then
-	workload[1]="cpu_dlrm_small_low"
-	workload[2]="silo"
-	workload[3]="nas_cg.d"
 elif [[ "$1" == "config10" ]]; then
 	workload[1]="cpu_dlrm_small_low"
 	workload[2]="silo"

@@ -28,8 +28,10 @@ if [[ "$1" == "small" ]]; then
 	if [[ "$2" == "low" ]]; then
 		if [[ "$3" == "config1" ]]; then
 			NUM_BATCH=150
+		elif [[ "$3" == "config3" ]]; then
+			NUM_BATCH=180
 		elif [[ "$3" == "config9" ]]; then
-			NUM_BATCH=430
+			NUM_BATCH=240
 		elif [[ "$3" == "config10" ]]; then
 			NUM_BATCH=180
 		elif [[ "$3" == "6tenants" ]]; then
@@ -49,7 +51,9 @@ if [[ "$1" == "small" ]]; then
 			INSTANCES=2
 		fi
 	elif [[ "$2" == "high" ]]; then
-		if [[ "$3" == "config8" ]]; then
+		if [[ "$3" == "config2" ]]; then
+			NUM_BATCH=320 
+		elif [[ "$3" == "config8" ]]; then
 			NUM_BATCH=450 
 		elif [[ "$3" == "motiv-cpu_dlrm_small_high" ]]; then
 			NUM_BATCH=300
@@ -72,7 +76,7 @@ elif [[ "$1" == "large" ]]; then
 	EMBS='128,1000000,170,180'
 	if [[ "$2" == "low" ]]; then
 		if [[ "$3" == "config3" ]]; then
-			NUM_BATCH=40
+			NUM_BATCH=35
 		elif [[ "$3" == "config4" ]]; then
 			NUM_BATCH=80
 		elif [[ "$3" == "config5" ]]; then

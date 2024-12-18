@@ -37,7 +37,7 @@ echo 0 > /proc/sys/vm/use_lru_manage_reduce #deprecated
 #echo 50 > /proc/sys/vm/manage_cputime_threshold
 echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 5 > /proc/sys/vm/pingpong_reduce_limit
-echo 200 > /proc/sys/vm/pingpong_reduce_threshold #500
+#echo 200 > /proc/sys/vm/pingpong_reduce_threshold #500
 echo 300 > /proc/sys/vm/mig_cputime_threshold
 
 echo 1000 > /proc/sys/vm/kmigrated_period_in_ms
@@ -62,42 +62,39 @@ sudo sysctl vm.enable_ksampled=1
 if [[ "$1" == "config1" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="gapbs-bc"
-	workload[3]="cpu_dlrm_small_low"
-	echo 70G > /proc/sys/vm/mttm_local_dram_string
+	workload[3]="xsbench"
+elif [[ "$1" == "config2" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
 elif [[ "$1" == "config3" ]]; then
+	workload[1]="silo"
+	workload[2]="cpu_dlrm_small_low_1"
+	workload[3]="cpu_dlrm_large_low_2"
+elif [[ "$1" == "config9" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
-	workload[3]="cpu_dlrm_large_low"
-	echo 73G > /proc/sys/vm/mttm_local_dram_string #73G, 16G
+	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config4" ]]; then
 	workload[1]="xsbench"
 	workload[2]="roms"
 	workload[3]="cpu_dlrm_large_low"
-	#echo 63G > /proc/sys/vm/mttm_local_dram_string #63G, 25G, 14G
 elif [[ "$1" == "config5" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="roms"
 	workload[3]="cpu_dlrm_large_low"
-	#echo 54G > /proc/sys/vm/mttm_local_dram_string
 elif [[ "$1" == "config6" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-	#echo 51G > /proc/sys/vm/mttm_local_dram_string
 elif [[ "$1" == "config7" ]]; then
 	workload[1]="xsbench"
 	workload[2]="fotonik"
 	workload[3]="silo"
-	#echo 20G > /proc/sys/vm/mttm_local_dram_string #51G, 20G
 elif [[ "$1" == "config8" ]]; then
 	workload[1]="cpu_dlrm_small_high"
 	workload[2]="gapbs-bc"
 	workload[3]="xindex"
-	#echo 20G > /proc/sys/vm/mttm_local_dram_string #50G, 20G
-elif [[ "$1" == "config9" ]]; then
-	workload[1]="cpu_dlrm_small_low"
-	workload[2]="silo"
-	workload[3]="nas_cg.d"
 elif [[ "$1" == "config10" ]]; then
 	workload[1]="cpu_dlrm_small_low"
 	workload[2]="silo"
