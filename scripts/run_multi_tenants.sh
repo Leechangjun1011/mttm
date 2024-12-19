@@ -36,7 +36,7 @@ echo 1 > /proc/sys/vm/drop_caches
 echo 0 > /proc/sys/vm/use_lru_manage_reduce #deprecated
 #echo 50 > /proc/sys/vm/manage_cputime_threshold
 echo 1 > /proc/sys/vm/use_pingpong_reduce
-echo 5 > /proc/sys/vm/pingpong_reduce_limit
+echo 3 > /proc/sys/vm/pingpong_reduce_limit
 #echo 200 > /proc/sys/vm/pingpong_reduce_threshold #500
 echo 300 > /proc/sys/vm/mig_cputime_threshold
 

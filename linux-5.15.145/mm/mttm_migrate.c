@@ -134,10 +134,20 @@ static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	fmem_max_wmark = get_memcg_promotion_wmark(max_nr_pages); // if free mem is larger than this wmark, promotion allowed.
 	fmem_min_wmark = get_memcg_demotion_wmark(max_nr_pages); // if free mem is less than this wmark, demotion required.
 
+	if(max_nr_pages < fmem_min_wmark) { // extremely low dram size
+		if(nr_lru_pages < fmem_min_wmark) {
+			if(need_direct_demotion(pgdat, memcg))
+				WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
+			return false;
+		}
+		*nr_exceeded = (max_nr_pages > nr_lru_pages) ? 0 : nr_lru_pages - max_nr_pages;
+		return true;
+	}
+
 	if(need_direct_demotion(pgdat, memcg)) { // set at mempolicy.c and dram determination
 		if(nr_lru_pages + fmem_max_wmark <= max_nr_pages)
 			goto check_nr_need_promoted;
-		else if(nr_lru_pages < max_nr_pages)
+		if(nr_lru_pages < max_nr_pages)
 			*nr_exceeded = fmem_max_wmark - (max_nr_pages - nr_lru_pages);
 		else
 			*nr_exceeded = nr_lru_pages + fmem_max_wmark - max_nr_pages;
@@ -766,9 +776,13 @@ bool promotion_available(int target_nid, struct mem_cgroup *memcg,
 		*nr_to_promote = node_free_pages(pgdat);
 		return true;
 	}
-	else if(cur_nr_pages + nr_isolated < max_nr_pages - fmem_min_wmark) {
-		*nr_to_promote = max_nr_pages - fmem_min_wmark - cur_nr_pages - nr_isolated;
-		return true;
+	else {
+		if(max_nr_pages < fmem_min_wmark)
+			return false;
+		else if(cur_nr_pages + nr_isolated < max_nr_pages - fmem_min_wmark) {
+			*nr_to_promote = max_nr_pages - fmem_min_wmark - cur_nr_pages - nr_isolated;
+			return true;
+		}
 	}
 
 	return false;

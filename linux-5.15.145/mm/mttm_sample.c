@@ -442,9 +442,13 @@ static void set_dram_size(struct mem_cgroup *memcg, unsigned long required_dram,
 	if(get_nr_lru_pages_node(memcg, NODE_DATA(0)) +
 		get_memcg_demotion_wmark(required_dram) > required_dram)
 		WRITE_ONCE(memcg->nodeinfo[0]->need_demotion, true);
-	else if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
-		get_nr_lru_pages_node(memcg, NODE_DATA(0)))
-		WRITE_ONCE(memcg->dram_expanded, true);
+	else {
+		if(required_dram > get_memcg_promotion_expanded_wmark(required_dram)) {
+			if(required_dram - get_memcg_promotion_expanded_wmark(required_dram) >
+				get_nr_lru_pages_node(memcg, NODE_DATA(0)))
+				WRITE_ONCE(memcg->dram_expanded, true);
+		}
+	}
 
 }
 
@@ -1675,7 +1679,7 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 static unsigned long calculate_valid_rate(unsigned long sample_rate)
 {
 	unsigned long sampling_factor = 10007 / pebs_sample_period;
-	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 6000 when pebs_sample_period is 10007
+	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 8000 when pebs_sample_period is 10007
 	unsigned long extra_rate;
 
 	if(sample_rate > std_rate) {
@@ -2270,122 +2274,68 @@ static void distribute_local_dram_hi(void)
 }
 
 
-static void rank_tenants(int *rank, bool reverse)
+static void rank_tenants(int *dense_hot, int *sparse_hot, int *ambiguous)
 {
-	unsigned long first_hi, second_hi;
-	unsigned long hi_diff_threshold = 10;
-	int first_idx, second_idx, winner_idx;
-	unsigned long first_mar, second_mar;
-	int i, rank_idx = 0;
-	int ranked[LIMIT_TENANTS] = {0,};
+	unsigned long dense_hot_threshold = 200, sparse_hot_threshold = 110;
+	int i, d_idx = 0, s_idx = 0, a_idx = 0;
 	struct mem_cgroup *memcg;
 
-	while(1) {
-		if(reverse) {
-			first_hi = ULONG_MAX;
-			second_hi = ULONG_MAX;
-		}
-		else {
-			first_hi = 0;
-			second_hi = 0;
-		}
 
-		// find first hi
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->hi_determined)) {
+				if(memcg->hotness_intensity >= dense_hot_threshold) {
+					dense_hot[d_idx] = i;
+					d_idx++;
+				}
+				else if(memcg->hotness_intensity >= sparse_hot_threshold) {
+					sparse_hot[s_idx] = i;
+					s_idx++;
+				}
+				else {
+					ambiguous[a_idx] = i;
+					a_idx++;
+				}
+			}
+		}
+	}
+}
+
+static void distribute_prop_to_mar(int *targets, unsigned long *tot_free_dram,
+					unsigned long *dram_size, int *dram_determined)
+{
+	unsigned long tot_mar = 0, mar[LIMIT_TENANTS];
+	int i;
+	struct mem_cgroup *memcg;
+	unsigned long available_dram;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(targets[i] >= 0) {
+			memcg = READ_ONCE(memcg_list[targets[i]]);
 			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined) && ranked[i] == 0) {
-					if(reverse) {
-						if(memcg->hotness_intensity < first_hi) {	
-							first_hi = memcg->hotness_intensity;
-							first_idx = i;
-							first_mar = calculate_valid_rate(memcg->highest_rate);	
-						}
-					}
-					else {
-						if(memcg->hotness_intensity > first_hi) {
-							first_hi = memcg->hotness_intensity;
-							first_idx = i;
-							first_mar = calculate_valid_rate(memcg->highest_rate);	
-						}
-					}
-				}
+				mar[targets[i]] = calculate_valid_rate(memcg->highest_rate);
+				tot_mar += mar[targets[i]];
 			}
 		}
-
-		// find second hi
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
+	}
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(targets[i] >= 0) {
+			memcg = READ_ONCE(memcg_list[targets[i]]);
 			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined) && ranked[i] == 0) {
-					if(reverse) {
-						if(memcg->hotness_intensity < second_hi && memcg->hotness_intensity > first_hi) {	
-							second_hi = memcg->hotness_intensity;
-							second_idx = i;
-							second_mar = calculate_valid_rate(memcg->highest_rate);	
-						}
-					}
-					else {
-						if(memcg->hotness_intensity > second_hi && memcg->hotness_intensity < first_hi) {
-							second_hi = memcg->hotness_intensity;
-							second_idx = i;
-							second_mar = calculate_valid_rate(memcg->highest_rate);	
-						}
-					}
-				}
+				available_dram = min_t(unsigned long, memcg->lev1_size,
+							mar[targets[i]] * (*tot_free_dram) / tot_mar);
+				dram_size[targets[i]] = available_dram;
+				dram_determined[targets[i]] = 1;
+				*tot_free_dram -= available_dram;
+				tot_mar -= mar[targets[i]];
 			}
-		}
-
-		if(reverse) {
-			if(first_hi < ULONG_MAX) {
-				if(second_hi < ULONG_MAX) {
-					if(second_hi - first_hi < hi_diff_threshold) {
-						if(first_mar >= second_mar)
-							winner_idx = first_idx;	
-						else
-							winner_idx = second_idx;
-					}
-					else 
-						winner_idx = first_idx;
-				}
-				else
-					winner_idx = first_idx;
-				rank[rank_idx] = winner_idx;
-				rank_idx++;
-				ranked[winner_idx] = 1;
-			}
-			else
-				break;
-		}
-
-		else {
-			if(first_hi > 0) {
-				if(second_hi > 0) {
-					if(first_hi - second_hi < hi_diff_threshold) {
-						if(first_mar >= second_mar) {
-							winner_idx = first_idx;	
-						}
-						else {
-							winner_idx = second_idx;
-						}
-					}
-					else 
-						winner_idx = first_idx;
-				}
-				else
-					winner_idx = first_idx;
-				rank[rank_idx] = winner_idx;
-				rank_idx++;
-				ranked[winner_idx] = 1;
-			}
-			else
-				break;
-
 		}
 	}
 
 
 }
+
 
 static void distribute_local_dram_naive_hi(void)
 {
@@ -2396,7 +2346,7 @@ static void distribute_local_dram_naive_hi(void)
 	int dram_determined[LIMIT_TENANTS] = {0,};
 	unsigned long dram_size[LIMIT_TENANTS] = {0,};
 	unsigned long available_dram;
-	int rank[LIMIT_TENANTS];
+	int dense_hot[LIMIT_TENANTS], sparse_hot[LIMIT_TENANTS], ambiguous[LIMIT_TENANTS];
 	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
 	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
 	unsigned long tot_extra_priority = 0;
@@ -2412,34 +2362,28 @@ static void distribute_local_dram_naive_hi(void)
 			if(!READ_ONCE(memcg->dram_fixed))
 				all_fixed = false;
 		}
-		rank[i] = -1;
+		dense_hot[i] = -1;
+		sparse_hot[i] = -1;
+		ambiguous[i] = -1;
 	}
 
 	if(all_fixed)
 		return;
 
-	rank_tenants(rank, false);
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(rank[i] >= 0) {
-			memcg = READ_ONCE(memcg_list[rank[i]]);
-			if(memcg) {
-				available_dram = min_t(unsigned long, tot_free_dram, memcg->lev1_size);
-				dram_size[rank[i]] = available_dram;
-				dram_determined[rank[i]] = 1;
-				tot_free_dram -= available_dram;
-			}
-		}
-	}
+	rank_tenants(dense_hot, sparse_hot, ambiguous);
+
+	distribute_prop_to_mar(dense_hot, &tot_free_dram, dram_size, dram_determined);
+	distribute_prop_to_mar(ambiguous, &tot_free_dram, dram_size, dram_determined);
+	distribute_prop_to_mar(sparse_hot, &tot_free_dram, dram_size, dram_determined);
+
 	if(all_hi_determined) {
 		for(i = 0; i < LIMIT_TENANTS; i++) {
-			if(rank[i] >= 0) {
-				memcg = READ_ONCE(memcg_list[rank[i]]);
-				if(memcg)
-					pr_info("[%s] rank %d: [ %s ], HI: %lu, MAR: %lu, dram: %lu MB\n",
-						__func__, i, memcg->tenant_name,
-						memcg->hotness_intensity, calculate_valid_rate(memcg->highest_rate),
-						dram_size[rank[i]] >> 8); 
-			}
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg)
+				pr_info("[%s] [ %s ] HI: %lu, MAR: %lu, dram: %lu MB\n",
+					__func__, memcg->tenant_name,
+					memcg->hotness_intensity, calculate_valid_rate(memcg->highest_rate),
+					dram_size[i] >> 8); 
 		}
 	}
 

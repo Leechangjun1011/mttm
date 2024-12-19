@@ -187,25 +187,26 @@ function set_250
 # Hotness intensity
 #130
 set_130
-run_naive_hi_hugepage config1 54G 130
-run_naive_hi_hugepage config1 21G 130
-: << END
-source $conda_activate dlrm_cpu
-run_naive_hi_hugepage config2 34G 130
-run_naive_hi_hugepage config2 13G 130
+#run_naive_hi_hugepage config1 54G 130
+#run_naive_hi_hugepage config1 21G 130
 
-run_naive_hi_hugepage config3 84G 130
+source $conda_activate dlrm_cpu
+#run_naive_hi_hugepage config2 34G 130
+#run_naive_hi_hugepage config2 13G 130
+
+#run_naive_hi_hugepage config3 84G 130
 run_naive_hi_hugepage config3 33G 130
+: << END
 
 run_naive_hi_hugepage config9 46G 130
 run_naive_hi_hugepage config9 18G 130
-END
+
 #192
-#conda deactivate
+conda deactivate
 set_192
-run_naive_hi_hugepage config1 54G 192
-run_naive_hi_hugepage config1 21G 192
-: << END
+#run_naive_hi_hugepage config1 54G 192
+#run_naive_hi_hugepage config1 21G 192
+
 source $conda_activate dlrm_cpu
 run_naive_hi_hugepage config2 34G 192
 run_naive_hi_hugepage config2 13G 192
@@ -215,14 +216,13 @@ run_naive_hi_hugepage config3 33G 192
 
 run_naive_hi_hugepage config9 46G 192
 run_naive_hi_hugepage config9 18G 192
-END
 
 #250
-#conda deactivate
+conda deactivate
 set_250
-run_naive_hi_hugepage config1 54G 250
-run_naive_hi_hugepage config1 21G 250
-: << END
+#run_naive_hi_hugepage config1 54G 250
+#run_naive_hi_hugepage config1 21G 250
+
 source $conda_activate dlrm_cpu
 run_naive_hi_hugepage config2 34G 250
 run_naive_hi_hugepage config2 13G 250
@@ -232,10 +232,8 @@ run_naive_hi_hugepage config3 33G 250
 
 run_naive_hi_hugepage config9 46G 250
 run_naive_hi_hugepage config9 18G 250
-END
 
 
-: << END
 
 # MTTM region
 #130
