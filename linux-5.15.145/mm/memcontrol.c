@@ -5285,8 +5285,19 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->dram_fixed = true;
 	}
 	memcg->dram_expanded = false;
-	memcg->active_threshold = MTTM_INIT_THRESHOLD;
-	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+
+	if(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
+		memcg->cxl_active_threshold = 1;
+		memcg->host_active_threshold = 1;
+		memcg->active_threshold = MTTM_INIT_THRESHOLD;
+		memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+	}
+	else {
+		memcg->cxl_active_threshold = 9;
+		memcg->host_active_threshold = 9;
+		memcg->active_threshold = 9;
+		memcg->warm_threshold = 9;
+	}
 
 	memcg->threshold_offset = 0;
 	memcg->dma_chan_start = 0;

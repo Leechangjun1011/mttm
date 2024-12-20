@@ -1,5 +1,18 @@
 #!/bin/bash
 
+function run_huge_normal
+{
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+	./run_multi_tenants_native.sh 1 $1 2>&1 | cat > ./hynix/$1_huge_normal.txt
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+}
+
+function run_base_normal
+{
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+	./run_multi_tenants_native.sh 1 $1 2>&1 | cat > ./hynix/$1_base_normal.txt
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+}
 
 function run_huge_nooffl
 {
@@ -7,6 +20,16 @@ function run_huge_nooffl
 	echo $2 > /proc/sys/vm/pebs_sample_period
 	echo 0 > /proc/sys/vm/ksampled_cpu
 	echo 1 > /proc/sys/vm/kmigrated_cpu
+
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	echo 3 > /proc/sys/vm/pingpong_reduce_limit
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 300 > /proc/sys/vm/mig_cputime_threshold
+	echo 50 > /proc/sys/vm/manage_cputime_threshold
+	
+	echo 0 > /proc/sys/vm/use_coldness_tracking
+
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_huge_nooffl.txt
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
@@ -19,9 +42,19 @@ function run_base_nooffl
 	echo $2 > /proc/sys/vm/pebs_sample_period
 	echo 0 > /proc/sys/vm/ksampled_cpu
 	echo 1 > /proc/sys/vm/kmigrated_cpu
+
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	echo 3 > /proc/sys/vm/pingpong_reduce_limit
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 300 > /proc/sys/vm/mig_cputime_threshold
+	echo 50 > /proc/sys/vm/manage_cputime_threshold
+	
+	echo 0 > /proc/sys/vm/use_coldness_tracking
+
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_base_nooffl.txt
-	dmesg > ./hynix/$1_$2_base_nooffl_dmesg.txt
+	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_base_nooffl_4G.txt
+	dmesg > ./hynix/$1_$2_base_nooffl_dmesg_4G.txt
 }
 
 function run_huge_ksampled_offl
@@ -76,6 +109,16 @@ function run_huge_offl
 	echo $2 > /proc/sys/vm/pebs_sample_period
 	echo 24 > /proc/sys/vm/ksampled_cpu
 	echo 25 > /proc/sys/vm/kmigrated_cpu
+
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	echo 3 > /proc/sys/vm/pingpong_reduce_limit
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 300 > /proc/sys/vm/mig_cputime_threshold
+	echo 50 > /proc/sys/vm/manage_cputime_threshold
+	
+	echo 1 > /proc/sys/vm/use_coldness_tracking
+
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_huge_offl.txt
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
@@ -87,10 +130,20 @@ function run_base_offl
 	dmesg --clear
 	echo $2 > /proc/sys/vm/pebs_sample_period
 	echo 24 > /proc/sys/vm/ksampled_cpu
-	echo 25 > /proc/sys/vm/kmigrated_cpu
+	echo 1 > /proc/sys/vm/kmigrated_cpu
+
+	echo 0 > /proc/sys/vm/use_lru_manage_reduce
+	echo 0 > /proc/sys/vm/use_pingpong_reduce
+	echo 3 > /proc/sys/vm/pingpong_reduce_limit
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 300 > /proc/sys/vm/mig_cputime_threshold
+	echo 50 > /proc/sys/vm/manage_cputime_threshold
+	
+	echo 1 > /proc/sys/vm/use_coldness_tracking
+
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_base_offl.txt
-	dmesg > ./hynix/$1_$2_base_offl_dmesg.txt
+	./run_multi_hynix.sh 1 $1 2>&1 | cat > ./hynix/$1_$2_base_offl_8G.txt
+	dmesg > ./hynix/$1_$2_base_offl_dmesg_8G.txt
 }
 
 function run_10007 {
@@ -241,8 +294,12 @@ function run_199 {
 #run_499
 #run_199
 
-echo 200 > /proc/sys/vm/period_factor
-run_base_offl gapbs-bc 199
-run_base_nooffl gapbs-bc 199
-
+echo 50 > /proc/sys/vm/period_factor
+#run_base_normal xindex
+#run_base_normal silo
+#run_base_offl xindex 199
+#run_base_nooffl xindex 199
+#run_base_offl silo 199
+run_base_nooffl silo 199
+#run_huge_normal gapbs-bc
 

@@ -86,6 +86,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_MTTM
+extern unsigned int use_coldness_tracking;
+#endif
+
 static struct kmem_cache *anon_vma_cachep;
 static struct kmem_cache *anon_vma_chain_cachep;
 
@@ -930,6 +934,8 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 		.address = address,
 	};
 	pginfo_t *pginfo;
+	unsigned int host_nid = 0, cxl_nid = 1;
+	unsigned int node_active_threshold;
 
 	while(page_vma_mapped_walk(&pvmw)) {
 		address = pvmw.address;
@@ -953,7 +959,13 @@ static bool cooling_page_one(struct page *page, struct vm_area_struct *vma,
 			if(memcg_cclock > pginfo->cooling_clock) {
 				unsigned int active_threshold_cooled =  
 						MTTM_INIT_THRESHOLD + READ_ONCE(mca->memcg->threshold_offset);
+				if(page_to_nid(page) == host_nid)
+					node_active_threshold = READ_ONCE(mca->memcg->host_active_threshold);
+				else if(page_to_nid(page) == cxl_nid)
+					node_active_threshold = READ_ONCE(mca->memcg->cxl_active_threshold);
 
+				if(use_coldness_tracking)
+					active_threshold_cooled = node_active_threshold;
 				/*active_threshold_cooled = (mca->memcg->active_threshold > 1) ? 
 						mca->memcg->active_threshold - 1 : mca->memcg->active_threshold;*/
 
@@ -1013,6 +1025,7 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 		if(pvmw.pte) {
 			struct page *pte_page;
 			pte_t *pte = pvmw.pte;
+			int host_nid = 0, cxl_nid = 1;
 
 			pte_page = virt_to_page((unsigned long)pte);
 			if(!PageMttm(pte_page))
@@ -1023,8 +1036,16 @@ static bool page_check_hotness_one(struct page *page, struct vm_area_struct *vma
 				continue;
 
 			cur_idx = get_idx(pginfo->nr_accesses);
-			active_threshold = mca->memcg->active_threshold;
-			if(cur_idx >= mca->memcg->active_threshold)
+			if(use_coldness_tracking) {
+				if(page_to_nid(page) == host_nid)
+					active_threshold = READ_ONCE(mca->memcg->host_active_threshold);
+				else if(page_to_nid(page) == cxl_nid)
+					active_threshold = READ_ONCE(mca->memcg->cxl_active_threshold);
+			}
+			else
+				active_threshold = mca->memcg->active_threshold;
+
+			if(cur_idx >= active_threshold)
 				mca->page_is_hot = 2;
 			else
 				mca->page_is_hot = 1;

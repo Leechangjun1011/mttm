@@ -71,7 +71,7 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	else
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 8"
 	fi
-	echo 8G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 9G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
 	if [[ "$3" == "config1" ]]; then
@@ -137,9 +137,9 @@ elif [[ "$2" == "xindex" ]]; then
 	elif [[ "$3" == "motiv-xindex" ]]; then
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	else
-		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 22 --iteration 20"
 	fi
-	echo 13G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 8G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "btree" ]]; then
         BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"
         BENCH="${BENCH_PATH}/bench_btree_mt"
@@ -159,9 +159,9 @@ elif [[ "$2" == "silo" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 		BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
-	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 24 --scale-factor 240000 --ops-per-worker=200000000 --slow-exit"
+	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 24 --scale-factor 240000 --ops-per-worker=200000000"
 	fi
-	echo 18G > ${CGMEM_DIR}/memory.max_at_node0
+	echo 4G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "config1" ]]; then

@@ -16,13 +16,13 @@ echo 0 > /proc/sys/vm/use_memstrata_policy
 #echo 0 > /proc/sys/vm/use_hotness_intensity
 #echo 200 > /proc/sys/vm/hotness_intensity_threshold
 
-echo 1 > /proc/sys/vm/use_lru_manage_reduce
-echo 1 > /proc/sys/vm/use_pingpong_reduce
-echo 5 > /proc/sys/vm/pingpong_reduce_limit
+#echo 1 > /proc/sys/vm/use_lru_manage_reduce
+#echo 1 > /proc/sys/vm/use_pingpong_reduce
+#echo 3 > /proc/sys/vm/pingpong_reduce_limit
 echo 2 > /proc/sys/vm/weak_hot_offset
-echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-echo 300 > /proc/sys/vm/mig_cputime_threshold
-echo 50 > /proc/sys/vm/manage_cputime_threshold
+#echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+#echo 300 > /proc/sys/vm/mig_cputime_threshold
+#echo 50 > /proc/sys/vm/manage_cputime_threshold
 
 echo 200 > /proc/sys/vm/kmigrated_period_in_ms
 echo 2000 > /proc/sys/vm/ksampled_trace_period_in_ms

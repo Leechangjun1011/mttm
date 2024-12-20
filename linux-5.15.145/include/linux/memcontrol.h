@@ -382,6 +382,8 @@ struct mem_cgroup {
 	unsigned long		demoted_pages;
 	unsigned int		cooling_clock;
 	unsigned int		active_threshold;
+	unsigned int		cxl_active_threshold;
+	unsigned int		host_active_threshold;
 	unsigned int		threshold_offset;
 	unsigned int		warm_threshold;
 	spinlock_t		access_lock;// lock for histogram
@@ -422,7 +424,7 @@ struct mem_cgroup {
 	unsigned long		nr_pingpong;
 	ktime_t			block_time;
 	struct xarray		*basepage_xa;
-
+	
 	unsigned long		init_dram_size;
 	struct xarray		*ml_queue[ML_QUEUE_MAX];
 	struct list_head	*page_bucket[BUCKET_MAX];

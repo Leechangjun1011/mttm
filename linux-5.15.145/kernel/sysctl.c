@@ -192,6 +192,7 @@ static int max_extfrag_threshold = 1000;
 extern int enable_ksampled;
 extern int enable_kptscand;
 extern unsigned int ksampled_cpu;
+extern unsigned int use_coldness_tracking;
 extern unsigned int kmigrated_cpu;
 extern char mttm_local_dram_string[];
 extern unsigned long period_factor;
@@ -2912,6 +2913,13 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "kmigrated_cpu",
 		.data		= &kmigrated_cpu,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_coldness_tracking",
+		.data		= &use_coldness_tracking,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

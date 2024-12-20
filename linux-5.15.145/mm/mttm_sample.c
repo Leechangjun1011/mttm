@@ -63,6 +63,7 @@ struct perf_event ***pfe;
 DEFINE_SPINLOCK(register_lock);
 
 unsigned int ksampled_cpu = 0;
+unsigned int use_coldness_tracking = 0;
 
 extern int enabled_kptscand;
 extern struct task_struct *kptscand_thread;
@@ -588,6 +589,8 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	//bool need_warm = false;
 	int idx_hot;
 	unsigned int prev_threshold = READ_ONCE(memcg->active_threshold);
+	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					MTTM_INIT_THRESHOLD : 9;
 
 	if(READ_ONCE(memcg->hg_mismatch)) {
 		// Not need to adjust since threshold not changed.
@@ -611,14 +614,14 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 
 	spin_unlock(&memcg->access_lock);
 
-	if(idx_hot < MTTM_INIT_THRESHOLD) {
-		idx_hot = MTTM_INIT_THRESHOLD;
+	if(idx_hot < init_threshold) {
+		idx_hot = init_threshold;
 	}
 
 	// histogram is reset before cooling
 	// some pages may not be reflected in the histogram when cooling happens
 	if(memcg->cooled) {
-		WRITE_ONCE(memcg->active_threshold, MTTM_INIT_THRESHOLD + memcg->threshold_offset);
+		WRITE_ONCE(memcg->active_threshold, init_threshold + memcg->threshold_offset);
 		/*if(memcg->active_threshold > MTTM_INIT_THRESHOLD)
 			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold - 1);*/
 		memcg->cooled = false;
@@ -630,7 +633,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	if(memcg->active_threshold != prev_threshold)
 		set_lru_adjusting(memcg, true);
 
-	if(memcg->use_warm && (memcg->active_threshold > MTTM_INIT_THRESHOLD))
+	if(memcg->use_warm && (memcg->active_threshold > init_threshold))
 		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
 	else
 		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
@@ -839,25 +842,39 @@ static void update_base_page(struct vm_area_struct *vma, struct page *page,
 {
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
 	unsigned long prev_idx, cur_idx;
+	unsigned int host_nid = 0, cxl_nid = 1;
+	unsigned int node_active_threshold;
 
 	check_base_cooling(pginfo, page);
 	prev_idx = get_idx(pginfo->nr_accesses);
 	pginfo->nr_accesses += HPAGE_PMD_NR;
 	cur_idx = get_idx(pginfo->nr_accesses);
 
-	spin_lock(&memcg->access_lock);
-	if(prev_idx != cur_idx) {
-		if(memcg->hotness_hg[prev_idx] > 0)
-			memcg->hotness_hg[prev_idx]--;
-		memcg->hotness_hg[cur_idx]++;
+	if(use_coldness_tracking) {
+		if(page_to_nid(page) == host_nid)
+			node_active_threshold = READ_ONCE(memcg->host_active_threshold);
+		else if(page_to_nid(page) == cxl_nid)
+			node_active_threshold = READ_ONCE(memcg->cxl_active_threshold);
+		if(cur_idx >= node_active_threshold)
+			move_page_to_active_lru(page);
+		else if(PageActive(page))
+			move_page_to_inactive_lru(page);
 	}
-	spin_unlock(&memcg->access_lock);
 
-	if(cur_idx >= memcg->active_threshold)
-		move_page_to_active_lru(page);
-	else if(PageActive(page))
-		move_page_to_inactive_lru(page);
+	else {
+		spin_lock(&memcg->access_lock);
+		if(prev_idx != cur_idx) {
+			if(memcg->hotness_hg[prev_idx] > 0)
+				memcg->hotness_hg[prev_idx]--;
+			memcg->hotness_hg[cur_idx]++;
+		}
+		spin_unlock(&memcg->access_lock);
 
+		if(cur_idx >= memcg->active_threshold)
+			move_page_to_active_lru(page);
+		else if(PageActive(page))
+			move_page_to_inactive_lru(page);
+	}
 }
 
 static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
@@ -866,28 +883,42 @@ static void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(vma->vm_mm);
 	struct page *meta_page;
 	unsigned long prev_idx, cur_idx;
-	
+	unsigned int host_nid = 0, cxl_nid = 1;
+	unsigned int node_active_threshold;
+
 	meta_page = get_meta_page(page);
 	check_transhuge_cooling((void *)memcg, page);
 
 	prev_idx = get_idx(meta_page->nr_accesses);
 	meta_page->nr_accesses++;
 	cur_idx = get_idx(meta_page->nr_accesses);
-	spin_lock(&memcg->access_lock);
-	if(prev_idx != cur_idx) {
-		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
-			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
-		else
-			memcg->hotness_hg[prev_idx] = 0;
-		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+
+	if(use_coldness_tracking) {
+		if(page_to_nid(page) == host_nid)
+			node_active_threshold = READ_ONCE(memcg->host_active_threshold);
+		else if(page_to_nid(page) == cxl_nid)
+			node_active_threshold = READ_ONCE(memcg->cxl_active_threshold);
+		if(cur_idx >= node_active_threshold)
+			move_page_to_active_lru(page);
+		else if(PageActive(page))
+			move_page_to_inactive_lru(page);
 	}
-	spin_unlock(&memcg->access_lock);
+	else {
+		spin_lock(&memcg->access_lock);
+		if(prev_idx != cur_idx) {
+			if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
+				memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
+			else
+				memcg->hotness_hg[prev_idx] = 0;
+			memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+		}
+		spin_unlock(&memcg->access_lock);
 
-	if(cur_idx >= memcg->active_threshold)
-		move_page_to_active_lru(page);
-	else if(PageActive(page))
-		move_page_to_inactive_lru(page);
-
+		if(cur_idx >= memcg->active_threshold)
+			move_page_to_active_lru(page);
+		else if(PageActive(page))
+			move_page_to_inactive_lru(page);
+	}
 }
 
 static int __update_pte_pginfo(struct vm_area_struct *vma, pmd_t *pmd,
@@ -1078,8 +1109,10 @@ static void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// adjust threshold
-	else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0)
-		adjust_active_threshold(memcg);
+	else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0) {
+		if(!use_coldness_tracking)
+			adjust_active_threshold(memcg);
+	}
 
 mmap_unlock:
 	mmap_read_unlock(mm);

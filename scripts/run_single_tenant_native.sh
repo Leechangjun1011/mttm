@@ -35,7 +35,7 @@ else
 	CPUSETS="0-7"
 fi
 END
-CPUSETS="0-15"
+CPUSETS="0-23"
 
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
@@ -124,7 +124,7 @@ elif [[ "$2" == "xindex" ]]; then
 	elif [[ "$3" == "motiv-xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	else
-		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
+		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 22 --iteration 20"
 	fi
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "silo" ]]; then
@@ -142,7 +142,7 @@ elif [[ "$2" == "silo" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
-	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 16 --scale-factor 240000 --ops-per-worker=200000000"
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 24 --scale-factor 240000 --ops-per-worker=200000000"
 	fi
 	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then

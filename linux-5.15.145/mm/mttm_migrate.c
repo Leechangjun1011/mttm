@@ -58,7 +58,7 @@ extern unsigned long period_factor = 1;
 
 unsigned int kmigrated_cpu = 1;
 unsigned long kmigrated_period_in_ms = 1000;
-
+extern unsigned int use_coldness_tracking;
 
 static bool need_lru_cooling(struct mem_cgroup_per_node *pn)
 {
@@ -318,9 +318,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 				struct page *meta_page = get_meta_page(page);
 				if(!meta_page)
 					goto keep_locked;
-				if(memcg->use_warm &&
-					get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->warm_threshold))
-					goto keep_locked;
+				if(!use_coldness_tracking) {
+					if(memcg->use_warm &&
+						get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->warm_threshold))
+						goto keep_locked;
+				}
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					meta_page->demoted = 1;
 					if(meta_page->promoted > 0) {
@@ -349,9 +351,11 @@ static unsigned long shrink_page_list(struct list_head *page_list, pg_data_t *pg
 					goto keep_locked;
 				}
 				idx = get_idx(pginfo->nr_accesses);
-				if(memcg->use_warm &&
-					idx >= READ_ONCE(memcg->warm_threshold))
-					goto keep_locked;
+				if(!use_coldness_tracking) {
+					if(memcg->use_warm &&
+						idx >= READ_ONCE(memcg->warm_threshold))
+						goto keep_locked;
+				}
 				if(!need_direct_demotion(NODE_DATA(0), memcg)) {
 					pginfo->demoted = 1;
 					if(pginfo->promoted > 0) {
@@ -886,6 +890,13 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 	LIST_HEAD(l_inactive);
 	int file = is_file_lru(lru);
 	unsigned long nr_cooled = 0, nr_still_hot = 0;
+	unsigned int host_nid = 0, cxl_nid = 1;
+	unsigned int node_active_threshold;
+
+	if(pgdat->node_id == host_nid)
+		node_active_threshold = READ_ONCE(memcg->host_active_threshold);
+	else if(pgdat->node_id == cxl_nid)
+		node_active_threshold = READ_ONCE(memcg->cxl_active_threshold);
 
 	lru_add_drain();
 
@@ -912,12 +923,14 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 				struct page *meta_page = get_meta_page(page);
 				unsigned int active_threshold_cooled = 
 						MTTM_INIT_THRESHOLD + memcg->threshold_offset;
-
 				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
 							memcg->active_threshold - 1 : memcg->active_threshold;*/
 				
 				check_transhuge_cooling_reset((void *)memcg, page);
 
+				if(use_coldness_tracking)
+					active_threshold_cooled = node_active_threshold;
+				
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
 					still_hot = 2;
 				else {
@@ -1080,8 +1093,19 @@ static unsigned long adjusting_lru_list(unsigned long nr_to_scan, struct lruvec 
 		
 		if(PageTransHuge(compound_head(page))) {
 			struct page *meta_page = get_meta_page(page);
+			unsigned int active_threshold;
+			int host_nid = 0, cxl_nid = 1;
 
-			if(get_idx(meta_page->nr_accesses) >= READ_ONCE(memcg->active_threshold))
+			if(use_coldness_tracking) {
+				if(page_to_nid(page) == host_nid)
+					active_threshold = READ_ONCE(memcg->host_active_threshold);
+				else if(page_to_nid(page) == cxl_nid)
+					active_threshold = READ_ONCE(memcg->cxl_active_threshold);
+			}
+			else
+				active_threshold = READ_ONCE(memcg->active_threshold);
+			
+			if(get_idx(meta_page->nr_accesses) >= active_threshold)
 				status = 2;
 			else
 				status = 1;
@@ -1334,8 +1358,7 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 	unsigned long fmem_active, smem_active;
 	unsigned long max_dram_pages = READ_ONCE(memcg->max_nr_dram_pages);
 	unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
-
-
+	
 	fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
 					LRU_ACTIVE_ANON, MAX_NR_ZONES);
 	smem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
@@ -1505,7 +1528,6 @@ static int kmigrated(void *p)
 	unsigned long demote_cputime = 0, demote_pingpong = 0;
 	unsigned long promote_cputime = 0, promote_pingpong = 0;
 	unsigned int high_manage_cnt = 0, high_pingpong_cnt = 0;
-
 	bool cooling;
 
 	total_time = jiffies;
@@ -1519,6 +1541,7 @@ static int kmigrated(void *p)
 		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
 		bool promotion_denied = true;
+
 
 		if(kthread_should_stop())
 			break;
@@ -1601,21 +1624,33 @@ static int kmigrated(void *p)
 		//stamp = jiffies;
 		if(active_lru_overflow(memcg)) {
 			// It may not fix the active lru overflow immediately
-			WRITE_ONCE(memcg->hg_mismatch, true);
-			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
+			if(use_coldness_tracking) {
+				if(READ_ONCE(memcg->cxl_active_threshold) <= READ_ONCE(memcg->host_active_threshold)) {
+					WRITE_ONCE(memcg->cxl_active_threshold, memcg->cxl_active_threshold + 1);
+					adjusting_node(NODE_DATA(1), memcg, true, NULL, NULL, NULL);
+				}
+				else {
+					WRITE_ONCE(memcg->host_active_threshold, memcg->host_active_threshold + 1);
+					adjusting_node(NODE_DATA(0), memcg, true, NULL, NULL, NULL);
+				}
+			}
+			else {
+				WRITE_ONCE(memcg->hg_mismatch, true);
+				WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + 1);
 
-			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
-			tot_nr_adjusted += nr_adjusted_active;
-			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
-			tot_nr_adjusted += nr_adjusted_active;
+				adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, NULL, NULL);
+				tot_nr_adjusted += nr_adjusted_active;
+				adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, NULL, NULL);
+				tot_nr_adjusted += nr_adjusted_active;
 
-			if(memcg->use_warm && READ_ONCE(memcg->active_threshold) > MTTM_INIT_THRESHOLD)
-				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-			else
-				WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+				if(memcg->use_warm && READ_ONCE(memcg->active_threshold) > MTTM_INIT_THRESHOLD)
+					WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
+				else
+					WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
 
-			active_lru_overflow_cnt++;
-			//interval_manage_cnt++;
+				active_lru_overflow_cnt++;
+				//interval_manage_cnt++;
+			}
 		}
 		//one_manage_cputime += (jiffies - stamp);
 
@@ -1664,11 +1699,19 @@ static int kmigrated(void *p)
 					LRU_INACTIVE_ANON, MAX_NR_ZONES);
 
 		trace_lru_distribution(hot0, cold0, hot1, cold1);
-		trace_migration_stats(tot_promoted, tot_demoted,
-			memcg->cooling_clock, memcg->cooling_period,
-			memcg->active_threshold, memcg->warm_threshold,
-			promotion_denied, nr_exceeded,
-			memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
+		if(use_coldness_tracking)
+			trace_migration_stats(tot_promoted, tot_demoted,
+				memcg->cooling_clock, memcg->cooling_period,
+				memcg->host_active_threshold, memcg->cxl_active_threshold,
+				promotion_denied, nr_exceeded,
+				memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
+		else
+			trace_migration_stats(tot_promoted, tot_demoted,
+				memcg->cooling_clock, memcg->cooling_period,
+				memcg->active_threshold, memcg->warm_threshold,
+				promotion_denied, nr_exceeded,
+				memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
+
 
 		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)
 			trace_lru_stats(tot_nr_adjusted, tot_nr_to_active, tot_nr_to_inactive, tot_nr_cooled);
