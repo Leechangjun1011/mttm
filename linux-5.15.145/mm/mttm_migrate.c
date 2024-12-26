@@ -1479,43 +1479,50 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 			unsigned long hot_region_access = 0, cold_region_access = 0;
 			unsigned long lev_size[NR_REGION] = {0,};
 			unsigned long region_size[NR_REGION] = {0,}, nr_region_access[NR_REGION] = {0,};
+			unsigned long tot_region_size = 0;
 
 			scan_hotness_node(NODE_DATA(0), memcg, region_size, nr_region_access, lev_size);
 			scan_hotness_node(NODE_DATA(1), memcg, region_size, nr_region_access, lev_size);
 
-			if(use_region_separation && 
-				((region_size[1] + region_size[2]) >> 8) > 100UL) {
-				(*hotness_scanned)++;
+			if(use_region_separation) {
+				for(i = 1; i < NR_REGION; i++)
+					tot_region_size += region_size[i];
 
-				for(i = 0; i < NR_REGION; i++) {
-					memcg->region_size[i] += region_size[i];
-					memcg->nr_region_access[i] += nr_region_access[i];
+				if((tot_region_size >> 8) > 100UL) {
+					(*hotness_scanned)++;
+
+					for(i = 0; i < NR_REGION; i++) {
+						memcg->region_size[i] += region_size[i];
+						memcg->nr_region_access[i] += nr_region_access[i];
+					}
+
+					// TODO scan_hotness_node does not scan inactive for basepage, make region_size[0] to 0.
+					pr_info("[%s] [ %s ] scan: %u, region size [0: %lu MB, 1: %lu MB, 2: %lu MB, 3: %lu MB, 4: %lu MB]",
+						__func__, memcg->tenant_name, *hotness_scanned,
+						region_size[0] >> 8, region_size[1] >> 8, region_size[2] >> 8, region_size[3] >> 8,
+						region_size[4] >> 8);
+					pr_info("[%s] [ %s ] scan: %u, access [0: %lu, 1: %lu, 2: %lu, 3: %lu, 4: %lu]\n",
+						__func__, memcg->tenant_name, *hotness_scanned,
+						nr_region_access[0], nr_region_access[1], nr_region_access[2], nr_region_access[3],
+						nr_region_access[4]);
 				}
-
-				// TODO scan_hotness_node does not scan inactive for basepage, make region_size[0] to 0.
-				pr_info("[%s] [ %s ] scan: %u, region size [0: %lu MB, 1: %lu MB, 2: %lu MB, 3: %lu MB, 4: %lu MB]",
-					__func__, memcg->tenant_name, *hotness_scanned,
-					region_size[0] >> 8, region_size[1] >> 8, region_size[2] >> 8, region_size[3] >> 8,
-					region_size[4] >> 8);
-				pr_info("[%s] [ %s ] scan: %u, access [0: %lu, 1: %lu, 2: %lu, 3: %lu, 4: %lu]\n",
-					__func__, memcg->tenant_name, *hotness_scanned,
-					nr_region_access[0], nr_region_access[1], nr_region_access[2], nr_region_access[3],
-					nr_region_access[4]);
-
 			}
-			else if(use_hotness_intensity &&
-				(lev_size[2] >> 8) > 100UL) {
-				(*hotness_scanned)++;
+			else if(use_hotness_intensity) {
+				for(i = 1; i < NR_REGION; i++)
+					tot_region_size += lev_size[i];
+				if((tot_region_size >> 8) > 100UL) {
+					(*hotness_scanned)++;
 
-				memcg->lev1_size += lev_size[1];		
-				memcg->lev2_size += lev_size[2];
-				memcg->lev3_size += lev_size[3];
-				memcg->lev4_size += lev_size[4];
+					memcg->lev1_size += lev_size[1];		
+					memcg->lev2_size += lev_size[2];
+					memcg->lev3_size += lev_size[3];
+					memcg->lev4_size += lev_size[4];
 
-				pr_info("[%s] [ %s ] scan: %u, lev1: %lu MB, lev2: %lu MB, lev3: %lu MB, lev4: %lu MB\n",
-					__func__, memcg->tenant_name, *hotness_scanned,
-					lev_size[1] >> 8, lev_size[2] >> 8,
-					lev_size[3] >> 8, lev_size[4] >> 8);
+					pr_info("[%s] [ %s ] scan: %u, lev1: %lu MB, lev2: %lu MB, lev3: %lu MB, lev4: %lu MB\n",
+						__func__, memcg->tenant_name, *hotness_scanned,
+						lev_size[1] >> 8, lev_size[2] >> 8,
+						lev_size[3] >> 8, lev_size[4] >> 8);
+				}
 			}
 		}
 

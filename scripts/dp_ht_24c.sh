@@ -34,6 +34,10 @@ if [[ "$1" == "small" ]]; then
 			NUM_BATCH=240
 		elif [[ "$3" == "config10" ]]; then
 			NUM_BATCH=180
+		elif [[ "$3" == "config11" ]]; then
+			NUM_BATCH=180
+		elif [[ "$3" == "config12" ]]; then
+			NUM_BATCH=180
 		elif [[ "$3" == "6tenants" ]]; then
 			NUM_BATCH=80
 			INSTANCES=4

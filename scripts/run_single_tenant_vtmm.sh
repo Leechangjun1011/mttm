@@ -120,10 +120,15 @@ elif [[ "$2" == "xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
 	elif [[ "$3" == "config9" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
+	elif [[ "$3" == "config11" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
 	else
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
 	fi
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "xindex_large" ]]; then
+        BENCH_PATH="${BENCH_DIR}/XIndex-H"
+	BENCH="${BENCH_PATH}/build/ycsb_bench_large --fg 6 --iteration 20"
 elif [[ "$2" == "btree" ]]; then
         BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"
         BENCH="${BENCH_PATH}/bench_btree_mt"
@@ -153,6 +158,10 @@ elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config9"
 	elif [[ "$3" == "config10" ]]; then
 	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config10"
+	elif [[ "$3" == "config11" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config11"
+	elif [[ "$3" == "config12" ]]; then
+	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config12"
 	elif [[ "$3" == "6tenants" ]]; then
                 BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low 6tenants"
 	fi

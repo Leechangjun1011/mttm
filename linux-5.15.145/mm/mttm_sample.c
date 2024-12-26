@@ -1517,7 +1517,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 	int j;
 	unsigned long sampling_factor = 10007 / pebs_sample_period;
 	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
-	unsigned long hard_max = 12;
+	unsigned long hard_max = 10;
 
 	if(remote_latency > 200)
 		std_rate /= 2;
@@ -1765,8 +1765,8 @@ static unsigned long calculate_region_dram_size(int tenant_idx, int region_idx,
 			int (*dram_determined)[NR_REGION], unsigned long (*dram_sensitivity)[NR_REGION])
 {
 	struct mem_cgroup *memcg = READ_ONCE(memcg_list[tenant_idx]);
-	unsigned long available_dram = tot_free_dram * dram_sensitivity[tenant_idx][region_idx] /
-						tot_dram_sensitivity;
+	unsigned long available_dram = 	tot_free_dram * dram_sensitivity[tenant_idx][region_idx] /
+					tot_dram_sensitivity;
 	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
 	int i, j;
 	struct mem_cgroup *memcg_iter;
@@ -2290,16 +2290,37 @@ static void rank_tenants(int *dense_hot, int *sparse_hot, int *ambiguous)
 					d_idx++;
 				}
 				else if(memcg->hotness_intensity >= sparse_hot_threshold) {
-					sparse_hot[s_idx] = i;
-					s_idx++;
-				}
-				else {
 					ambiguous[a_idx] = i;
 					a_idx++;
+				}
+				else {
+					sparse_hot[s_idx] = i;
+					s_idx++;
 				}
 			}
 		}
 	}
+}
+
+static unsigned long remained_required_dram(int *targets, int *dram_determined)
+{
+	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
+	int i;
+	struct mem_cgroup *memcg;
+
+	// Calculate remained required dram
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		if(targets[i] >= 0) {
+			memcg = READ_ONCE(memcg_list[targets[i]]);
+			if(memcg) {
+				if(READ_ONCE(memcg->hi_determined) && dram_determined[targets[i]] == 0) {
+					remained_required_dram += memcg->lev1_size;
+				}
+			}
+		}
+	}
+
+	return remained_required_dram;
 }
 
 static void distribute_prop_to_mar(int *targets, unsigned long *tot_free_dram,
@@ -2308,7 +2329,9 @@ static void distribute_prop_to_mar(int *targets, unsigned long *tot_free_dram,
 	unsigned long tot_mar = 0, mar[LIMIT_TENANTS];
 	int i;
 	struct mem_cgroup *memcg;
-	unsigned long available_dram;
+	unsigned long available_dram, rr_dram;
+	unsigned long expected_extra_dram = 0;
+
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		if(targets[i] >= 0) {
@@ -2323,16 +2346,24 @@ static void distribute_prop_to_mar(int *targets, unsigned long *tot_free_dram,
 		if(targets[i] >= 0) {
 			memcg = READ_ONCE(memcg_list[targets[i]]);
 			if(memcg) {
+				rr_dram = remained_required_dram(targets, dram_determined);
+				rr_dram -= memcg->lev1_size;
 				available_dram = min_t(unsigned long, memcg->lev1_size,
 							mar[targets[i]] * (*tot_free_dram) / tot_mar);
-				dram_size[targets[i]] = available_dram;
+				if(memcg->lev1_size > available_dram &&
+					rr_dram < (*tot_free_dram) - available_dram) {
+					expected_extra_dram = (*tot_free_dram) - available_dram - rr_dram;
+				}
+	
+				dram_size[targets[i]] = min_t(unsigned long,
+								available_dram + expected_extra_dram,
+								memcg->lev1_size);
 				dram_determined[targets[i]] = 1;
-				*tot_free_dram -= available_dram;
+				*tot_free_dram -= dram_size[targets[i]];
 				tot_mar -= mar[targets[i]];
 			}
 		}
 	}
-
 
 }
 
@@ -2555,7 +2586,7 @@ static void distribute_local_dram_mpki(void)
 
 static int ksampled(void *dummy)
 {
-	unsigned long sleep_timeout = usecs_to_jiffies(200);
+	unsigned long sleep_timeout = usecs_to_jiffies(100);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;

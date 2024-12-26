@@ -52,6 +52,14 @@ elif [[ "$1" == "config9" ]]; then
 	workload[1]="xsbench"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "config11" ]]; then
+	workload[1]="btree"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "config12" ]]; then
+	workload[1]="btree"
+	workload[2]="xindex_large"
+	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config4" ]]; then
 	workload[1]="xsbench"
 	workload[2]="roms"
