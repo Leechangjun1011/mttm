@@ -416,7 +416,7 @@ struct mem_cgroup {
 	unsigned int		dma_chan_start;
 
 	unsigned long		region_size[NR_REGION];//dram sensitivity
-	unsigned long		nr_region_access[NR_REGION];
+	uint32_t		nr_region_access[NR_REGION];
 
 	unsigned long		nr_pingpong;
 	ktime_t			block_time;
@@ -430,6 +430,7 @@ struct mem_cgroup {
 	unsigned int		giga_bitmap_size;
 	unsigned int		huge_bitmap_size;
 	unsigned int		base_bitmap_size;
+	unsigned int		giga_bitmap_in_use;
 	spinlock_t		bitmap_lock;// lock for bitmap
 
 	unsigned long		init_dram_size;

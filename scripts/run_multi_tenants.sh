@@ -35,7 +35,7 @@ echo 1 > /proc/sys/vm/drop_caches
 
 echo 0 > /proc/sys/vm/use_lru_manage_reduce #deprecated
 #echo 50 > /proc/sys/vm/manage_cputime_threshold
-echo 1 > /proc/sys/vm/use_pingpong_reduce
+#echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 3 > /proc/sys/vm/pingpong_reduce_limit
 #echo 200 > /proc/sys/vm/pingpong_reduce_threshold #500
 echo 300 > /proc/sys/vm/mig_cputime_threshold
@@ -108,24 +108,24 @@ elif [[ "$1" == "config10" ]]; then
 	workload[2]="silo"
 	workload[3]="fotonik"
 elif [[ "$1" == "6tenants" ]]; then
-	workload[1]="gapbs-bc"
+	workload[1]="gapbs-pr"
 	workload[2]="xsbench"
-	workload[3]="gapbs-pr"
-	workload[4]="silo"
-	workload[5]="fotonik"
+	workload[3]="xindex_tiny"
+	workload[4]="fotonik"
+	workload[5]="silo"
 	workload[6]="cpu_dlrm_small_low"
 elif [[ "$1" == "12tenants" ]]; then
-	workload[1]="gapbs-bc"
-	workload[2]="xsbench"
-	workload[3]="gapbs-pr"
-	workload[4]="silo"
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-pr"
+	workload[3]="xsbench"
+	workload[4]="xsbench"
 	workload[5]="fotonik"
-	workload[6]="cpu_dlrm_small_low_1"
-	workload[7]="gapbs-bc"
-	workload[8]="xsbench"
-	workload[9]="gapbs-pr"
+	workload[6]="fotonik"
+	workload[7]="xindex_tiny"
+	workload[8]="xindex_tiny"
+	workload[9]="silo"
 	workload[10]="silo"
-	workload[11]="fotonik"
+	workload[11]="cpu_dlrm_small_low_1"
 	workload[12]="cpu_dlrm_small_low_2"
 elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"

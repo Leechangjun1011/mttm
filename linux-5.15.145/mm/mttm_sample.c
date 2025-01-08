@@ -29,12 +29,10 @@ int enable_ksampled = 0;
 unsigned long pebs_stable_period = 10007;
 unsigned long pebs_sample_period = 10007;
 unsigned long store_sample_period = 100003;
-unsigned long hotness_intensity_threshold = 200;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
 unsigned int use_memstrata_policy = 0;
-unsigned long donor_threshold = 4000;
-unsigned long acceptor_threshold = 50;
+unsigned long acceptor_threshold = 40;//fmmr higher than this threshold is outlier
 unsigned int use_region_separation = 1;
 unsigned int use_hotness_intensity = 0;
 unsigned int use_naive_hi = 0;
@@ -114,18 +112,24 @@ unsigned int get_idx(uint32_t num)
 uint32_t *get_ac_pointer(struct mem_cgroup *memcg, unsigned int giga_bitmap_idx,
 			unsigned int huge_bitmap_idx, unsigned int base_bitmap_idx)
 {
-	if(giga_bitmap_idx >= memcg->giga_bitmap_size ||
+	if(giga_bitmap_idx >= memcg->giga_bitmap_in_use ||
 		huge_bitmap_idx >= memcg->huge_bitmap_size ||
 		base_bitmap_idx >= memcg->base_bitmap_size)
 		return NULL;
-	return &memcg->ac_page_list[giga_bitmap_idx][huge_bitmap_idx][base_bitmap_idx];
+	if(giga_bitmap_idx == 0 && huge_bitmap_idx == 0 && base_bitmap_idx == 0) {
+		return NULL;
+	}
+
+	if(test_bit(base_bitmap_idx, memcg->base_bitmap[giga_bitmap_idx][huge_bitmap_idx]))
+		return &memcg->ac_page_list[giga_bitmap_idx][huge_bitmap_idx][base_bitmap_idx];
+	return NULL;
 }
 
 void find_bitmap_idx(struct mem_cgroup *memcg, unsigned int *giga_idx,
 			unsigned int *huge_idx, unsigned int *base_idx)
 {
-	*giga_idx = find_first_zero_bit(memcg->giga_bitmap, memcg->giga_bitmap_size);
-	if(*giga_idx == memcg->giga_bitmap_size) {
+	*giga_idx = find_first_zero_bit(memcg->giga_bitmap, memcg->giga_bitmap_in_use);
+	if(*giga_idx == memcg->giga_bitmap_in_use) {
 		pr_info("[%s] No zero bit in giga_bitmap\n",
 			__func__);
 		*giga_idx = 0;
@@ -327,6 +331,17 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 			spin_unlock(&memcg->bitmap_lock);
 			return;
 		}
+		if(giga_idx >= memcg->giga_bitmap_in_use ||
+			huge_idx >= memcg->huge_bitmap_size ||
+			base_idx >= memcg->base_bitmap_size) {
+			spin_unlock(&memcg->bitmap_lock);
+			return;
+		}
+		if(giga_idx == 0 && huge_idx == 0 && base_idx == 0) {
+			spin_unlock(&memcg->bitmap_lock);
+			return;
+		}
+		
 		idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 		if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
 			//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
@@ -384,6 +399,17 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 				spin_unlock(&memcg->bitmap_lock);
 				return;
 			}
+			if(giga_idx >= memcg->giga_bitmap_in_use ||
+				huge_idx >= memcg->huge_bitmap_size ||
+				base_idx >= memcg->base_bitmap_size) {
+				spin_unlock(&memcg->bitmap_lock);
+				return;
+			}
+			if(giga_idx == 0 && huge_idx == 0 && base_idx == 0) {
+				spin_unlock(&memcg->bitmap_lock);
+				return;
+			}
+
 			idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 			if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
 				//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
@@ -557,8 +583,8 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	char name[PATH_MAX];
 	
 	size_t max_rss_in_GB = 100;//100GB when use only basepage
-	size_t ac_page_size = 0;
 	size_t giga_bitmap_size = 0, huge_bitmap_size = 0, base_bitmap_size = 0;
+	size_t giga_bitmap_in_use = 0;
 	bool alloc_fail = false;
 
 	spin_lock(&register_lock);
@@ -600,19 +626,19 @@ SYSCALL_DEFINE2(mttm_register_pid,
 
 	if(scanless_cooling) {
 		spin_lock(&memcg->bitmap_lock);
-		ac_page_size = ((1UL << 30) / HPAGE_SIZE) * sizeof(uint32_t);//single access count page size
+		giga_bitmap_in_use = memcg->giga_bitmap_in_use;
 		giga_bitmap_size = max_rss_in_GB;
 		huge_bitmap_size = ((1UL << 30) / HPAGE_SIZE);
-		base_bitmap_size = (HPAGE_SIZE / PAGE_SIZE);
+		base_bitmap_size = (HPAGE_SIZE / PAGE_SIZE);// one ac page contains 512 access counts
 
 		// Alloc ac_page_list
 		memcg->ac_page_list = kzalloc(giga_bitmap_size * sizeof(uint32_t **), GFP_KERNEL);
 		BUG_ON(!memcg->ac_page_list);
-		for(i = 0; i < giga_bitmap_size; i++) {
+		for(i = 0; i < giga_bitmap_in_use; i++) {
 			memcg->ac_page_list[i] = kzalloc(huge_bitmap_size * sizeof(uint32_t *), GFP_KERNEL);
 			BUG_ON(!memcg->ac_page_list[i]);
 		}
-		for(i = 0; i < giga_bitmap_size; i++) {
+		for(i = 0; i < giga_bitmap_in_use; i++) {
 			for(j = 0; j < huge_bitmap_size; j++) {
 				memcg->ac_page_list[i][j] = kzalloc(base_bitmap_size * sizeof(uint32_t), GFP_KERNEL);
 				BUG_ON(!memcg->ac_page_list[i][j]);
@@ -641,7 +667,7 @@ SYSCALL_DEFINE2(mttm_register_pid,
 			}
 		}
 
-		memcg->free_giga_bits = giga_bitmap_size;
+		memcg->free_giga_bits = giga_bitmap_in_use;
 		memcg->free_huge_bits = kzalloc(giga_bitmap_size * sizeof(unsigned int), GFP_KERNEL);
 		BUG_ON(!memcg->free_huge_bits);
 		for(i = 0; i < giga_bitmap_size; i++)
@@ -661,6 +687,10 @@ SYSCALL_DEFINE2(mttm_register_pid,
 		memcg->giga_bitmap_size = giga_bitmap_size;
 		memcg->huge_bitmap_size = huge_bitmap_size;
 		memcg->base_bitmap_size = base_bitmap_size;
+
+		//skip gi:0, hi:0, bi:0
+		memcg->free_base_bits[0][0]--;
+		set_bit(0, memcg->base_bitmap[0][0]);
 
 		spin_unlock(&memcg->bitmap_lock);
 	}
@@ -694,19 +724,25 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	if(scanless_cooling) {
 		spin_lock(&memcg->bitmap_lock);
 
+		for(i = 0; i < memcg->giga_bitmap_in_use; i++) {
+			for(j = 0; j < memcg->huge_bitmap_size; j++) {
+				if(memcg->ac_page_list[i][j])
+					kfree(memcg->ac_page_list[i][j]);
+			}
+			if(memcg->ac_page_list[i])
+				kfree(memcg->ac_page_list[i]);
+		}
+
+
 		for(i = 0; i < memcg->giga_bitmap_size; i++) {
 			for(j = 0; j < memcg->huge_bitmap_size; j++) {
 				if(memcg->base_bitmap[i][j])
 					bitmap_free(memcg->base_bitmap[i][j]);
-				if(memcg->ac_page_list[i][j])
-					kfree(memcg->ac_page_list[i][j]);
 			}
 			if(memcg->base_bitmap[i])
 				kfree(memcg->base_bitmap[i]);
 			if(memcg->huge_bitmap[i])
 				bitmap_free(memcg->huge_bitmap[i]);
-			if(memcg->ac_page_list[i])
-				kfree(memcg->ac_page_list[i]);
 			if(memcg->free_base_bits[i])
 				kfree(memcg->free_base_bits[i]);
 		}
@@ -734,6 +770,7 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 			if(use_memstrata_policy) {
 				set_dram_size(memcg_list[i],
 						memcg_list[i]->max_nr_dram_pages + memcg->max_nr_dram_pages / current_tenants, false);
+				memcg_list[i]->init_dram_size += memcg->max_nr_dram_pages / current_tenants;
 				pr_info("[%s] [ %s ] dram set to %lu MB due to unregister\n",
 					__func__, memcg_list[i]->tenant_name,
 					memcg_list[i]->max_nr_dram_pages >> 8);
@@ -1542,31 +1579,46 @@ static void check_rate_change(struct mem_cgroup *memcg)
 			}
 		}*/
 	}
-	//TODO lowered necessary?	
-	/*else if(memcg->highest_rate / 20 > memcg->mean_rate &&
-		memcg->mean_rate > 50) {
-		// access rate decreased to lower than 5% of highest one
-		memcg->lowered_cnt++;
-		if(memcg->lowered_cnt >= 10) {
-			memcg->lowered_cnt = 0;
-			memcg->stable_cnt = 0;
-			WRITE_ONCE(memcg->stable_status, false);
-			WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);
-			WRITE_ONCE(memcg->hotness_scan_cnt, 1);
+}
 
-			if(use_dram_determination) {
-				WRITE_ONCE(memcg->dram_fixed, false);
-				WRITE_ONCE(memcg->region_determined, false);
-				WRITE_ONCE(memcg->hi_determined, false);
-			}
-			pr_info("[%s] [ %s ] highest rate lowered to %lu\n",
-				__func__, memcg->tenant_name, memcg->mean_rate);
-		}
+void expand_ac_pages(struct mem_cgroup *memcg)
+{
+	size_t max_rss_in_GB = 100;//100GB when use only basepage
+	size_t giga_bitmap_size = 0, huge_bitmap_size = 0, base_bitmap_size = 0;
+	size_t giga_bitmap_in_use = 0;
+	int i, j;
+
+	if((memcg->max_anon_rss >> 18) < (memcg->giga_bitmap_in_use >> 1))
+		return;
+
+	spin_lock(&memcg->bitmap_lock);
+	giga_bitmap_in_use = memcg->giga_bitmap_in_use;
+	giga_bitmap_size = max_rss_in_GB;
+	huge_bitmap_size = ((1UL << 30) / HPAGE_SIZE);
+	base_bitmap_size = (HPAGE_SIZE / PAGE_SIZE);// one ac page contains 512 access counts
+
+	// Alloc ac_page_list
+	//memcg->ac_page_list = kzalloc(giga_bitmap_size * sizeof(uint32_t **), GFP_KERNEL);
+	//BUG_ON(!memcg->ac_page_list);
+
+	for(i = giga_bitmap_in_use; i < giga_bitmap_in_use + 20; i++) {
+		memcg->ac_page_list[i] = kzalloc(huge_bitmap_size * sizeof(uint32_t *), GFP_KERNEL);
+		BUG_ON(!memcg->ac_page_list[i]);
 	}
-	else {
-		memcg->lowered_cnt = 0;
-	}*/
+	for(i = giga_bitmap_in_use; i < giga_bitmap_in_use + 20; i++) {
+		for(j = 0; j < huge_bitmap_size; j++) {
+			memcg->ac_page_list[i][j] = kzalloc(base_bitmap_size * sizeof(uint32_t), GFP_KERNEL);
+			BUG_ON(!memcg->ac_page_list[i][j]);
+		}
+	}	
 
+	memcg->free_giga_bits += 20;
+	memcg->giga_bitmap_in_use += 20;
+
+	spin_unlock(&memcg->bitmap_lock);
+
+	pr_info("[%s] [ %s ] rss: %lu GB. giga bitmap expand to %u\n",
+		__func__, memcg->tenant_name, memcg->max_anon_rss >> 18, memcg->giga_bitmap_in_use);
 }
 
 
@@ -1620,8 +1672,11 @@ void calculate_sample_rate_stat(void)
 			memcg->nr_local = 0;
 			memcg->nr_remote = 0;
 
-			if(memcg->max_anon_rss < get_anon_rss(memcg))
+			if(memcg->max_anon_rss < get_anon_rss(memcg)) {
 				memcg->max_anon_rss = get_anon_rss(memcg);
+				if(scanless_cooling)
+					expand_ac_pages(memcg);
+			}
 		}
 	}
 }
@@ -1793,43 +1848,7 @@ static unsigned long calculate_region_dram_size(int tenant_idx, int region_idx,
 
 	return min_t(unsigned long, available_dram + expected_extra_dram, memcg->region_size[region_idx]);
 }
-/*
-static unsigned long calculate_cold_region_dram_size(struct mem_cgroup *memcg,
-			unsigned long tot_free_dram, unsigned long tot_dram_sensitivity,
-			int (*dram_determined)[2])
-{
-	unsigned long available_dram = tot_free_dram * memcg->cold_region_dram_sensitivity /
-						tot_dram_sensitivity;
-	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
-	int i;
-	struct mem_cgroup *memcg_iter;
 
-	// Calculate remained required dram
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg_iter = READ_ONCE(memcg_list[i]);
-		if(memcg_iter) {
-			if(READ_ONCE(memcg_iter->region_determined) &&
-				memcg_iter->hot_region_dram_sensitivity > 0) {
-				if(dram_determined[i][0] == 0) {
-					remained_required_dram += memcg_iter->hot_region;
-				}
-				if(dram_determined[i][1] == 0) {
-					remained_required_dram += memcg_iter->cold_region;
-				}
-			}
-		}
-	}
-	remained_required_dram -= memcg->cold_region;
-
-	if(memcg->cold_region > available_dram && 
-		remained_required_dram < tot_free_dram - available_dram) {
-		// In this case, we can give more than available_dram
-		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
-	}
-
-	return min_t(unsigned long, available_dram + expected_extra_dram, memcg->cold_region);
-}
-*/
 static unsigned long find_highest_dram_sensitivity(int *tenant_idx, int *region_idx,
 		unsigned long (*dram_sensitivity)[NR_REGION], int (*dram_determined)[NR_REGION])
 {
@@ -2004,273 +2023,6 @@ void distribute_local_dram_region(void)
 	if(all_region_determined)
 		pr_info("[%s] remained DRAM : %lu MB\n",__func__, tot_free_dram >> 8);
 
-}
-
-
-static unsigned long strong_hot_dram_tolerance(struct mem_cgroup *memcg)
-{
-	unsigned long tolerance;
-	unsigned long rss_over_lev2 = get_anon_rss(memcg) * 100 / memcg->lev2_size;
-	unsigned long max_tolerance = min_t(unsigned long, 100 + rss_over_lev2 / 5, 400);
-
-	tolerance = 100 + 1000000 / memcg->hotness_intensity;
-	//pr_info("[%s] [ %s ] tolerance : %lu, max_tolerance : %lu\n",
-	//	__func__, memcg->tenant_name, tolerance, max_tolerance);
-
-	return min_t(unsigned long, tolerance, max_tolerance);
-}
-
-static unsigned long strong_hot_dram_demand(struct mem_cgroup *memcg)
-{
-	return memcg->lev2_size * strong_hot_dram_tolerance(memcg) / 100;
-}
-
-static unsigned long weak_hot_dram_demand(struct mem_cgroup *memcg)
-{
-	unsigned long padding = ((100UL << 20) >> 12);//100MB
-	if(get_anon_rss(memcg) < memcg->max_anon_rss / 2)
-		return memcg->max_nr_dram_pages;
-
-	return (get_anon_rss(memcg) * 100 / 97) + padding;//promotion wmark is 3%
-}
-
-
-static enum workload_type get_workload_type(struct mem_cgroup *memcg)
-{
-	if(READ_ONCE(memcg->hi_determined)) {
-		if(READ_ONCE(memcg->hotness_intensity) >= hotness_intensity_threshold)
-			return STRONG_HOT;
-		else
-			return WEAK_HOT;
-	}
-	else
-		return NOT_CLASSIFIED;
-}
-
-static unsigned long get_dram_demand_hi(struct mem_cgroup *memcg)
-{
-	if(get_workload_type(memcg) == STRONG_HOT)
-		return strong_hot_dram_demand(memcg);
-	else if(get_workload_type(memcg) == WEAK_HOT)
-		return weak_hot_dram_demand(memcg);
-	else
-		return memcg->max_nr_dram_pages;
-}
-
-static unsigned long get_tot_rate(enum workload_type w_type)
-{
-	int i;
-	struct mem_cgroup *memcg;
-	unsigned long tot_rate = 0;
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined)) {
-				if(get_workload_type(memcg) == w_type) {
-					tot_rate += calculate_valid_rate(memcg->highest_rate);
-				}
-			}
-		}
-	}
-
-	return tot_rate;
-}
-
-static unsigned long calculate_strong_hot_dram_size(struct mem_cgroup *memcg,
-			unsigned long tot_free_dram, unsigned long tot_rate,
-			int *dram_determined)
-{
-	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long valid_rate = calculate_valid_rate(memcg->highest_rate);
-	unsigned long available_dram;
-	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
-	int i;
-	struct mem_cgroup *memcg_iter;
-
-	available_dram = tot_free_dram * valid_rate / tot_rate;
-
-	// Calculate remained required dram
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg_iter = READ_ONCE(memcg_list[i]);
-		if(memcg_iter) {
-			if(READ_ONCE(memcg_iter->hi_determined) &&
-				get_workload_type(memcg) == STRONG_HOT) {
-				if(dram_determined[i] == 0) {
-					remained_required_dram += get_dram_demand_hi(memcg_iter);
-				}
-			}
-		}
-	}
-	remained_required_dram -= dram_demand;
-
-	if(dram_demand > available_dram && 
-		remained_required_dram < tot_free_dram - available_dram) {
-		// In this case, we can give more than available_dram
-		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
-	}
-
-	return min_t(unsigned long, available_dram + expected_extra_dram, dram_demand);
-}
-
-static unsigned long calculate_weak_hot_dram_size(struct mem_cgroup *memcg,
-			unsigned long tot_free_dram, unsigned long tot_rate,
-			int *dram_determined)
-{
-	unsigned long dram_demand = get_dram_demand_hi(memcg);
-	unsigned long valid_rate = calculate_valid_rate(memcg->highest_rate);
-	unsigned long available_dram;
-	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
-	int i;
-	struct mem_cgroup *memcg_iter;
-
-	available_dram = tot_free_dram * valid_rate / tot_rate;
-
-	// Calculate remained required dram
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg_iter = READ_ONCE(memcg_list[i]);
-		if(memcg_iter) {
-			if(READ_ONCE(memcg_iter->hi_determined) &&
-				get_workload_type(memcg) == WEAK_HOT) {
-				if(dram_determined[i] == 0) {
-					remained_required_dram += get_dram_demand_hi(memcg_iter);
-				}
-			}
-		}
-	}
-	remained_required_dram -= dram_demand;
-
-	if(dram_demand > available_dram && 
-		remained_required_dram < tot_free_dram - available_dram) {
-		// In this case, we can give more than available_dram
-		expected_extra_dram = tot_free_dram - available_dram - remained_required_dram;
-	}
-
-	return min_t(unsigned long, available_dram + expected_extra_dram, dram_demand);
-}
-
-static unsigned long find_highest_access_rate(int *idx, int *dram_determined,
-						enum workload_type w_type)
-{
-	int i;
-	struct mem_cgroup *memcg;
-	unsigned long cur_highest_rate = 0;
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined) &&
-				get_workload_type(memcg) == w_type) {
-				unsigned long valid_rate = (memcg->mean_rate > 50) ?
-						memcg->mean_rate : memcg->highest_rate;
-				if(dram_determined[i] == 0 &&
-					cur_highest_rate < valid_rate) {
-					cur_highest_rate = valid_rate;
-					*idx = i;
-				}
-			}
-		}
-	}
-
-	return cur_highest_rate;
-}
-
-
-static void distribute_local_dram_hi(void)
-{
-	int i, idx;
-	unsigned long tot_free_dram = mttm_local_dram;
-	unsigned long tot_strong_hot_rate = 0, tot_weak_hot_rate = 0;
-	struct mem_cgroup *memcg;
-	bool all_hi_determined = true, all_fixed = true;
-	unsigned long cur_highest_rate = 0;
-	int dram_determined[LIMIT_TENANTS] = {0,};
-	unsigned long dram_size[LIMIT_TENANTS] = {0,};
-	unsigned long valid_rate;
-
-	// Check that not classified workload exist.
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(!READ_ONCE(memcg->hi_determined)) {
-				all_hi_determined = false;
-				tot_free_dram -= memcg->max_nr_dram_pages;
-			}
-			if(!READ_ONCE(memcg->dram_fixed))
-				all_fixed = false;
-		}
-	}
-
-	if(all_fixed)
-		return;
-
-
-	// Distribute local dram to strong hot which has higher access rate first
-	tot_strong_hot_rate = get_tot_rate(STRONG_HOT);
-	while(1) {
-		// Find tenant with highest access rate 
-		cur_highest_rate = 0;
-		idx = 0;
-		
-		cur_highest_rate = find_highest_access_rate(&idx, dram_determined, STRONG_HOT);
-		if(cur_highest_rate == 0)
-			break;
-
-		// Determine dram size 
-		memcg = READ_ONCE(memcg_list[idx]);
-		valid_rate = calculate_valid_rate(memcg->highest_rate);	
-		dram_size[idx] = calculate_strong_hot_dram_size(memcg, tot_free_dram,
-							tot_strong_hot_rate, dram_determined);
-		dram_determined[idx] = 1;
-		tot_free_dram -= dram_size[idx];
-		tot_strong_hot_rate -= valid_rate;
-
-		if(all_hi_determined)
-			pr_info("[%s] [ %s ] strong hot. dram set to %lu MB. rate : %lu\n",
-				__func__, memcg->tenant_name, dram_size[idx] >> 8, valid_rate);
-
-	}
-
-	// Distribute local dram to weak hot which has higher access rate first
-	tot_weak_hot_rate = get_tot_rate(WEAK_HOT);
-	while(1) {
-		// Find tenant with highest access rate 
-		cur_highest_rate = 0;
-		idx = 0;
-		
-		cur_highest_rate = find_highest_access_rate(&idx, dram_determined, WEAK_HOT);
-		if(cur_highest_rate == 0)
-			break;
-
-		// Determine dram size 
-		memcg = READ_ONCE(memcg_list[idx]);
-		valid_rate = calculate_valid_rate(memcg->highest_rate);
-		dram_size[idx] = calculate_weak_hot_dram_size(memcg, tot_free_dram,
-							tot_weak_hot_rate, dram_determined);
-		dram_determined[idx] = 1;
-		tot_free_dram -= dram_size[idx];
-		tot_weak_hot_rate -= valid_rate;
-
-		if(all_hi_determined)
-			pr_info("[%s] [ %s ] weak hot. dram set to %lu MB. rate : %lu\n",
-				__func__, memcg->tenant_name, dram_size[idx] >> 8, valid_rate);
-
-	}
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined) &&
-				dram_determined[i] == 1) {
-				set_dram_size(memcg, dram_size[i], all_hi_determined);
-			}
-		}
-	}
-
-	if(all_hi_determined)
-		pr_info("[%s] remained DRAM : %lu MB\n",
-			__func__, tot_free_dram >> 8);
 }
 
 
@@ -2708,9 +2460,6 @@ static int ksampled_run(void)
 			if(use_dma_migration) {
 				dma_cap_zero(copy_mask);
 				dma_cap_set(DMA_MEMCPY, copy_mask);
-				//dma_cap_set(DMA_MEMSET, copy_mask);
-				//dma_cap_zero(memset_mask);
-				//dma_cap_set(DMA_MEMSET, memset_mask);
 				dmaengine_get();
 			
 				for(i = 0; i < NUM_AVAIL_DMA_CHAN; i++) {
@@ -2726,24 +2475,7 @@ static int ksampled_run(void)
 						pr_err("%s: no copy device: %d\n", __func__, i);
 						continue;
 					}
-				}
-
-				/*
-				for(i = 0; i < NUM_AVAIL_DMA_CHAN/2; i++) {
-					if(!memset_chan[i])
-						memset_chan[i] = dma_request_channel(memset_mask, NULL, NULL);
-					if(!memset_chan[i]) {
-						pr_err("%s: cannot grap memset channel: %d\n", __func__, i);
-						continue;
-					}
-
-					memset_dev[i] = memset_chan[i]->device;
-					if(!memset_dev[i]) {
-						pr_err("%s: no memset device: %d\n", __func__, i);
-						continue;
-					}
-				}*/
-
+				}	
 
 				pr_info("[%s] dma channel opened\n",__func__);
 			}

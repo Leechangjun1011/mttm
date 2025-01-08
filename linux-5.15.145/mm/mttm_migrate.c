@@ -1243,7 +1243,7 @@ static void adjusting_node(pg_data_t *pgdat, struct mem_cgroup *memcg, bool acti
 
 static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 					struct lruvec *lruvec, enum lru_list lru,
-					unsigned long *region_size, unsigned long *nr_region_access,
+					unsigned long *region_size, uint32_t *nr_region_access,
 					unsigned long *lev_size)
 {
 	unsigned long nr_taken;
@@ -1282,19 +1282,30 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 			uint32_t *ac;
 			unsigned int i;
 
+			if(!PageMttm(meta_page)) {
+				list_add(&page->lru, &l_scanned);
+				continue;
+			}
+
 			if(scanless_cooling) {
 				ac = get_ac_pointer(memcg, meta_page->giga_bitmap_idx,
 					meta_page->huge_bitmap_idx, meta_page->base_bitmap_idx);
 				if(ac)
 					nr_accesses = *ac;
+				else {
+					list_add(&page->lru, &l_scanned);
+					continue;
+				}
 			}
 			else
 				nr_accesses = meta_page->nr_accesses;
+	
 
 			idx = get_idx(nr_accesses);
 			if(use_region_separation) {
-				if(idx >= NR_REGION - 1) 
-					i = NR_REGION - 1;
+				if(idx >= NR_REGION - 1) {
+					i = NR_REGION - 1;	
+				}
 				else 
 					i = idx;
 				region_size[i] += HPAGE_PMD_NR;
@@ -1324,23 +1335,21 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 					pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
 				if(ac)
 					nr_accesses = *ac;
+				else {
+					list_add(&page->lru, &l_scanned);
+					continue;
+				}
 			}
 			else
 				nr_accesses = pginfo->nr_accesses;
 
-			idx = get_idx(nr_accesses);
+			idx = get_idx(nr_accesses / HPAGE_PMD_NR);
 			if(use_region_separation) {
-				if(idx >= NR_REGION + 8)
-					i = NR_REGION - 1;
-				else if(idx == 0)
-					i = idx;
-				else if(idx < 9) {
-					pr_info("[%s] basepage access count idx is %u\n",
-						__func__, idx);
-					i = 1;
+				if(idx >= NR_REGION - 1) {
+					i = NR_REGION - 1;	
 				}
 				else
-					i = idx - 8;
+					i = idx;
 				region_size[i] += 1;
 				nr_region_access[i] += (nr_accesses / HPAGE_PMD_NR);
 			}
@@ -1369,7 +1378,7 @@ static unsigned long scan_hotness_lru_list(unsigned long nr_to_scan,
 
 
 static void scan_hotness_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
-				unsigned long *region_size, unsigned long *nr_region_access,
+				unsigned long *region_size, uint32_t *nr_region_access,
 				unsigned long *lev_size)
 
 {
@@ -1387,7 +1396,7 @@ re_scan:
 			scan = nr_to_scan;
 		nr_scanned += scan_hotness_lru_list(scan, lruvec, lru,
 						region_size, nr_region_access, lev_size);
-		nr_max_scan--;
+		nr_max_scan--;	
 	} while(nr_scanned < nr_to_scan && nr_max_scan);
 	
 	if(lru == LRU_ACTIVE_ANON && test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
@@ -1475,10 +1484,9 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 		}
 
 		if(cooling && (*hotness_scanned < target_cooling)) {
-			unsigned long hot_region_size = 0, cold_region_size = 0;
-			unsigned long hot_region_access = 0, cold_region_access = 0;
 			unsigned long lev_size[NR_REGION] = {0,};
-			unsigned long region_size[NR_REGION] = {0,}, nr_region_access[NR_REGION] = {0,};
+			unsigned long region_size[NR_REGION] = {0,};
+			uint32_t nr_region_access[NR_REGION] = {0,};
 			unsigned long tot_region_size = 0;
 
 			scan_hotness_node(NODE_DATA(0), memcg, region_size, nr_region_access, lev_size);
@@ -1501,7 +1509,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 						__func__, memcg->tenant_name, *hotness_scanned,
 						region_size[0] >> 8, region_size[1] >> 8, region_size[2] >> 8, region_size[3] >> 8,
 						region_size[4] >> 8);
-					pr_info("[%s] [ %s ] scan: %u, access [0: %lu, 1: %lu, 2: %lu, 3: %lu, 4: %lu]\n",
+					pr_info("[%s] [ %s ] scan: %u, access [0: %u, 1: %u, 2: %u, 3: %u, 4: %u]\n",
 						__func__, memcg->tenant_name, *hotness_scanned,
 						nr_region_access[0], nr_region_access[1], nr_region_access[2], nr_region_access[3],
 						nr_region_access[4]);
@@ -1537,7 +1545,7 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 					__func__, memcg->tenant_name,
 					memcg->region_size[0] >> 8, memcg->region_size[1] >> 8, memcg->region_size[2] >> 8,
 					memcg->region_size[3] >> 8, memcg->region_size[4] >> 8);
-				pr_info("[%s] [ %s ] avg access [0: %lu, 1: %lu, 2: %lu, 3: %lu, 4: %lu]\n",
+				pr_info("[%s] [ %s ] avg access [0: %u, 1: %u, 2: %u, 3: %u, 4: %u]\n",
 					__func__, memcg->tenant_name,
 					memcg->nr_region_access[0], memcg->nr_region_access[1], memcg->nr_region_access[2],
 					memcg->nr_region_access[3], memcg->nr_region_access[4]);

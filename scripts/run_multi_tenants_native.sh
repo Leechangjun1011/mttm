@@ -77,24 +77,24 @@ elif [[ "$1" == "config10" ]]; then
 	workload[2]="silo"
 	workload[3]="fotonik"
 elif [[ "$1" == "6tenants" ]]; then
-        workload[1]="gapbs-bc"
+        workload[1]="gapbs-pr"
         workload[2]="xsbench"
-        workload[3]="gapbs-pr"
-        workload[4]="silo"
-        workload[5]="fotonik"
+        workload[3]="fotonik"
+        workload[4]="xindex_tiny"
+        workload[5]="silo"
         workload[6]="cpu_dlrm_small_low"
 elif [[ "$1" == "12tenants" ]]; then
-	workload[1]="gapbs-bc"
-	workload[2]="xsbench"
-	workload[3]="gapbs-pr"
-	workload[4]="silo"
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-pr"
+	workload[3]="xsbench"
+	workload[4]="xsbench"
 	workload[5]="fotonik"
-	workload[6]="cpu_dlrm_small_low_1"
-	workload[7]="gapbs-bc"
-	workload[8]="xsbench"
-	workload[9]="gapbs-pr"
+	workload[6]="fotonik"
+	workload[7]="xindex_tiny"
+	workload[8]="xindex_tiny"
+	workload[9]="silo"
 	workload[10]="silo"
-	workload[11]="fotonik"
+	workload[11]="cpu_dlrm_small_low_1"
 	workload[12]="cpu_dlrm_small_low_2"
 elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"
@@ -108,6 +108,18 @@ elif [[ "$1" == "motiv-xindex" ]]; then
 	workload[1]="xindex"
 elif [[ "$1" == "motiv-cpu_dlrm_small_high" ]]; then
 	workload[1]="cpu_dlrm_small_high"
+elif [[ "$1" == "vtmm_valid_pr-27" ]]; then
+	workload[1]="gapbs-pr-27"
+elif [[ "$1" == "vtmm_valid_pr-29" ]]; then
+	workload[1]="gapbs-pr-29"
+elif [[ "$1" == "vtmm_valid_bc-27" ]]; then
+	workload[1]="gapbs-bc-27"
+elif [[ "$1" == "vtmm_valid_bc-29" ]]; then
+	workload[1]="gapbs-bc-29"
+elif [[ "$1" == "vtmm_valid_graph500-25" ]]; then
+	workload[1]="graph500-25"
+elif [[ "$1" == "vtmm_valid_graph500-27" ]]; then
+	workload[1]="graph500-27"
 else
 	i=1
 	for arg in "$@"

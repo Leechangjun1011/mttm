@@ -195,7 +195,6 @@ extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
-extern unsigned long hotness_intensity_threshold;
 extern unsigned int use_dram_determination;
 extern unsigned int use_memstrata_policy;
 extern unsigned long donor_threshold;
@@ -2951,13 +2950,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
-		.procname	= "hotness_intensity_threshold",
-		.data		= &hotness_intensity_threshold,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
-	{
 		.procname	= "use_dram_determination",
 		.data		= &use_dram_determination,
 		.maxlen		= sizeof(unsigned int),
@@ -2970,13 +2962,6 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "donor_threshold",
-		.data		= &donor_threshold,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
 		.procname	= "acceptor_threshold",

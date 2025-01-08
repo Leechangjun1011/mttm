@@ -5343,6 +5343,7 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->giga_bitmap_size = 0;
 	memcg->huge_bitmap_size = 0;
 	memcg->base_bitmap_size = 0;
+	memcg->giga_bitmap_in_use = 20;
 	spin_lock_init(&memcg->bitmap_lock);
 
 	for(i = 0; i < ML_QUEUE_MAX; i++) {

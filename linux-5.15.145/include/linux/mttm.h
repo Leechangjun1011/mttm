@@ -28,12 +28,6 @@
 //#define KMIGRATED_PERIOD_IN_MS	50
 
 
-enum workload_type {
-	NOT_CLASSIFIED = 0,
-	WEAK_HOT = 1,
-	STRONG_HOT = 2,
-	NR_WORKLOAD_TYPE,
-};
 
 struct mttm_event {
 	struct perf_event_header header;

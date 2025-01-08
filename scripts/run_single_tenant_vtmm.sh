@@ -22,17 +22,31 @@ cgdelete -g cpuset:vtmm_$1
 cgcreate -g cpuset:vtmm_$1
 
 if [[ "$3" == "6tenants" ]]; then
-        CPUSETS="0-3"
-elif [[ "$3" == "12tenants" ]]; then
-        CPUSETS="0-1"
-        if [ $1 -lt 5 ]; then
-                CPUSETS="0-1"
-        elif [ $1 -lt 9 ]; then
-                CPUSETS="2-3"
-        elif [ $1 -lt 13 ]; then
-                CPUSETS="4-5"
+	if [ $1 -lt 3 ]; then
+                CPUSETS="0-3"
+        elif [ $1 -lt 5 ]; then
+                CPUSETS="4-7"
+        elif [ $1 -lt 7 ]; then
+                CPUSETS="8-11"
+        else
+                CPUSETS="12-15"
         fi
-
+elif [[ "$3" == "12tenants" ]]; then
+	if [ $1 -lt 3 ]; then
+                CPUSETS="0-1"
+        elif [ $1 -lt 5 ]; then
+                CPUSETS="2-3"
+        elif [ $1 -lt 7 ]; then
+                CPUSETS="4-5"
+        elif [ $1 -lt 9 ]; then
+                CPUSETS="6-7"
+        elif [ $1 -lt 11 ]; then
+                CPUSETS="8-9"
+        elif [ $1 -lt 13 ]; then
+                CPUSETS="10-11"
+        else
+                CPUSETS="12-13"
+        fi 
         if [[ "$2" == "cpu_dlrm_small_low_1" ]]; then
                 CPUSETS="0-23"
         elif [[ "$2" == "cpu_dlrm_small_low_2" ]]; then
@@ -66,6 +80,12 @@ if [[ "$2" == "gapbs-bc" ]]; then
 	        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 20"
 	fi
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gapbs-bc-27" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+	BENCH="${BENCH_PATH}/bc -g 27 -n 16"
+elif [[ "$2" == "gapbs-bc-29" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+	BENCH="${BENCH_PATH}/bc -g 29 -n 16"
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
 	if [[ "$3" == "config1" ]]; then
@@ -81,7 +101,13 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 14"
 	fi
-       	echo 10G > ${CGMEM_DIR}/memory.max_at_node0	
+       	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gapbs-pr-27" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+	BENCH="${BENCH_PATH}/pr -g 27 -i 1000 -t 1e-4 -n 8"
+elif [[ "$2" == "gapbs-pr-29" ]]; then
+        BENCH_PATH="${BENCH_DIR}/gapbs"
+	BENCH="${BENCH_PATH}/pr -g 29 -i 1000 -t 1e-4 -n 8"
 elif [[ "$2" == "gapbs-cc_sv" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
         BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 10"
@@ -94,6 +120,12 @@ elif [[ "$2" == "graph500" ]]; then
         BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
         BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V" #s27 e 15, options.h NBFS_max is number of BFS
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "graph500-25" ]]; then
+        BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
+        BENCH="${BENCH_PATH}/omp-csr -s 25 -e 15 -V"
+elif [[ "$2" == "graph500-27" ]]; then
+        BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
+        BENCH="${BENCH_PATH}/omp-csr -s 27 -e 15 -V"
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
 	if [[ "$3" == "config1" ]]; then
@@ -126,6 +158,15 @@ elif [[ "$2" == "xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 35"
 	fi
 	echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "xindex_tiny" ]]; then
+        BENCH_PATH="${BENCH_DIR}/XIndex-H"
+	if [[ "$3" == "6tenants" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench_tiny --fg 2 --iteration 15"
+	elif [[ "$3" == "12tenants" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench_tiny --fg 1 --iteration 15"
+	else
+	        BENCH="${BENCH_PATH}/build/ycsb_bench_tiny --fg 2 --iteration 10"
+	fi
 elif [[ "$2" == "xindex_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
 	BENCH="${BENCH_PATH}/build/ycsb_bench_large --fg 6 --iteration 20"
@@ -283,8 +324,8 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33 90"
-	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 8 5000000000 35 8 33 90"
+	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"

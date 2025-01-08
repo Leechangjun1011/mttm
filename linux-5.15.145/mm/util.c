@@ -1023,7 +1023,7 @@ void zeroing_ac_pages(struct mem_cgroup *memcg)
 {
 	int i, j;
 	
-	for(i = 0; i < memcg->giga_bitmap_size; i++) {
+	for(i = 0; i < memcg->giga_bitmap_in_use; i++) {
 		for(j = 0; j < memcg->huge_bitmap_size; j++)
 			memset(memcg->ac_page_list[i][j], 0, memcg->base_bitmap_size * sizeof(uint32_t));
 	}

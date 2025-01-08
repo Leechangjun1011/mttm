@@ -719,8 +719,8 @@ void determine_active_threshold(struct mem_cgroup *memcg)
         }
         idx_hot++;
 
-	if(idx_hot < MTTM_INIT_THRESHOLD) {
-                idx_hot = MTTM_INIT_THRESHOLD;
+	if(idx_hot < 1) {
+                idx_hot = 1;
         }
 
 	WRITE_ONCE(memcg->active_threshold, idx_hot);

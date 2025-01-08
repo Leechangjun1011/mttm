@@ -33,11 +33,17 @@ void paravirt_tlb_remove_table(struct mmu_gather *tlb, void *table)
 gfp_t __userpte_alloc_gfp = GFP_PGTABLE_USER | PGTABLE_HIGHMEM;
 
 #ifdef CONFIG_MTTM
+extern unsigned int scanless_cooling;
 static void __pte_alloc_pginfo(struct page *page)
 {
 	page->pginfo = kmem_cache_alloc(pginfo_cache, __userpte_alloc_gfp);
 	if(page->pginfo) {
 		SetPageMttm(page);
+		if(scanless_cooling) {
+			page->pginfo->giga_bitmap_idx = UINT_MAX;
+			page->pginfo->huge_bitmap_idx = UINT_MAX;
+			page->pginfo->base_bitmap_idx = UINT_MAX;
+		}
 		//trace_alloc_pginfo((unsigned long)page, (unsigned long)page->pginfo);
 	}
 }
