@@ -49,7 +49,6 @@ extern unsigned long pingpong_reduce_threshold;
 unsigned long pingpong_reduce_limit = 1;
 extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
-extern unsigned int use_lru_manage_reduce;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
@@ -272,15 +271,6 @@ static unsigned long migrate_page_list(struct list_head *migrate_list, pg_data_t
 	migrate_pages(migrate_list, alloc_migrate_page, NULL, target_nid,
 			MIGRATE_ASYNC, MR_NUMA_MISPLACED, &nr_succeeded);
 	one_mig_cputime = jiffies - one_mig_cputime;
-
-	/*
-	if(!list_empty(migrate_list)) {
-		struct list_head *p;
-		unsigned int nr_fail = 0;
-		list_for_each(p, migrate_list)
-			nr_fail++;
-		//pr_info("[%s] migration fail : %u\n",__func__, nr_fail);
-	}*/
 
 	if(mig_cputime)
 		*mig_cputime = one_mig_cputime;
@@ -906,11 +896,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 			if(PageTransHuge(compound_head(page))) {
 				struct page *meta_page = get_meta_page(page);
 				unsigned int active_threshold_cooled = 
-						MTTM_INIT_THRESHOLD + memcg->threshold_offset;
-
-				/*active_threshold_cooled = (memcg->active_threshold > 1 ) ?
-							memcg->active_threshold - 1 : memcg->active_threshold;*/
-				
+						MTTM_INIT_THRESHOLD + memcg->threshold_offset;				
 				check_transhuge_cooling_reset((void *)memcg, page);
 
 				if(get_idx(meta_page->nr_accesses) >= active_threshold_cooled)
@@ -1785,38 +1771,7 @@ static int kmigrated(void *p)
 		interval_pingpong += one_pingpong;
 
 		cur = jiffies;
-		if(cur - interval_start >= trace_period) {	
-			if(use_lru_manage_reduce) {
-				if(interval_manage_cputime >= manage_cputime_threshold &&
-					interval_manage_cnt > 1) {
-					high_manage_cnt++;
-					if(high_manage_cnt >= 2) {
-						high_manage_cnt = 0;
-						if((memcg->adjust_period << 1) > memcg->cooling_period) {
-							if(use_dram_determination) {
-								if((use_region_separation && memcg->region_determined) ||
-									(use_hotness_intensity && memcg->hi_determined)) {
-									WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-									WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-								}
-							}
-							else {
-								WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-								WRITE_ONCE(memcg->cooling_period, memcg->cooling_period << 1);
-							}
-						}
-						else
-							WRITE_ONCE(memcg->adjust_period, memcg->adjust_period << 1);
-
-						pr_info("[%s] [ %s ] Manage period doubled. Adjust : %lu, Cooling : %lu\n",
-							__func__, memcg->tenant_name, memcg->adjust_period, memcg->cooling_period);
-					}	
-				}
-				else {
-					high_manage_cnt = 0;
-				}
-			}
-
+		if(cur - interval_start >= trace_period) {		
 			if(use_pingpong_reduce && interval_mig_cputime) {
 				if(interval_mig_cputime >= mig_cputime_threshold &&
 					div64_u64(interval_pingpong, interval_mig_cputime) >= pingpong_reduce_threshold &&
@@ -1824,8 +1779,6 @@ static int kmigrated(void *p)
 					memcg->threshold_offset < pingpong_reduce_limit) {
 
 					high_pingpong_cnt++;
-					/*pr_info("[%s] [ %s ] interval_pingpong : %lu MB, mig_time : %lu\n",
-						__func__, memcg->tenant_name, interval_pingpong >> 8, interval_mig_cputime);*/
 					pr_info("[%s] [ %s ] Pingpong overhead high. Pingpong_pages/mig_time : %llu, threshold : %lu\n",
 						__func__, memcg->tenant_name,
 						div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);

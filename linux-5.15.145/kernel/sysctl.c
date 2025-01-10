@@ -211,7 +211,6 @@ extern unsigned long mig_cputime_threshold;
 extern unsigned int ksampled_trace_period_in_ms;
 extern unsigned long kmigrated_period_in_ms;
 extern unsigned int check_stable_sample_rate;
-extern unsigned int use_lru_manage_reduce;
 extern unsigned int use_dma_migration;
 extern unsigned int use_dma_completion_interrupt;
 extern unsigned int use_all_stores;
@@ -3081,14 +3080,7 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "use_lru_manage_reduce",
-		.data		= &use_lru_manage_reduce,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
+	},	
 	{
 		.procname	= "use_dma_migration",
 		.data		= &use_dma_migration,

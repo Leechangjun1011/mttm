@@ -45,7 +45,6 @@ unsigned long mig_cputime_threshold = 200;
 char mttm_local_dram_string[16];
 unsigned long mttm_local_dram = ((80UL << 30) >> 12);//80GB in # of pages
 unsigned int ksampled_trace_period_in_ms = 5000;
-unsigned int use_lru_manage_reduce = 1;
 #define NUM_AVAIL_DMA_CHAN	16
 #define DMA_CHAN_PER_PAGE	1
 unsigned int use_dma_migration = 0;
@@ -187,17 +186,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 		pginfo->giga_bitmap_idx = giga_idx;
 		pginfo->huge_bitmap_idx = huge_idx;
 		pginfo->base_bitmap_idx = base_idx;
-		/*if(!memcg->ac_page_list[pginfo->meta_bitmap_idx]) {
-			pr_info("pginfo->meta_bitmap_idx : %u\n", pginfo->meta_bitmap_idx);
-			pr_info("meta_idx : %u\n", meta_idx);
-			for(i = 0; i < memcg->ac_bitmap_max_rss; i++)
-				pr_info("%dth meta_bitmap : %d\n",
-					i, test_bit(i, memcg->meta_bitmap) ? 1 : 0);
-			for(i = 0; i < 10; i++)
-				pr_info("%dth ac_bitmap : %d\n",
-					i, test_bit(i, memcg->ac_bitmap_list[0]) ? 1 : 0);
-			BUG();
-		}*/
+		
 		ac = get_ac_pointer(memcg, pginfo->giga_bitmap_idx,
 			pginfo->huge_bitmap_idx, pginfo->base_bitmap_idx);
 		if(ac)
@@ -344,8 +333,7 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		
 		idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 		if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
-			//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
-			//	__func__, giga_idx, huge_idx, base_idx);
+
 		}
 		else {
 			clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
@@ -412,8 +400,7 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 
 			idx = get_idx(memcg->ac_page_list[giga_idx][huge_idx][base_idx]);
 			if(!test_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx])) {
-				//pr_info("[%s] allocated bitmap is not set. gi : %u, hi : %u, bi : %u\n",
-				//	__func__, giga_idx, huge_idx, base_idx);
+
 			}
 			else {
 				clear_bit(base_idx, memcg->base_bitmap[giga_idx][huge_idx]);
@@ -548,32 +535,6 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	return 0;
 }
 
-static void pebs_update_period(uint64_t value)
-{
-	int cpu, event;
-
-	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
-		for(event = 0; event < NR_EVENTTYPE; event++) {
-			int ret;
-			if(!pfe[cpu][event])
-				continue;
-
-			switch(event) {
-				case DRAMREAD:
-				case CXLREAD:
-					ret = perf_event_period(pfe[cpu][event], value);
-					break;
-				case MEMSTORE:
-				default:
-					ret = 0;
-					break;
-			}
-
-			if(ret == -EINVAL)
-				pr_err("[%s] failed to update sample period",__func__);
-		}
-	}
-}
 
 SYSCALL_DEFINE2(mttm_register_pid,
 		pid_t, pid, const char __user *, u_name)
@@ -783,18 +744,6 @@ SYSCALL_DEFINE1(mttm_unregister_pid,
 	pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total sample : %lu [local : %lu, remote : %lu]\n",
 		__func__, pid, memcg->tenant_name, current_tenants, memcg->nr_sampled, memcg->nr_tot_local, memcg->nr_sampled - memcg->nr_tot_local);
 	return 0;
-}
-
-static bool need_memcg_cooling(struct mem_cgroup *memcg)
-{
-	unsigned long usage = page_counter_read(&memcg->memory);
-	if(memcg->nr_alloc + MTTM_THRES_COOLING_ALLOC <= usage) {
-		pr_info("[%s] memcg->nr_alloc: %lu, usage: %lu\n",
-			__func__, memcg->nr_alloc, usage);
-		memcg->nr_alloc = usage;
-		return true;
-	}
-	return false;
 }
 
 static void set_lru_cooling(struct mem_cgroup *memcg)
@@ -1013,11 +962,6 @@ void check_transhuge_cooling_reset(void *arg, struct page *page)
 	meta_page = get_meta_page(page);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
 	
-	/*if(memcg_cclock > meta_page->cooling_clock) {
-		unsigned int diff = memcg_cclock - meta_page->cooling_clock;
-		unsigned int cooled_accesses = meta_page->nr_accesses >> diff;
-		meta_page->nr_accesses = cooled_accesses;
-	}*/
 	meta_page->nr_accesses = 0;
 
 	meta_page->cooling_clock = memcg_cclock;
@@ -1039,11 +983,7 @@ void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
 
 	spin_lock(&memcg->access_lock);
 	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	/*if(memcg_cclock > pginfo->cooling_clock) {
-		unsigned int diff = memcg_cclock - pginfo->cooling_clock;
-		unsigned int cooled_accesses = pginfo->nr_accesses >> diff;	
-		pginfo->nr_accesses = cooled_accesses;
-	}*/
+
 	pginfo->nr_accesses = 0;
 
 	pginfo->cooling_clock = memcg_cclock;
@@ -1162,52 +1102,6 @@ void update_base_page(struct vm_area_struct *vma, struct page *page,
 		move_page_to_inactive_lru(page);
 
 }
-
-/*void debug_ac_page_list(struct mem_cgroup *memcg, struct page *meta_page,
-			unsigned int *prev_idx, unsigned int *cur_idx)
-{
-	uint32_t *ac;
-
-	if(!memcg->mttm_enabled)
-		pr_info("[%s] memcg mttm disabled\n",__func__);
-	if(!memcg->ac_page_list)
-		pr_info("[%s] null ac_page_list. gi:%u, hi:%u, bi:%u\n",
-			__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
-			meta_page->base_bitmap_idx);
-	else if(!memcg->ac_page_list[meta_page->giga_bitmap_idx])
-		pr_info("[%s] null giga bitmap. gi:%u, hi:%u, bi:%u\n"
-			,__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
-			meta_page->base_bitmap_idx);
-	else if(!memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx])
-		pr_info("[%s] null huge bitmap. gi:%u, hi:%u, bi:%u\n",
-			__func__, meta_page->giga_bitmap_idx, meta_page->huge_bitmap_idx,
-			meta_page->base_bitmap_idx);
-	ac = &memcg->ac_page_list[meta_page->giga_bitmap_idx][meta_page->huge_bitmap_idx][meta_page->base_bitmap_idx];
-	*prev_idx = get_idx(*ac);
-	(*ac)++;
-	*cur_idx = get_idx(*ac);
-}
-
-void debug_hg(struct mem_cgroup *memcg, unsigned int prev_idx, unsigned int cur_idx)
-{
-	spin_lock(&memcg->access_lock);
-	if(prev_idx != cur_idx) {
-		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
-			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
-		else
-			memcg->hotness_hg[prev_idx] = 0;
-		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
-	}
-	spin_unlock(&memcg->access_lock);
-}
-
-void debug_move_page(struct mem_cgroup *memcg, struct page *page, unsigned int cur_idx)
-{
-	if(cur_idx >= READ_ONCE(memcg->active_threshold))
-		move_page_to_active_lru(page);
-	else if(PageActive(page))
-		move_page_to_inactive_lru(page);
-}*/
 
 void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 			struct page *page, unsigned long address)
@@ -1421,8 +1315,7 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// cooling
-	if((memcg->nr_sampled % READ_ONCE(memcg->cooling_period)) == 0) /* ||
-		need_memcg_cooling(memcg)) */{
+	if((memcg->nr_sampled % READ_ONCE(memcg->cooling_period)) == 0) {
 		if(set_cooling(memcg)) {
 			//nothing
 		}	
@@ -1442,9 +1335,7 @@ void ksampled_do_work(void)
 {
 	int cpu, event, i, cond = true;
 	int nr_skip = 0;
-	//unsigned long prev_active_lru_size = 0, cur_active_lru_size = 0;
 
-	//prev_active_lru_size = get_active_lru_size();
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 		for(event = 0; event < NR_EVENTTYPE; event++) {
 			if(!use_all_stores && (get_pebs_event(event) == ALL_STORES))
@@ -2376,8 +2267,6 @@ static int ksampled(void *dummy)
 					else if(use_hotness_intensity) {
 						if(use_naive_hi)
 							distribute_local_dram_naive_hi();
-						//else
-							//distribute_local_dram_hi();//hotness_intensity
 					}
 				}
 				

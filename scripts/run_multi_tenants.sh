@@ -33,7 +33,6 @@ echo 1 > /proc/sys/vm/drop_caches
 #echo 0 > /proc/sys/vm/use_hotness_intensity
 #echo 200 > /proc/sys/vm/hotness_intensity_threshold
 
-echo 0 > /proc/sys/vm/use_lru_manage_reduce #deprecated
 #echo 50 > /proc/sys/vm/manage_cputime_threshold
 #echo 1 > /proc/sys/vm/use_pingpong_reduce
 echo 3 > /proc/sys/vm/pingpong_reduce_limit
