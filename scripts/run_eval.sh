@@ -1,5 +1,4 @@
 #!/bin/bash
-
 cur_path=$PWD
 emul_path=/home/cjlee/CXL-emulation.code/NUMA_setting/slow-memory-emulation
 conda_activate=/root/anaconda3/bin/activate
