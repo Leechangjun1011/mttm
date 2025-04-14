@@ -9,7 +9,7 @@
 #define CORES_PER_SOCKET	24
 #define SAMPLE_RATE_STABLE_CNT	10
 
-#define MTTM_PEBS_BUFFER_SIZE	32 /* # of pages.(32 -> 128KB) */
+#define MTTM_PEBS_BUFFER_SIZE	128 /* # of pages.(32 -> 128KB) */
 #define MAX_SAMPLE_RATIO	50
 #define MIN_SAMPLE_RATIO	10
 

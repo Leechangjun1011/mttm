@@ -1322,8 +1322,8 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	}
 
 	// adjust threshold
-	else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0)
-		adjust_active_threshold(memcg);
+	//else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0)
+	//	adjust_active_threshold(memcg);
 
 mmap_unlock:
 	mmap_read_unlock(mm);
@@ -2229,7 +2229,7 @@ static void distribute_local_dram_mpki(void)
 
 static int ksampled(void *dummy)
 {
-	unsigned long sleep_timeout = usecs_to_jiffies(100);
+	unsigned long sleep_timeout = usecs_to_jiffies(50);
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
@@ -2237,6 +2237,8 @@ static int ksampled(void *dummy)
 	unsigned long trace_period_long = msecs_to_jiffies(10000);
 	struct mem_cgroup *memcg;
 	int i;
+
+	pr_info("[%s] sleep_timeout %lu jiffies\n",__func__, sleep_timeout);
 
 	total_time = jiffies;
 	interval_start = jiffies;

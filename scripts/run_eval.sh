@@ -69,8 +69,8 @@ function run_mttm_region_basepage_opt
 	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
 	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
 
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_$1_$2_$3_9.txt
-	dmesg > ./evaluation/basepage/region_$1_$2_$3_9_dmesg.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_$1_$2_$3_9_test.txt
+	dmesg > ./evaluation/basepage/region_$1_$2_$3_9_dmesg_test.txt
 }
 
 function run_mttm_region_basepage_scan
@@ -295,6 +295,16 @@ function set_250
 	echo 250 > /proc/sys/vm/remote_latency
 }
 
+#config1, 2, 3, 12
+
+set_192
+source $conda_activate dlrm_cpu
+run_mttm_region_hugepage config12 60G 192
+#run_mttm_region_basepage_opt config1 54G 130
+#run_mttm_region_basepage_opt config2 13G 130
+#run_mttm_region_basepage_opt config12 23G 130
+#run_mttm_region_basepage_opt config3 33G 130
+
 : << end
 set_130
 source $conda_activate dlrm_cpu
@@ -308,14 +318,14 @@ run_memstrata_hugepage 12tenants 85G 192
 run_vtmm_hugepage 12tenants 85G 192
 
 conda deactivate
-end
 set_250
 source $conda_activate dlrm_cpu
 #run_memstrata_hugepage 12tenants 85G 250
-run_vtmm_hugepage 12tenants 85G 250
+#run_vtmm_hugepage 12tenants 85G 250
 
 
 #run_naive_hi_hugepage 12tenants 85G 130
+end
 
 
 : << end

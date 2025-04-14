@@ -53,6 +53,8 @@ else
 	fi
 fi
 
+CPUSETS="0-15"
+
 echo ${CPUSETS} > ${CGCPU_DIR}/cpuset.cpus
 echo 0-1 > ${CGCPU_DIR}/cpuset.mems
 echo $$ > ${CGCPU_DIR}/cgroup.procs
@@ -342,14 +344,17 @@ elif [[ "$2" == "btree" ]]; then
         BENCH_PATH="${BENCH_DIR}/../../vmitosis-workloads/bin"
         BENCH="${BENCH_PATH}/bench_btree_mt"
 	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "redis" ]]; then
+        BENCH_PATH="${BENCH_DIR}/YCSB"
+        BENCH="${BENCH_PATH}/bin/ycsb load "
 elif [[ "$2" == "gups_small" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups 8 2000000000 34 8 32"
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 8 2000000000 35 8 33 90"
-	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 16 1000000000 35 8 33 90"
+	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"

@@ -117,6 +117,8 @@ bool need_direct_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg)
 	return READ_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion);
 }
 
+
+
 // Demote pages to get %fmem_max_wmark free pages 
 static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 				unsigned long *nr_exceeded)
@@ -1073,13 +1075,18 @@ static void move_all_to_inactive(pg_data_t *pgdat, struct mem_cgroup *memcg)
 
 static void scanless_cooling_node(struct mem_cgroup *memcg)
 {
+	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					MTTM_INIT_THRESHOLD : 9;
+
 	// Zeroing ac_pages with DMA
-	zeroing_ac_pages(memcg);	
+	zeroing_ac_pages(memcg);
 
 	// Move all active lru mttm pages to inactive lru.
 	move_all_to_inactive(NODE_DATA(0), memcg);
 	move_all_to_inactive(NODE_DATA(1), memcg);
 
+	// not trigger adjust lru
+	WRITE_ONCE(memcg->active_threshold, init_threshold + memcg->threshold_offset);
 }
 
 
@@ -1560,6 +1567,86 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	
 }
 
+static void increase_active_threshold(struct mem_cgroup *memcg, unsigned int active_threshold)
+{
+	struct mem_cgroup_per_node *pn;
+	int nid;
+
+	for_each_node_state(nid, N_MEMORY) {
+		pn = memcg->nodeinfo[nid];
+		if(!pn)
+			continue;
+		WRITE_ONCE(pn->need_adjusting, true);
+	}
+	pr_info("[%s] [ %s ] threshold increase to %u\n",
+		__func__, memcg->tenant_name, active_threshold);
+
+}
+
+static void decrease_active_threshold(struct mem_cgroup *memcg, unsigned int active_threshold)
+{
+	struct mem_cgroup_per_node *pn;
+	int nid;
+
+	for_each_node_state(nid, N_MEMORY) {
+		pn = memcg->nodeinfo[nid];
+		if(!pn)
+			continue;
+		WRITE_ONCE(pn->need_adjusting_all, true);
+	}
+	pr_info("[%s] [ %s ] threshold decrease to %u\n",
+		__func__, memcg->tenant_name, active_threshold);
+}
+
+static void adjust_active_threshold(struct mem_cgroup *memcg)
+{
+	int idx_hot;
+	unsigned long nr_active = 0;
+	unsigned long max_nr_pages = memcg->max_nr_dram_pages - 
+			get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+	unsigned int prev_threshold = READ_ONCE(memcg->active_threshold);
+	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					MTTM_INIT_THRESHOLD : 9;
+	struct mem_cgroup_per_node *pn;
+	int nid;
+
+	if(READ_ONCE(memcg->hg_mismatch)) {
+		return;
+	}
+
+	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) &&
+		use_dram_determination &&
+		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined)))
+		return;
+
+	spin_lock(&memcg->access_lock);
+	for(idx_hot = 15; idx_hot >= 0; idx_hot--) {
+		unsigned long nr_pages = memcg->hotness_hg[idx_hot];
+		if(nr_active + nr_pages > max_nr_pages)
+			break;
+		nr_active += nr_pages;
+	}
+	if(idx_hot != 15)
+		idx_hot++;
+	spin_unlock(&memcg->access_lock);
+
+	if(idx_hot < init_threshold)
+		idx_hot = init_threshold;
+	idx_hot += memcg->threshold_offset;
+
+	WRITE_ONCE(memcg->active_threshold, idx_hot);
+	WRITE_ONCE(memcg->warm_threshold, idx_hot);
+
+	//if(idx_hot <= init_threshold + memcg->threshold_offset)
+	//	return;
+
+	if(prev_threshold < idx_hot) // threshold increase
+		increase_active_threshold(memcg, idx_hot);
+	
+	else if(prev_threshold > idx_hot) // threshold decrease
+		decrease_active_threshold(memcg, idx_hot);
+}
+
 
 static int kmigrated(void *p)
 {
@@ -1593,6 +1680,7 @@ static int kmigrated(void *p)
 		unsigned long tot_nr_adjusted = 0, nr_adjusted_active = 0, nr_adjusted_inactive = 0;
 		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned long tot_nr_cooled = 0, tot_nr_cool_failed = 0, nr_cooled = 0, nr_still_hot = 0;
+		unsigned int raw_threshold;
 		bool promotion_denied = true;
 
 		if(kthread_should_stop())
@@ -1616,7 +1704,7 @@ static int kmigrated(void *p)
 		one_manage_cputime = 0;
 		one_cooling_cputime = 0;
 
-		// Cool & adjust node 0
+		// Cooling
 		if(cooling) {
 			stamp = jiffies;
 			nr_cooled = 0;
@@ -1628,27 +1716,7 @@ static int kmigrated(void *p)
 			tot_nr_cooled += nr_cooled;
 			tot_nr_cool_failed += nr_still_hot;
 			one_cooling_cputime += (jiffies - stamp);
-		}
-		else if(need_lru_adjusting(pn0)) {
-			stamp = jiffies;
-			nr_to_active = 0;
-			nr_to_inactive = 0;	
-			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
-			tot_nr_to_active += nr_to_active;
-			tot_nr_to_inactive += nr_to_inactive;
-			if(pn0->need_adjusting_all == true) {
-				nr_to_active = 0;
-				nr_to_inactive = 0;
-				adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
-				tot_nr_to_active += nr_to_active;
-				tot_nr_to_inactive += nr_to_inactive;
-			}
-			one_manage_cputime += (jiffies - stamp);
-		}
-		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
-		// Cool & adjust node 1
-		if(cooling) {
 			stamp = jiffies;
 			nr_cooled = 0;
 			nr_still_hot = 0;
@@ -1658,27 +1726,50 @@ static int kmigrated(void *p)
 			tot_nr_cool_failed += nr_still_hot;
 			one_cooling_cputime += (jiffies - stamp);
 		}
-		else if(need_lru_adjusting(pn1)) {
-			stamp = jiffies;
+
+		adjust_active_threshold(memcg);
+		// Adjust
+		stamp = jiffies;
+		if(READ_ONCE(pn0->need_adjusting)) {
+			nr_to_active = 0;
+			nr_to_inactive = 0;	
+			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
+			tot_nr_to_active += nr_to_active;
+			tot_nr_to_inactive += nr_to_inactive;
+			pr_info("[%s] [ %s ] node0 active scan\n",__func__, memcg->tenant_name);
+		}
+		else if(READ_ONCE(pn0->need_adjusting_all)) {
+			nr_to_active = 0;
+			nr_to_inactive = 0;
+			adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
+			tot_nr_to_active += nr_to_active;
+			tot_nr_to_inactive += nr_to_inactive;
+			pr_info("[%s] [ %s ] node0 inactive scan\n",__func__, memcg->tenant_name);
+		}
+		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
+
+		if(READ_ONCE(pn1->need_adjusting)) {
 			nr_to_active = 0;
 			nr_to_inactive = 0;
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
-			if(pn1->need_adjusting_all == true) {
-				nr_to_active = 0;
-				nr_to_inactive = 0;
-				adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
-				tot_nr_to_active += nr_to_active;
-				tot_nr_to_inactive += nr_to_inactive;
-			}
-			one_manage_cputime += (jiffies - stamp);
+			pr_info("[%s] [ %s ] node1 active scan\n",__func__, memcg->tenant_name);
+		}
+		else if(READ_ONCE(pn1->need_adjusting_all)) {
+			nr_to_active = 0;
+			nr_to_inactive = 0;
+			adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
+			tot_nr_to_active += nr_to_active;
+			tot_nr_to_inactive += nr_to_inactive;
+			pr_info("[%s] [ %s ] node1 inactive scan\n",__func__, memcg->tenant_name);
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
+		one_manage_cputime += (jiffies - stamp);
 
 		// Handle active lru overflow
 		stamp = jiffies;
-		if(active_lru_overflow(memcg)) {
+		/*if(active_lru_overflow(memcg)) {
 			if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) && 
 				use_dram_determination &&
 				((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined))) {
@@ -1703,7 +1794,7 @@ static int kmigrated(void *p)
 				active_lru_overflow_cnt++;
 				//interval_manage_cnt++;
 			}
-		}
+		}*/
 		total_adjusting_overflow_cputime += (jiffies - stamp);
 		one_manage_cputime += (jiffies - stamp);
 
@@ -1739,7 +1830,6 @@ static int kmigrated(void *p)
 
 		}
 			
-
 		one_mig_cputime = jiffies - one_mig_cputime;		
 
 		hot0 = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
@@ -1783,12 +1873,11 @@ static int kmigrated(void *p)
 						__func__, memcg->tenant_name,
 						div64_u64(interval_pingpong, interval_mig_cputime), pingpong_reduce_threshold);
 					
+					raw_threshold = memcg->active_threshold - memcg->threshold_offset;
 					WRITE_ONCE(memcg->threshold_offset, memcg->threshold_offset + 1);
-					WRITE_ONCE(memcg->active_threshold, memcg->active_threshold + memcg->threshold_offset);
-					if(memcg->use_warm)
-						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-					else
-						WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+					WRITE_ONCE(memcg->active_threshold, raw_threshold + memcg->threshold_offset);
+					WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
+					increase_active_threshold(memcg, memcg->active_threshold);
 					pr_info("[%s] [ %s ] Pingpong reduced. threshold_offset : %u, active_threshold : %u\n",
 						__func__, memcg->tenant_name, memcg->threshold_offset, memcg->active_threshold);
 					
