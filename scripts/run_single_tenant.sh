@@ -92,6 +92,8 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
 	elif [[ "$3" == "config6" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	elif [[ "$3" == "config13" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "12tenants" ]]; then
@@ -185,12 +187,14 @@ elif [[ "$2" == "silo" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 	elif [[ "$3" == "config10" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	elif [[ "$3" == "config13" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 4 --scale-factor 80000 --ops-per-worker=450000000"
 	elif [[ "$3" == "12tenants" ]]; then
 		BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
-	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 240000 --ops-per-worker=200000000"
+	       BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=200000000"
 	fi
 	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
@@ -281,6 +285,8 @@ elif [[ "$2" == "fotonik" ]]; then
 	elif [[ "$3" == "config7" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	elif [[ "$3" == "config10" ]]; then
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+	elif [[ "$3" == "config13" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="runcpu --config=mttm_2 --noreportable --iteration=1 649.fotonik3d_s"

@@ -21,8 +21,8 @@ function run_mttm_region_hugepage
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/region_$1_$2_$3.txt
-	dmesg > ./evaluation/region_$1_$2_$3_dmesg.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/region_$1_$2_$3_test.txt
+	dmesg > ./evaluation/region_$1_$2_$3_dmesg_test.txt
 }
 
 
@@ -96,13 +96,14 @@ function run_mttm_region_basepage_scan
 	dmesg > ./evaluation/basepage/region_scan_$1_$2_$3_dmesg.txt
 }
 
-function run_naive_hi_hugepage 
+function run_hi_first_hugepage 
 {
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 0 > /proc/sys/vm/use_region_separation
 	echo 1 > /proc/sys/vm/use_hotness_intensity
-	echo 1 > /proc/sys/vm/use_naive_hi
+	echo 1 > /proc/sys/vm/use_hi_first
+	echo 0 > /proc/sys/vm/use_mar_first
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/print_more_info
@@ -114,9 +115,33 @@ function run_naive_hi_hugepage
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/hi_$1_$2_$3.txt
-	dmesg > ./evaluation/hi_$1_$2_$3_dmesg.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/hi_$1_$2_$3_test.txt
+	dmesg > ./evaluation/hi_$1_$2_$3_dmesg_test.txt
 }
+
+function run_mar_first_hugepage 
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 0 > /proc/sys/vm/use_region_separation
+	echo 1 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_hi_first
+	echo 1 > /proc/sys/vm/use_mar_first
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/print_more_info
+
+	echo 10007 > /proc/sys/vm/pebs_sample_period
+	echo 1 > /proc/sys/vm/use_pingpong_reduce
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 1 > /proc/sys/vm/scanless_cooling
+	echo 1 > /proc/sys/vm/reduce_scan
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/mar_$1_$2_$3.txt
+	dmesg > ./evaluation/mar_$1_$2_$3_dmesg.txt
+}
+
 
 function run_naive_hi_basepage_opt
 {
@@ -210,7 +235,15 @@ function run_local_basepage
 	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local_$1.txt
 }
 
+function run_tpp_hugepage
+{
+	#config, dram size, remote latency
+	dmesg --clear
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
+	./run_multi_tenants_tpp.sh $1 2>&1 | cat > ./evaluation/tpp_$1_$2_$3.txt
+	dmesg > ./evaluation/tpp_$1_$2_$3_dmesg.txt
+}
 
 function run_memstrata_hugepage
 {
@@ -277,6 +310,33 @@ function set_130
 	echo 130 > /proc/sys/vm/remote_latency
 }
 
+function set_160
+{
+	cd $emul_path
+	./reset.sh
+	./emulate.sh 6 4000
+	cd $cur_path
+	echo 160 > /proc/sys/vm/remote_latency
+}
+
+function set_190
+{
+	cd $emul_path
+	./reset.sh
+	./emulate.sh 11 4000
+	cd $cur_path
+	echo 190 > /proc/sys/vm/remote_latency
+}
+
+function set_220
+{
+	cd $emul_path
+	./reset.sh
+	./emulate.sh 24 0 0x8124
+	cd $cur_path
+	echo 220 > /proc/sys/vm/remote_latency
+}
+: << end
 function set_192
 {
 	cd $emul_path
@@ -294,12 +354,18 @@ function set_250
 	cd $cur_path
 	echo 250 > /proc/sys/vm/remote_latency
 }
-
+end
 #config1, 2, 3, 12
 
-set_192
+set_130
 source $conda_activate dlrm_cpu
-run_mttm_region_hugepage config12 60G 192
+run_tpp_hugepage config1 21G 130
+#run_mar_first_hugepage config13 20G 192
+
+
+#set_192
+#source $conda_activate dlrm_cpu
+#run_mar_first_hugepage config12 24G 192
 #run_mttm_region_basepage_opt config1 54G 130
 #run_mttm_region_basepage_opt config2 13G 130
 #run_mttm_region_basepage_opt config12 23G 130

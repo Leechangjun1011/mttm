@@ -28,46 +28,34 @@ echo $$ > ${CGCPU_DIR}/cgroup.procs
 
 if [[ "$2" == "gapbs-bc" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 12"
-        #BENCH="${BENCH_PATH}/bc -g 28 -n 30"
+        BENCH="${BENCH_PATH}/bc -f ${BENCH_PATH}/pregen_g28.sg -n 16"
 elif [[ "$2" == "gapbs-pr" ]]; then
         BENCH_PATH="${BENCH_DIR}/gapbs"
-	if [[ "$3" == "config6" ]]; then
-	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
+	if [[ "$3" == "config1" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
+	elif [[ "$3" == "config13" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
 	else
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	fi
-elif [[ "$2" == "gapbs-cc_sv" ]]; then
-        BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/cc_sv -f ${BENCH_PATH}/pregen_g28.sg -n 8"
-elif [[ "$2" == "gapbs-tc" ]]; then
-        BENCH_PATH="${BENCH_DIR}/gapbs"
-        BENCH="${BENCH_PATH}/tc -f ${BENCH_PATH}/pregen_g27.sg -n 1"
-elif [[ "$2" == "graph500" ]]; then
-        BENCH_PATH="${BENCH_DIR}/graph500/omp-csr"
-        BENCH="${BENCH_PATH}/omp-csr -s 26 -e 15 -V"
 elif [[ "$2" == "xsbench" ]]; then
         BENCH_PATH="${BENCH_DIR}/XSBench/openmp-threading"
         BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 30000000" #g 130000
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
-        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 16 --iteration 70"
+        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
+elif [[ "$2" == "xindex_large" ]]; then
+        BENCH_PATH="${BENCH_DIR}/XIndex-H"
+        BENCH="${BENCH_PATH}/build/ycsb_bench_large --fg 6 --iteration 20"
 elif [[ "$2" == "silo" ]]; then
         BENCH_PATH="${BENCH_DIR}/silo"
-	if [[ "$3" == "config6" ]]; then
-                BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
-	else
-	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 200000 --ops-per-worker=500000000 --slow-exit"
-	fi
+        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
-elif [[ "$2" == "cpu_dlrm_small_mid" ]]; then
-        BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small mid"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low config12"
 elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         BENCH_PATH="${PWD}"
-        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
+        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config2"
 elif [[ "$2" == "cpu_dlrm_med_low" ]]; then
         BENCH_PATH="${PWD}"
         BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh med low"
@@ -117,9 +105,9 @@ elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"
 elif [[ "$2" == "fotonik" ]]; then
-        if [[ "$3" == "config6" ]]; then
+        if [[ "$3" == "config2" ]]; then
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
-        elif [[ "$3" == "config10" ]]; then
+        elif [[ "$3" == "config13" ]]; then
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
         else
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"

@@ -137,8 +137,8 @@ static bool need_fmem_demotion(pg_data_t *pgdat, struct mem_cgroup *memcg,
 
 	if(max_nr_pages < fmem_min_wmark) { // extremely low dram size
 		if(nr_lru_pages < fmem_min_wmark) {
-			if(need_direct_demotion(pgdat, memcg))
-				WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
+			//if(need_direct_demotion(pgdat, memcg))
+			WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
 			return false;
 		}
 		*nr_exceeded = (max_nr_pages > nr_lru_pages) ? 0 : nr_lru_pages - max_nr_pages;
@@ -549,7 +549,8 @@ static unsigned long demote_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 	if(get_nr_lru_pages_node(memcg, pgdat) +
 		get_memcg_demotion_wmark(max_dram) < max_dram)
 		WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
-
+	//else if(get_nr_lru_pages_node(memcg, pgdat) < get_memcg_demotion_wmark(max_dram)) //extreme low dram, demote done
+	//	WRITE_ONCE(memcg->nodeinfo[pgdat->node_id]->need_demotion, false);
 
 	if(demote_cputime)
 		*demote_cputime = demote_lruvec_cputime;
@@ -1404,7 +1405,8 @@ static bool active_lru_overflow(struct mem_cgroup *memcg)
 	int fmem_nid = 0;
 	unsigned long fmem_active, smem_active;
 	unsigned long max_dram_pages = READ_ONCE(memcg->max_nr_dram_pages);
-	unsigned long max_nr_pages = max_dram_pages - get_memcg_promotion_wmark(max_dram_pages);
+	unsigned long max_nr_pages = (max_dram_pages > get_memcg_promotion_wmark(max_dram_pages)) ?
+					max_dram_pages - get_memcg_promotion_wmark(max_dram_pages) : 0;
 
 
 	fmem_active = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
@@ -1554,11 +1556,10 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 				/*memcg->hotness_intensity = ((memcg->lev3_size * 100 / memcg->lev2_size) +
 								2*(memcg->lev4_size * 100 / memcg->lev3_size)) *
 								tot_pages / memcg->lev2_size;*/
-				memcg->hotness_intensity = tot_pages * 100 / memcg->lev1_size;
+				memcg->hotness_intensity = memcg->lev1_size * 100 / tot_pages;
 
-				pr_info("[%s] [ %s ]. hotness intensity: %lu. lev2: %lu MB. lev1: %lu MB\n",
-					__func__, memcg->tenant_name, memcg->hotness_intensity,
-					memcg->lev2_size >> 8, memcg->lev1_size >> 8);	
+				pr_info("[%s] [ %s ]. hotness intensity: %lu p (WSS / RSS)\n",
+					__func__, memcg->tenant_name, memcg->hotness_intensity);
 				
 				WRITE_ONCE(memcg->hi_determined, true);
 			}
@@ -1578,8 +1579,8 @@ static void increase_active_threshold(struct mem_cgroup *memcg, unsigned int act
 			continue;
 		WRITE_ONCE(pn->need_adjusting, true);
 	}
-	pr_info("[%s] [ %s ] threshold increase to %u\n",
-		__func__, memcg->tenant_name, active_threshold);
+	//pr_info("[%s] [ %s ] threshold increase to %u\n",
+	//	__func__, memcg->tenant_name, active_threshold);
 
 }
 
@@ -1594,16 +1595,16 @@ static void decrease_active_threshold(struct mem_cgroup *memcg, unsigned int act
 			continue;
 		WRITE_ONCE(pn->need_adjusting_all, true);
 	}
-	pr_info("[%s] [ %s ] threshold decrease to %u\n",
-		__func__, memcg->tenant_name, active_threshold);
+	//pr_info("[%s] [ %s ] threshold decrease to %u\n",
+	//	__func__, memcg->tenant_name, active_threshold);
 }
 
 static void adjust_active_threshold(struct mem_cgroup *memcg)
 {
 	int idx_hot;
 	unsigned long nr_active = 0;
-	unsigned long max_nr_pages = memcg->max_nr_dram_pages - 
-			get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
+	unsigned long max_nr_pages = (memcg->max_nr_dram_pages > get_memcg_promotion_wmark(memcg->max_nr_dram_pages)) ?
+			memcg->max_nr_dram_pages - get_memcg_promotion_wmark(memcg->max_nr_dram_pages) : 0;
 	unsigned int prev_threshold = READ_ONCE(memcg->active_threshold);
 	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
 					MTTM_INIT_THRESHOLD : 9;
@@ -1736,7 +1737,7 @@ static int kmigrated(void *p)
 			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
-			pr_info("[%s] [ %s ] node0 active scan\n",__func__, memcg->tenant_name);
+			//pr_info("[%s] [ %s ] node0 active scan\n",__func__, memcg->tenant_name);
 		}
 		else if(READ_ONCE(pn0->need_adjusting_all)) {
 			nr_to_active = 0;
@@ -1744,7 +1745,7 @@ static int kmigrated(void *p)
 			adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
-			pr_info("[%s] [ %s ] node0 inactive scan\n",__func__, memcg->tenant_name);
+			//pr_info("[%s] [ %s ] node0 inactive scan\n",__func__, memcg->tenant_name);
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 
@@ -1754,7 +1755,7 @@ static int kmigrated(void *p)
 			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
-			pr_info("[%s] [ %s ] node1 active scan\n",__func__, memcg->tenant_name);
+			//pr_info("[%s] [ %s ] node1 active scan\n",__func__, memcg->tenant_name);
 		}
 		else if(READ_ONCE(pn1->need_adjusting_all)) {
 			nr_to_active = 0;
@@ -1762,7 +1763,7 @@ static int kmigrated(void *p)
 			adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
 			tot_nr_to_active += nr_to_active;
 			tot_nr_to_inactive += nr_to_inactive;
-			pr_info("[%s] [ %s ] node1 inactive scan\n",__func__, memcg->tenant_name);
+			//pr_info("[%s] [ %s ] node1 inactive scan\n",__func__, memcg->tenant_name);
 		}
 		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
 		one_manage_cputime += (jiffies - stamp);
@@ -1807,7 +1808,7 @@ static int kmigrated(void *p)
 		promote_pingpong = 0;
 
 		// Migration
-		if(memcg->use_mig && !active_lru_overflow(memcg)) {
+		if(memcg->use_mig/* && !active_lru_overflow(memcg)*/) {
 			if(need_fmem_demotion(NODE_DATA(0), memcg, &nr_exceeded)) {	
 				tot_demoted += demote_node(NODE_DATA(0), memcg, nr_exceeded, &demote_cputime, &demote_pingpong);
 				one_do_mig_cputime += demote_cputime;
@@ -1845,7 +1846,7 @@ static int kmigrated(void *p)
 		trace_migration_stats(tot_promoted, tot_demoted,
 			memcg->cooling_clock, memcg->cooling_period,
 			memcg->active_threshold, memcg->warm_threshold,
-			promotion_denied, nr_exceeded,
+			/*promotion_denied*/READ_ONCE(memcg->nodeinfo[0]->need_demotion), nr_exceeded,
 			memcg->nr_sampled, memcg->nr_load, memcg->nr_store);
 
 		if(tot_nr_cooled + tot_nr_adjusted + tot_nr_to_active + tot_nr_to_inactive)

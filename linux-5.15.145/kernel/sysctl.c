@@ -201,7 +201,8 @@ extern unsigned long donor_threshold;
 extern unsigned long acceptor_threshold;
 extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
-extern unsigned int use_naive_hi;
+extern unsigned int use_hi_first;
+extern unsigned int use_mar_first;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_limit;
 extern unsigned int print_more_info;
@@ -2984,8 +2985,15 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
-		.procname	= "use_naive_hi",
-		.data		= &use_naive_hi,
+		.procname	= "use_hi_first",
+		.data		= &use_hi_first,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "use_mar_first",
+		.data		= &use_mar_first,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
