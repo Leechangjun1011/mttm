@@ -193,7 +193,6 @@ extern int enable_ksampled;
 extern int enable_kptscand;
 extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
-extern unsigned long pebs_stable_period;
 extern unsigned long store_sample_period;
 extern unsigned int use_dram_determination;
 extern unsigned int use_memstrata_policy;
@@ -203,6 +202,8 @@ extern unsigned int use_region_separation;
 extern unsigned int use_hotness_intensity;
 extern unsigned int use_hi_first;
 extern unsigned int use_mar_first;
+extern unsigned int hi_weight;
+extern unsigned int mar_weight;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_limit;
 extern unsigned int print_more_info;
@@ -219,8 +220,11 @@ extern unsigned int kptscand_period_in_us;
 extern unsigned int remote_latency;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
+extern unsigned int qos_wss_factor;
 extern unsigned int basepage_shift_factor;
 extern unsigned int basepage_period_factor;
+extern unsigned int hugepage_shift_factor;
+extern unsigned int hugepage_period_factor;
 #endif
 
 #endif /* CONFIG_SYSCTL */
@@ -2929,13 +2933,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
-		.procname	= "pebs_stable_period",
-		.data		= &pebs_stable_period,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
-	{
 		.procname	= "store_sample_period",
 		.data		= &store_sample_period,
 		.maxlen		= sizeof(unsigned long),
@@ -2999,6 +2996,20 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
+		.procname	= "hi_weight",
+		.data		= &hi_weight,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "mar_weight",
+		.data		= &mar_weight,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
 		.procname	= "use_pingpong_reduce",
 		.data		= &use_pingpong_reduce,
 		.maxlen		= sizeof(unsigned int),
@@ -3057,6 +3068,27 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "reduce_scan",
 		.data		= &reduce_scan,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "qos_wss_factor",
+		.data		= &qos_wss_factor,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "hugepage_shift_factor",
+		.data		= &hugepage_shift_factor,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "hugepage_period_factor",
+		.data		= &hugepage_period_factor,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

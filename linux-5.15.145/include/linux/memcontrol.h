@@ -388,6 +388,8 @@ struct mem_cgroup {
 	unsigned int		warm_threshold;
 	spinlock_t		access_lock;// lock for histogram
 	unsigned long		hotness_hg[16];// page distribution
+	unsigned long		hotness_hg_local[16];// rxc_reject resolve
+	unsigned long		zero_access_local_pages;
 	unsigned long		interval_sample[5];
 	unsigned long		highest_rate;
 	unsigned long		mean_rate;
@@ -414,6 +416,8 @@ struct mem_cgroup {
 	struct mm_struct	*vtmm_mm;
 	pid_t			vtmm_pid;
 	unsigned int		dma_chan_start;
+	unsigned int		qos_wss;
+	unsigned long		rxc_reject_inv_ratio;
 
 	unsigned long		region_size[NR_REGION];//dram sensitivity
 	uint32_t		nr_region_access[NR_REGION];

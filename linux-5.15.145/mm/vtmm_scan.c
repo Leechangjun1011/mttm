@@ -353,6 +353,7 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_destroy(memcg->ml_queue[i]);
 		kfree(memcg->ml_queue[i]);
+		memcg->ml_queue[i] = NULL;
 	}
 
 	for(i = 0; i < BUCKET_MAX; i++) {
@@ -371,14 +372,16 @@ static void promote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
 {
 	void *xa_ret;
 	if(vp->ml_queue_lev < ML_QUEUE_MAX - 1) {
-		xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
+		if(memcg->ml_queue[vp->ml_queue_lev]) {
+			xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
 
-		if(xa_ret && !xa_is_err(xa_ret)) {
-			vp->ml_queue_lev++;
-			vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
-			vp->skip_scan = true;
-			xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
-				(void *)vp, GFP_KERNEL);
+			if(xa_ret && !xa_is_err(xa_ret)) {
+				vp->ml_queue_lev++;
+				vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
+				vp->skip_scan = true;
+				xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
+					(void *)vp, GFP_KERNEL);
+			}
 		}
 	}
 	else {
@@ -391,17 +394,19 @@ static void demote_ml_queue(struct mem_cgroup *memcg, struct vtmm_page *vp)
 {
 	void *xa_ret;
 	if(vp->ml_queue_lev > 0) {
-		xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
+		if(memcg->ml_queue[vp->ml_queue_lev]) {
+			xa_ret = xa_erase(memcg->ml_queue[vp->ml_queue_lev], vp->addr);
 
-		if(xa_ret && !xa_is_err(xa_ret)) {
-			vp->ml_queue_lev--;	
-			if(vp->ml_queue_lev > 0)
-				vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
-			else
-				vp->remained_dnd_time = 0;
+			if(xa_ret && !xa_is_err(xa_ret)) {
+				vp->ml_queue_lev--;	
+				if(vp->ml_queue_lev > 0)
+					vp->remained_dnd_time = (1U << (vp->ml_queue_lev - 1));
+				else
+					vp->remained_dnd_time = 0;
 
-			xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
-				(void *)vp, GFP_KERNEL);
+				xa_store(memcg->ml_queue[vp->ml_queue_lev], vp->addr,
+					(void *)vp, GFP_KERNEL);
+			}
 		}
 	}
 	else {
@@ -675,10 +680,12 @@ unsigned long get_nr_bucket_pages(struct list_head *page_bucket)
 	struct vtmm_page *vp;
 
 	list_for_each_entry(vp, page_bucket, list) {
-		if(vp->is_thp)
-			nr_pages += HPAGE_PMD_NR;
-		else
-			nr_pages ++;
+		if(vp) {
+			if(vp->is_thp)
+				nr_pages += HPAGE_PMD_NR;
+			else
+				nr_pages ++;
+		}
 	}
 
 	return nr_pages;
@@ -688,16 +695,19 @@ static unsigned long get_nr_bucket_hot_pages(struct list_head *page_bucket)
 {
 	unsigned long nr_pages = 0;
 	struct vtmm_page *vp;
+	unsigned int page_access;
 	
 	list_for_each_entry(vp, page_bucket, list) {
-		unsigned int page_access = bitmap_weight(&vp->read_count, BITMAP_MAX) +
-					bitmap_weight(&vp->write_count, BITMAP_MAX);
-		if(page_access < 3)
-			continue;
-		if(vp->is_thp)
-			nr_pages += HPAGE_PMD_NR;
-		else
-			nr_pages ++;
+		if(vp) {
+			page_access = bitmap_weight(&vp->read_count, BITMAP_MAX) +
+						bitmap_weight(&vp->write_count, BITMAP_MAX);
+			if(page_access < 3)
+				continue;
+			if(vp->is_thp)
+				nr_pages += HPAGE_PMD_NR;
+			else
+				nr_pages ++;
+		}
 	}
 
 	return nr_pages;

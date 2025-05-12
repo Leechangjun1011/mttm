@@ -5276,6 +5276,8 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
 	memcg->warm_threshold = MTTM_INIT_THRESHOLD;
+	memcg->rxc_reject_inv_ratio = 0;
+	memcg->qos_wss = 0;
 
 	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
 		memcg->cooling_period *= basepage_period_factor;
@@ -5308,8 +5310,11 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->vtmm_pid = 0;
 	memcg->init_dram_size = 0;
 
-	for(i = 0; i < 16; i++)
+	for(i = 0; i < 16; i++) {
 		memcg->hotness_hg[i] = 0;
+		memcg->hotness_hg_local[i] = 0;
+	}
+	memcg->zero_access_local_pages = 0;
 	for(i = 0; i < 5; i++) {
 		memcg->interval_sample[i] = 0;
 	}
@@ -7777,6 +7782,7 @@ static int __init mem_cgroup_use_warm_init(void)
 }
 subsys_initcall(mem_cgroup_use_warm_init);
 
+
 static int memcg_use_mig_show(struct seq_file *m, void *v)
 {
 	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
@@ -7820,6 +7826,52 @@ static int __init mem_cgroup_use_mig_init(void)
 }
 subsys_initcall(mem_cgroup_use_mig_init);
 
+static int memcg_qos_wss_show(struct seq_file *m, void *v)
+{
+	struct mem_cgroup *memcg = mem_cgroup_from_css(seq_css(m));
+	unsigned int qos_wss = READ_ONCE(memcg->qos_wss);
+
+	seq_printf(m, "cooling_period %u\n", qos_wss);
+	return 0;
+}
+
+static ssize_t memcg_qos_wss_write(struct kernfs_open_file *of,
+        char *buf, size_t nbytes, loff_t off)
+{
+    struct mem_cgroup *memcg = mem_cgroup_from_css(of_css(of));
+    struct cftype *cur_file = of_cft(of);
+    unsigned int qos_wss;
+    int err;
+
+    buf = strstrip(buf);
+    err = kstrtouint(buf, 10, &qos_wss);
+    if (err) {
+        pr_info("[%s] parsing error\n",__func__);
+        return err;
+    }
+
+    xchg(&memcg->qos_wss, qos_wss);
+ 
+    return nbytes;
+}
+
+static struct cftype memcg_qos_wss_file[] = {
+	{
+		.name = "qos_wss",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = memcg_qos_wss_show,
+                .write = memcg_qos_wss_write,
+	},
+	{},
+};
+
+static int __init mem_cgroup_qos_wss_init(void)
+{
+	WARN_ON(cgroup_add_legacy_cftypes(&memory_cgrp_subsys,
+                    memcg_qos_wss_file));
+	return 0;
+}
+subsys_initcall(mem_cgroup_qos_wss_init);
 
 
 static int memcg_cooling_period_show(struct seq_file *m, void *v)

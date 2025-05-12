@@ -1,4 +1,13 @@
 #!/bin/bash -xe
+
+conda_activate=/root/anaconda3/bin/activate
+
+set -a
+. /home/cjlee/CXL-emulation.code/workloads/isca23_dlrm/paths.export
+set +a
+
+source $conda_activate dlrm_cpu
+
 export LD_PRELOAD=$CONDA_PREFIX/lib/libiomp5.so #:$CONDA_PREFIX/lib/libjemalloc.so
 export MALLOC_CONF="oversize_threshold:1,background_thread:true,metadata_thp:auto,dirty_decay_ms:9000000000,muzzy_decay_ms:9000000000"
 export KMP_AFFINITY=verbose,granularity=fine,compact,1,0

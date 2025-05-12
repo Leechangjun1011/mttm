@@ -53,6 +53,8 @@ extern unsigned int check_stable_sample_rate;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
 
+unsigned int hugepage_period_factor = 1;
+unsigned int hugepage_shift_factor = 2;
 unsigned int basepage_period_factor = 40;
 unsigned int basepage_shift_factor = 9;
 unsigned long kmigrated_period_in_ms = 1000;
@@ -862,7 +864,7 @@ static unsigned long promote_node_expanded(pg_data_t *pgdat, struct mem_cgroup *
 	return nr_promoted;
 }
 
-
+// deprecated
 static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum lru_list lru, unsigned long *nr_active_cooled, unsigned long *nr_active_still_hot)
 {
@@ -957,6 +959,7 @@ static unsigned long cooling_lru_list(unsigned long nr_to_scan, struct lruvec *l
 	return nr_taken;
 }
 
+// deprecated
 static void cooling_node(pg_data_t *pgdat, struct mem_cgroup *memcg,
 		unsigned long *nr_cooled, unsigned long *nr_still_hot)
 {
@@ -1439,8 +1442,8 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 	tot_huge_pages = tot_pages >> 9;
 
 	if(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
-		shift_factor = 2;
-		period_factor = 1;
+		shift_factor = hugepage_shift_factor;
+		period_factor = hugepage_period_factor;
 	}
 	else {
 		shift_factor = basepage_shift_factor;

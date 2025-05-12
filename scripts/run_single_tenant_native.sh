@@ -164,6 +164,8 @@ elif [[ "$2" == "xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 30"
 	elif [[ "$3" == "config11" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
+	elif [[ "$3" == "config12" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 22"
 	elif [[ "$3" == "motiv-xindex" ]]; then
 	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 20"
 	else
@@ -205,7 +207,7 @@ elif [[ "$2" == "silo" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 2 --scale-factor 80000 --ops-per-worker=900000000"
 	else
-	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 240000 --ops-per-worker=200000000"
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 240000 --ops-per-worker=450000000"
 	fi
 	echo 100G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
@@ -295,6 +297,10 @@ elif [[ "$2" == "bwaves" ]]; then
         BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 603.bwaves_s"
         echo 20G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "fotonik" ]]; then
+	cur_path=$PWD
+        cd ${BENCH_DIR}/SPECCPU_2017
+        source shrc
+        cd ${cur_path}
 	if [[ "$3" == "config2" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	elif [[ "$3" == "config6" ]]; then
@@ -310,7 +316,7 @@ elif [[ "$2" == "fotonik" ]]; then
 	elif [[ "$3" == "12tenants" ]]; then
 	        BENCH="runcpu --config=mttm_3 --noreportable --iteration=1 649.fotonik3d_s"
 	else
-	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=1 649.fotonik3d_s"
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	fi
         echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "roms" ]]; then
@@ -359,8 +365,8 @@ elif [[ "$2" == "gups_small" ]]; then
 	echo 10G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
-        BENCH="${BENCH_PATH}/gups 16 1000000000 35 8 33 90"
-	echo 16G > ${CGMEM_DIR}/memory.max_at_node0
+        BENCH="${BENCH_PATH}/gups 24 1000000000 35 8 33 90"
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"
@@ -376,7 +382,7 @@ function release_cpuset
 	echo "0-23" > ${CGCPU_DIR}/cpuset.cpus
 }
 
-${BENCH} & release_cpuset
+time ${BENCH} & release_cpuset
 wait
 
 

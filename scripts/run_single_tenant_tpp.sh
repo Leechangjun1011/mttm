@@ -43,7 +43,11 @@ elif [[ "$2" == "xsbench" ]]; then
         BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 30000000" #g 130000
 elif [[ "$2" == "xindex" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
-        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
+	if [[ "$3" == "config2" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
+	elif [[ "$3" == "config12" ]]; then
+	        BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 22"
+	fi
 elif [[ "$2" == "xindex_large" ]]; then
         BENCH_PATH="${BENCH_DIR}/XIndex-H"
         BENCH="${BENCH_PATH}/build/ycsb_bench_large --fg 6 --iteration 20"
@@ -105,6 +109,10 @@ elif [[ "$2" == "gups_store" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups-store 8 4000000000 35 8 33"
 elif [[ "$2" == "fotonik" ]]; then
+	cur_path=$PWD
+	cd ${BENCH_DIR}/SPECCPU_2017
+	source shrc
+	cd ${cur_path}
         if [[ "$3" == "config2" ]]; then
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
         elif [[ "$3" == "config13" ]]; then

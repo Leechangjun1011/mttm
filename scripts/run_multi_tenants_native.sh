@@ -50,7 +50,7 @@ elif [[ "$1" == "config11" ]]; then
 	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config12" ]]; then
 	workload[1]="btree"
-	workload[2]="xindex_large"
+	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config13" ]]; then
 	workload[1]="gapbs-pr"

@@ -24,10 +24,15 @@
 #include "internal.h"
 #include <linux/mttm.h>
 #include <linux/xarray.h>
+#include <linux/pci.h>
+#include <uapi/linux/pci.h>
+#include <linux/hrtimer.h>
+#include <linux/ktime.h>
+#include <linux/delay.h>
+
 
 int enable_ksampled = 0;
-unsigned long pebs_stable_period = 10007;
-unsigned long pebs_sample_period = 10007;
+unsigned long pebs_sample_period = PEBS_INIT_PERIOD;
 unsigned long store_sample_period = 100003;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
@@ -37,6 +42,8 @@ unsigned int use_region_separation = 1;
 unsigned int use_hotness_intensity = 0;
 unsigned int use_hi_first = 0;
 unsigned int use_mar_first = 0;
+unsigned int hi_weight = 1;
+unsigned int mar_weight = 1;
 unsigned int use_pingpong_reduce = 1;
 unsigned int remote_latency = 130;
 unsigned int print_more_info = 0;
@@ -64,6 +71,33 @@ extern int enabled_kptscand;
 extern struct task_struct *kptscand_thread;
 unsigned int scanless_cooling = 1;
 unsigned int reduce_scan = 1;
+unsigned int qos_wss_factor = 100;
+
+u64 smoothed_occ_local = 0, smoothed_inserts_local = 0;
+u64 smoothed_occ_remote = 0, smoothed_inserts_remote = 0;
+u64 smoothed_lat_local = 80, smoothed_lat_remote = 135;
+u64 smoothed_rxc_insert_local = 0, smoothed_rxc_insert_remote = 0;
+u64 smoothed_rxc_reject_local = 0, smoothed_rxc_reject_remote = 0;
+u64 smoothed_rxc_reject_ratio_local = 0, smoothed_rxc_reject_ratio_remote = 0;
+
+
+
+int IMC_BUS_SOCKET[2] = {0x3a, 0xae};
+int IMC_DEVICE_CHANNEL[6] = {0x0a, 0x0a, 0x0b, 0x0c, 0x0c, 0x0d};
+int IMC_FUNCTION_CHANNEL[6] = {0x2, 0x6, 0x2, 0x2, 0x6, 0x2};
+int IMC_PMONCTRL_OFFSET[5] = {0xd8, 0xdc, 0xe0, 0xe4, 0xf0};
+int IMC_PMONCTR_OFFSET[5] = {0xa0, 0xa8, 0xb0, 0xb8, 0xd0};
+uint64_t cur_imc_counts[NUM_SOCKETS][NUM_IMC_CHANNELS][NUM_IMC_COUNTERS] = {0,};
+uint64_t prev_imc_counts[NUM_SOCKETS][NUM_IMC_CHANNELS][NUM_IMC_COUNTERS] = {0,};
+unsigned long cur_bw_jiffies, prev_bw_jiffies;
+unsigned long smoothed_bw_local = 0, smoothed_bw_remote = 0;
+unsigned int latency_inversion = 0;
+
+
+uint64_t to_BW(uint64_t nr_event, unsigned long elapsed)
+{
+        return ((nr_event * 64) / 1000000) * 1000 / jiffies_to_msecs(elapsed);
+}
 
 bool node_is_toptier(int nid)
 {
@@ -359,6 +393,10 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 	spin_lock(&memcg->access_lock);
 	if(memcg->hotness_hg[idx] > 0)
 		memcg->hotness_hg[idx]--;
+	if(page_to_nid(page) == 0) {
+		if(memcg->hotness_hg_local[idx] > 0)
+			memcg->hotness_hg_local[idx]--;
+	}
 	spin_unlock(&memcg->access_lock);	
 
 }
@@ -428,6 +466,13 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 			memcg->hotness_hg[idx] -= nr_pages;
 		else
 			memcg->hotness_hg[idx] = 0;
+
+		if(page_to_nid(page) == 0) {
+			if(memcg->hotness_hg_local[idx] >= nr_pages)
+				memcg->hotness_hg_local[idx] -= nr_pages;
+			else
+				memcg->hotness_hg_local[idx] = 0;
+		}
 		spin_unlock(&memcg->access_lock);
 	}
 }
@@ -539,6 +584,32 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	return 0;
 }
 
+static void pebs_update_period(uint64_t new_period)
+{
+	int cpu, event;
+
+	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
+		for(event = 0; event < NR_EVENTTYPE; event++) {
+			int ret;
+			if(!pfe[cpu][event])
+				continue;
+
+			switch(event) {
+				case DRAMREAD:
+				case CXLREAD:
+					ret = perf_event_period(pfe[cpu][event], new_period);
+					break;
+				default:
+					ret = 0;
+					break;
+			}
+			if(ret == -EINVAL)
+				pr_err("[%s] failed to update pebs sample period\n",__func__);
+
+		}
+	}
+}
+
 
 SYSCALL_DEFINE2(mttm_register_pid,
 		pid_t, pid, const char __user *, u_name)
@@ -583,6 +654,7 @@ SYSCALL_DEFINE2(mttm_register_pid,
 				WRITE_ONCE(memcg_list[i]->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
 				WRITE_ONCE(memcg_list[i]->max_nr_dram_pages, mttm_local_dram / current_tenants);
 				WRITE_ONCE(memcg_list[i]->init_dram_size, memcg_list[i]->max_nr_dram_pages);
+				WRITE_ONCE(memcg_list[i]->dram_fixed, false);
 				pr_info("[%s] [ %s ] dram size set to %lu MB\n",
 					__func__, memcg_list[i]->tenant_name, memcg_list[i]->max_nr_dram_pages >> 8);
 			}
@@ -771,6 +843,7 @@ static void reset_memcg_stat(struct mem_cgroup *memcg)
 	int i;
 	for(i = 0; i < 16; i++){
 		memcg->hotness_hg[i] = 0;
+		memcg->hotness_hg_local[i] = 0;
 	}
 	WRITE_ONCE(memcg->hg_mismatch, false);
 }
@@ -818,6 +891,7 @@ void set_lru_adjusting(struct mem_cgroup *memcg, bool inc_thres)
 
 }
 
+// deprecated
 static void adjust_active_threshold(struct mem_cgroup *memcg)
 {
 	unsigned long nr_active = 0;
@@ -952,6 +1026,7 @@ lru_unlock:
 }
 
 // Invoked at kmigrated
+// deprecated
 void check_transhuge_cooling_reset(void *arg, struct page *page)
 {
 	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
@@ -976,6 +1051,7 @@ void check_transhuge_cooling_reset(void *arg, struct page *page)
 }
 
 // Invoked at kmigrated
+// deprecated
 void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
 {
 	struct mem_cgroup *memcg = page_memcg(page);
@@ -1029,6 +1105,14 @@ void check_transhuge_cooling(void *arg, struct page *page)
 		else
 			memcg->hotness_hg[prev_idx] = 0;
 		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+
+		if(page_to_nid(page) == 0) {
+			if(memcg->hotness_hg_local[prev_idx] >= HPAGE_PMD_NR)
+				memcg->hotness_hg_local[prev_idx] -= HPAGE_PMD_NR;
+			else
+				memcg->hotness_hg_local[prev_idx] = 0;
+			memcg->hotness_hg_local[cur_idx] += HPAGE_PMD_NR;
+		}
 	}
 
 	spin_unlock(&memcg->access_lock);
@@ -1063,6 +1147,12 @@ void check_base_cooling(pginfo_t *pginfo, struct page *page)
 		if(memcg->hotness_hg[prev_idx] > 0)
 			memcg->hotness_hg[prev_idx]--;
 		memcg->hotness_hg[cur_idx]++;
+
+		if(page_to_nid(page) == 0) {
+			if(memcg->hotness_hg_local[prev_idx] > 0)
+				memcg->hotness_hg_local[prev_idx]--;
+			memcg->hotness_hg_local[cur_idx]++;
+		}
 	}
 
 	spin_unlock(&memcg->access_lock);
@@ -1097,6 +1187,13 @@ void update_base_page(struct vm_area_struct *vma, struct page *page,
 		if(memcg->hotness_hg[prev_idx] > 0)
 			memcg->hotness_hg[prev_idx]--;
 		memcg->hotness_hg[cur_idx]++;
+
+		if(page_to_nid(page) == 0) {
+			if(memcg->hotness_hg_local[prev_idx] > 0)
+				memcg->hotness_hg_local[prev_idx]--;
+			memcg->hotness_hg_local[cur_idx]++;
+		}
+
 	}
 	spin_unlock(&memcg->access_lock);
 
@@ -1140,6 +1237,14 @@ void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 		else
 			memcg->hotness_hg[prev_idx] = 0;
 		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
+
+		if(page_to_nid(page) == 0) {
+			if(memcg->hotness_hg_local[prev_idx] >= HPAGE_PMD_NR)
+				memcg->hotness_hg_local[prev_idx] -= HPAGE_PMD_NR;
+			else
+				memcg->hotness_hg_local[prev_idx] = 0;
+			memcg->hotness_hg_local[cur_idx] += HPAGE_PMD_NR;
+		}
 	}
 	spin_unlock(&memcg->access_lock);
 
@@ -1423,8 +1528,8 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 				unsigned long stdev, unsigned long mean,
 				unsigned long mean_rate)
 {
-	unsigned long sampling_factor = 10007 / pebs_sample_period;
-	unsigned long std_rate = 100 * sampling_factor;
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
+	unsigned long std_rate = 100 * sampling_factor;//100 when pebs_sample_period is 10007
 
 	if(stdev >= mean) {
 		if(memcg->stable_cnt > 0) {
@@ -1444,10 +1549,10 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 
 
 
-static void check_rate_change(struct mem_cgroup *memcg)
+void check_rate_change(struct mem_cgroup *memcg)
 {
 	int j;
-	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
 	unsigned long hard_max = 10;
 
@@ -1457,7 +1562,7 @@ static void check_rate_change(struct mem_cgroup *memcg)
 	if((memcg->highest_rate * 6 / 5) < memcg->mean_rate) {
 		memcg->lowered_cnt = 0;
 
-		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);		
+		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);
 		WRITE_ONCE(memcg->hotness_scan_cnt, min_t(unsigned long, hard_max, max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / std_rate)));
 
 		pr_info("[%s] [ %s ] highest rate updated to %lu. scan_cnt updated to %lu\n",
@@ -1513,6 +1618,155 @@ void expand_ac_pages(struct mem_cgroup *memcg)
 
 	pr_info("[%s] [ %s ] rss: %lu GB. giga bitmap expand to %u\n",
 		__func__, memcg->tenant_name, memcg->max_anon_rss >> 18, memcg->giga_bitmap_in_use);
+}
+
+struct mem_cgroup *find_rxc_reject_acceptor(void)
+{
+	int i;
+	struct mem_cgroup *memcg, *ret;
+	unsigned long cur_inv_reject_ratio = ULONG_MAX;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(cur_inv_reject_ratio > memcg->rxc_reject_inv_ratio) {
+				cur_inv_reject_ratio = memcg->rxc_reject_inv_ratio;
+				ret = memcg;
+			}
+		}
+	}
+
+	return ret;
+}
+
+struct mem_cgroup *find_rxc_reject_donor(struct mem_cgroup *acceptor)
+{
+	// find tenant that has most pages with zero access count
+	int i;
+	struct mem_cgroup *memcg, *ret;
+	unsigned long cur_zal_pages = 0;
+
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
+	unsigned long std_rate = 200 * sampling_factor;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(cur_zal_pages < memcg->zero_access_local_pages &&
+				memcg->mean_rate > std_rate &&
+				memcg->max_nr_dram_pages > memcg->init_dram_size / 2 &&
+				memcg != acceptor &&
+				memcg->rxc_reject_inv_ratio > acceptor->rxc_reject_inv_ratio * 2) {
+				cur_zal_pages = memcg->zero_access_local_pages;
+				ret = memcg;
+			}
+		}
+	}
+
+	return ret;
+}
+
+void resolve_rxc_reject(struct mem_cgroup *acceptor, struct mem_cgroup *donor)
+{
+	unsigned long acceptor_demand;
+	unsigned long donor_available;
+	unsigned long step_quota_max = (1UL << 30) / PAGE_SIZE;
+	unsigned long step_quota_min = (1UL << 20) * 100 / PAGE_SIZE;
+	unsigned long donated_pages;
+
+	acceptor_demand = lruvec_lru_size(mem_cgroup_lruvec(acceptor, NODE_DATA(1)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES) + 
+				lruvec_lru_size(mem_cgroup_lruvec(acceptor, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+
+	donor_available = donor->zero_access_local_pages / 2;
+
+	donated_pages = (acceptor_demand < step_quota_min) ? acceptor_demand : acceptor_demand / 2;
+	donated_pages = min_t(unsigned long, donated_pages, donor_available);
+	donated_pages = min_t(unsigned long, donated_pages, step_quota_max);
+
+	if(donor->max_nr_dram_pages > donated_pages) {	
+		set_dram_size(donor, donor->max_nr_dram_pages - donated_pages, true);
+		set_dram_size(acceptor, acceptor->max_nr_dram_pages + donated_pages, true);
+		pr_info("[%s] donor [ %s ] dram: %lu MB, rate: %lu, acceptor [ %s ] dram: %lu MB. %lu MB donated\n",
+			__func__, donor->tenant_name, donor->max_nr_dram_pages >> 8, donor->mean_rate,
+			acceptor->tenant_name, acceptor->max_nr_dram_pages >> 8,
+			donated_pages >> 8);
+	}
+
+}
+
+void check_rxc_reject_ratio(int *rxc_reject_cnt)
+{
+	int i, j;
+	struct mem_cgroup *memcg, *acceptor, *donor;
+	unsigned long remote_rss, local_rss, accessed_local_pages, accessed_remote_pages, zero_access_local_pages;
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
+	unsigned long std_rate = 200 * sampling_factor;
+
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(!READ_ONCE(memcg->dram_fixed))
+				return;
+		}
+	}
+
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			remote_rss = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_INACTIVE_ANON, MAX_NR_ZONES) + 
+					lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+					LRU_ACTIVE_ANON, MAX_NR_ZONES);
+			local_rss = get_anon_rss(memcg) - remote_rss;
+
+			spin_lock(&memcg->access_lock);
+			accessed_local_pages = 0;
+			accessed_remote_pages = 0;
+			for(j = 1; j < 16; j++) {
+				accessed_local_pages += memcg->hotness_hg_local[j];
+				accessed_remote_pages += ((memcg->hotness_hg[j] > memcg->hotness_hg_local[j]) ? memcg->hotness_hg[j] - memcg->hotness_hg_local[j] : 0);
+			}
+			spin_unlock(&memcg->access_lock);
+
+			zero_access_local_pages = (local_rss > accessed_local_pages) ? (local_rss - accessed_local_pages) : 0;
+			memcg->zero_access_local_pages = (memcg->zero_access_local_pages + zero_access_local_pages) / 2;
+
+			if(memcg->nr_remote && remote_rss && memcg->mean_rate > std_rate) {
+				memcg->rxc_reject_inv_ratio = (memcg->rxc_reject_inv_ratio + (remote_rss / memcg->nr_remote)) / 2;
+				pr_info("[%s] [ %s ] remote access: %lu, remote rss: %lu (accessed: %lu), inv_ratio: %lu, reject ratio[local: %llu, remote: %llu], zal_pages: %lu\n",
+					__func__, memcg->tenant_name, memcg->nr_remote, remote_rss, accessed_remote_pages,
+					memcg->rxc_reject_inv_ratio,
+					smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
+					memcg->zero_access_local_pages);
+			}
+		}
+	}
+
+	
+	if(smoothed_rxc_reject_ratio_local > 100 && smoothed_rxc_reject_ratio_remote > 100) {
+		(*rxc_reject_cnt)++;
+		pr_info("[%s] rxc_reject_cnt: %d\n",__func__, *rxc_reject_cnt);
+		if(*rxc_reject_cnt >= 3) {
+			// find highest inv reject ratio
+			acceptor = find_rxc_reject_acceptor();
+		
+			// find donor
+			donor = find_rxc_reject_donor(acceptor);
+
+			// donate fast memory
+			if(acceptor && donor)
+				resolve_rxc_reject(acceptor, donor);
+
+			*rxc_reject_cnt = 0;
+		}
+		
+	}
+
+
 }
 
 
@@ -1603,8 +1857,11 @@ static void calculate_sample_rate_stat_mpki(void)
 			memcg->nr_local = 0;
 			memcg->nr_remote = 0;
 
-			if(memcg->max_anon_rss < get_anon_rss(memcg))
+			if(memcg->max_anon_rss < get_anon_rss(memcg)) {
 				memcg->max_anon_rss = get_anon_rss(memcg);
+				if(scanless_cooling)
+					expand_ac_pages(memcg);
+			}
 		}
 	}
 }
@@ -1629,7 +1886,7 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 
 static unsigned long calculate_valid_rate(unsigned long sample_rate)
 {
-	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 8000 when pebs_sample_period is 10007
 	unsigned long extra_rate;
 
@@ -1640,9 +1897,11 @@ static unsigned long calculate_valid_rate(unsigned long sample_rate)
 	return sample_rate;
 }
 
+
+
 void calculate_dram_sensitivity(unsigned long (*dram_sensitivity)[NR_REGION], int (*dram_determined)[NR_REGION])
 {
-	int i, j;
+	int i, j, k;
 	struct mem_cgroup *memcg;
 	bool all_region_determined = true;
 	unsigned long region_access_rate[LIMIT_TENANTS][NR_REGION] = {0,};
@@ -1653,7 +1912,7 @@ void calculate_dram_sensitivity(unsigned long (*dram_sensitivity)[NR_REGION], in
 		if(memcg) {
 			if(!READ_ONCE(memcg->region_determined)) {
 				all_region_determined = false;
-			}	
+			}
 		}
 	}
 
@@ -1664,11 +1923,36 @@ void calculate_dram_sensitivity(unsigned long (*dram_sensitivity)[NR_REGION], in
 				unsigned long valid_rate = calculate_valid_rate(memcg->mean_rate);
 				unsigned long region_access_rate;
 				unsigned long tot_access = 0;
+				unsigned long mar, access_prop, region_size;
+				
 				
 				for(j = 0; j < NR_REGION; j++)
 					tot_access += memcg->nr_region_access[j];
 
 				for(j = 0; j < NR_REGION; j++) {
+					mar = valid_rate;
+					access_prop = 10000 * memcg->nr_region_access[j] / tot_access;
+					region_size = (memcg->region_size[j] >> 8);	
+
+					if(region_size > 0) {
+						dram_sensitivity[i][j] = mar * access_prop / region_size;			
+						for(k = 1; k < mar_weight; k++)
+							dram_sensitivity[i][j] *= mar;
+						for(k = 1; k < hi_weight; k++) {
+							dram_sensitivity[i][j] *= access_prop;
+							dram_sensitivity[i][j] /= region_size;
+						}
+						if(all_region_determined)
+							pr_info("[%s] [ %s ] %dth region. [MAR: %lu, access_prop: %lu, region_size: %lu]\n",
+								__func__, memcg->tenant_name, j, mar,
+								access_prop, region_size);
+						if(dram_sensitivity[i][j] == 0)
+							dram_sensitivity[i][j] = 1;
+					}
+					else
+						dram_sensitivity[i][j] = 1;
+
+					/*
 					region_access_rate = valid_rate * memcg->nr_region_access[j] / tot_access;
 					if((memcg->region_size[j] >> 8) > 0) {
 						dram_sensitivity[i][j] = region_access_rate * 1000 / (memcg->region_size[j] >> 8);
@@ -1676,7 +1960,7 @@ void calculate_dram_sensitivity(unsigned long (*dram_sensitivity)[NR_REGION], in
 							dram_determined[i][j] = 1;//this region doesn't deserve dram
 					}
 					else
-						dram_determined[i][j] = 1;
+						dram_determined[i][j] = 1;*/
 				}
 
 				if(all_region_determined)
@@ -1771,6 +2055,29 @@ static unsigned long find_highest_dram_sensitivity(int *tenant_idx, int *region_
 	return cur_sensitivity;
 }
 
+static int find_smallest_extra_region(int *extra_determined)
+{
+	int i, j;
+	int idx = -1;
+	struct mem_cgroup *memcg;
+	unsigned long cur_region_size = ULONG_MAX;
+
+	for(i = 0; i < LIMIT_TENANTS; i++) {
+		memcg = READ_ONCE(memcg_list[i]);
+		if(memcg) {
+			if(READ_ONCE(memcg->region_determined)) {
+				if(memcg->region_size[0] < cur_region_size &&
+					extra_determined[i] == 0) {
+					idx = i;
+					cur_region_size = memcg->region_size[0];
+				}
+			}
+		}
+	}
+
+	return idx;
+}
+
 
 void distribute_local_dram_region(void)
 {
@@ -1785,9 +2092,10 @@ void distribute_local_dram_region(void)
 	unsigned long dram_size[LIMIT_TENANTS][NR_REGION] = {0,};
 	int tenant_idx, region_idx;
 	unsigned long cur_sensitivity = 0;
-	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
+
+	unsigned long extra_tenants = 0;
+	int extra_determined[LIMIT_TENANTS] = {0,};
 	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
-	unsigned long tot_extra_priority = 0;
 
 	// Check that not classified workload exist.
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -1836,82 +2144,58 @@ void distribute_local_dram_region(void)
 	// When extra local DRAM exist
 	if(tot_free_dram > 0) {
 		for(i = 0; i < LIMIT_TENANTS; i++) {
-			bool all_region_done = true;
-			unsigned long tenant_dram = 0;
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
 				if(READ_ONCE(memcg->region_determined)) {
-					for(j = 0; j < NR_REGION; j++) {
-						if(dram_determined[i][j] == 0)
-							all_region_done = false;
-					}
-					if(all_region_done) {
-						for(j = 0; j < NR_REGION; j++)
-							tenant_dram += dram_size[i][j];
-						extra_priority[i] = get_anon_rss(memcg) * 100 / tenant_dram;
-						// give extra dram to tenant that receives small dram compared to rss.
-						tot_extra_priority += extra_priority[i];
-					}
+					extra_tenants++;
 				}
 			}
 		}
-		
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			bool all_region_done = true;
-			unsigned long tenant_dram = 0;
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->region_determined)) {
-					for(j = 0; j < NR_REGION; j++) {
-						if(dram_determined[i][j] == 0)
-							all_region_done = false;
-					}
-					if(all_region_done) {
-						for(j = 0; j < NR_REGION; j++)
-							tenant_dram += dram_size[i][j];
-						if(tot_extra_priority) {
-							extra_dram[i] = min_t(unsigned long, 
-										extra_priority[i] * tot_free_dram / tot_extra_priority, 
-										get_anon_rss(memcg) - tenant_dram);
-							tot_extra_priority -= extra_priority[i];
-							tot_free_dram -= extra_dram[i];
-							if(all_region_determined)
-								pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
-									__func__, memcg->tenant_name, extra_dram[i] >> 8,
-									extra_priority[i]);
-						}
-					}
-				}
-			}
-		}
-		
 
+		while(1) {
+			tenant_idx = -1;
+			tenant_idx = find_smallest_extra_region(extra_determined);
+			if(tenant_idx == -1)
+				break;
+
+			memcg = READ_ONCE(memcg_list[tenant_idx]);
+			extra_dram[tenant_idx] = min_t(unsigned long, memcg->region_size[0], tot_free_dram / extra_tenants);
+			extra_determined[tenant_idx] = 1;
+			tot_free_dram -= extra_dram[tenant_idx];
+			extra_tenants--;
+
+			if(all_region_determined)
+				pr_info("[%s] [ %s ] extra dram size %lu MB\n",
+					__func__, memcg->tenant_name, extra_dram[tenant_idx] >> 8);
+		}
 	}
 
 
 	// Set dram size
 	for(i = 0; i < LIMIT_TENANTS; i++) {
-		bool all_region_done = true;
 		unsigned long tenant_dram = 0;
 		memcg = READ_ONCE(memcg_list[i]);
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined)) {
-				for(j = 0; j < NR_REGION; j++) {
-					if(dram_determined[i][j] == 0)
-						all_region_done = false;
+				tenant_dram = 0;
+				if(memcg->qos_wss) {
+					for(j = 1; j < NR_REGION; j++)
+						tenant_dram += dram_size[i][j];
+					tenant_dram = (tenant_dram * qos_wss_factor) / 100;
 				}
-				if(all_region_done) {
-					tenant_dram = 0;
+				else {
 					for(j = 0; j < NR_REGION; j++)
 						tenant_dram += dram_size[i][j];
 					tenant_dram += extra_dram[i];
-					if(all_region_determined) {
-						pr_info("[%s] [ %s ] dram set to %lu MB\n",
-							__func__, memcg->tenant_name, tenant_dram >> 8);
-					}
-
-					set_dram_size(memcg, tenant_dram, all_region_determined);
 				}
+			
+				set_dram_size(memcg, tenant_dram, all_region_determined);
+				if(all_region_determined) {
+					memcg->init_dram_size = tenant_dram;
+					pr_info("[%s] [ %s ] dram set to %lu MB\n",
+						__func__, memcg->tenant_name, tenant_dram >> 8);
+				}
+
 			}
 		}
 	}
@@ -1937,7 +2221,7 @@ static void rank_tenants_hi(int *dense_hot, int *sparse_hot, int *ambiguous)
 					dense_hot[d_idx] = i;
 					d_idx++;
 				}
-				else if(memcg->hotness_intensity <= sparse_hot_threshold) {
+				else if(memcg->hotness_intensity < sparse_hot_threshold) {
 					ambiguous[a_idx] = i;
 					a_idx++;
 				}
@@ -2204,7 +2488,7 @@ static void rank_tenants_mar(int lev, int (*tenant_list)[LIMIT_TENANTS])
 	int i, idx = 0;
 	struct mem_cgroup *memcg;
 	unsigned long lb, ub;
-	unsigned long sampling_factor = 10007 / pebs_sample_period;
+	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
@@ -2436,30 +2720,457 @@ static void distribute_local_dram_mpki(void)
 
 }
 
+static int backend_init(void) {
+    int cha, ret;
+    u32 msr_num;
+    u64 msr_val;
 
+    int socket, channel, bus, device, function, value;
+    int offset_rd, offset_wr, offset_dclk;
+    struct pci_bus *pci_bus;   
+    int err;
+
+    // TOR, RxC
+    for(cha = 0; cha < NUM_CHA_BOXES; cha++) {
+        msr_num = CHA_MSR_PMON_FILTER0_BASE + (0x10 * cha); // Filter0
+        msr_val = 0x00000000; // default; no filtering
+        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr FILTER0 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_FILTER1_BASE + (0x10 * cha); // Filter1
+        msr_val = (cha%2 == 0)?(0x10040432):(0x10040431); // Filter DRd+RFO of local/remote on even/odd CHA boxes
+        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr FILTER1 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 0; // counter 0
+        msr_val = 0x403136; // TOR Occupancy
+        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 0 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 1; // counter 1
+        msr_val = 0x403135; // TOR Inserts
+        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 1 failed\n");
+            return -1;
+        }
+
+        /*msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
+        msr_val = 0x400000; // CLOCKTICKS
+        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 2 failed\n");
+            return -1;
+        }*/
+	msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
+        msr_val = 0x400113; // RxC Insert
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 2 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 3; // counter 3
+        msr_val = 0x400213; // RxC Insert reject
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 3 failed\n");
+            return -1;
+        }
+
+
+    }
+
+    // RxC
+    /*
+    for(cha = 0; cha < NUM_CHA_BOXES; cha++) {
+        msr_num = CHA_MSR_PMON_FILTER0_BASE + (0x10 * cha); // Filter0
+        msr_val = 0x00000000; // default; no filtering
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr FILTER0 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_FILTER1_BASE + (0x10 * cha); // Filter1
+        msr_val = (cha%2 == 0)?(0x10040432):(0x10040431); // Filter DRd+RFO of local/remote on even/odd CHA boxes
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr FILTER1 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 0; // counter 0
+        msr_val = 0x400113; // RxC Insert
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 0 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 1; // counter 1
+        msr_val = 0x400213; // RxC Insert reject
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 1 failed\n");
+            return -1;
+        }
+
+        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
+        msr_val = 0x400000; // CLOCKTICKS
+        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
+        if(ret != 0) {
+            printk(KERN_ERR "wrmsr COUNTER 2 failed\n");
+            return -1;
+        }
+    }
+    */
+
+
+
+    // IMC
+    pci_bus = pci_find_bus(0, 0);
+    if(pci_bus) {
+        err = pci_bus_read_config_dword(pci_bus, PCI_DEVFN(0x05, 0), 0, &value);
+        pr_info("[%s] pci_bus found. value: 0x%x\n",
+                __func__, value);
+    }
+
+    // set control register
+    for(socket = 0; socket < NUM_SOCKETS; socket++) {
+        bus = IMC_BUS_SOCKET[socket];
+        for(channel = 0; channel < NUM_IMC_CHANNELS; channel++) {
+            device = IMC_DEVICE_CHANNEL[channel];
+            function = IMC_FUNCTION_CHANNEL[channel];
+            offset_rd = IMC_PMONCTRL_OFFSET[0];//read
+            offset_wr = IMC_PMONCTRL_OFFSET[1];//write
+            offset_dclk = IMC_PMONCTRL_OFFSET[4];//DCLK
+
+            pci_bus = NULL;
+            pci_bus = pci_find_bus(0, bus);
+            if(pci_bus) {
+                pci_bus_write_config_dword(pci_bus, PCI_DEVFN(device, function),
+                                                        offset_rd, 0x00420304);
+                pci_bus_write_config_dword(pci_bus, PCI_DEVFN(device, function),
+                                                        offset_wr, 0x00420c04);
+                pci_bus_write_config_dword(pci_bus, PCI_DEVFN(device, function),
+                                                        offset_dclk, 0x00400000);
+            }
+        }
+    }
+
+
+    return 0;
+}
+
+u64 backend_read_occupancy(int tier) {
+    int cha, ctr;
+    u32 msr_num, msr_high, msr_low;
+    cha = tier; // Default tier on CHA slice 0, Alternate tier on CHA slice 1
+    ctr = 0; // TOR Occupancy
+    msr_num = CHA_MSR_PMON_CTR_BASE + (0x10 * cha) + ctr;
+    rdmsr_on_cpu(TOR_CORE_MON, msr_num, &msr_low, &msr_high);
+    return ((((u64)msr_high) << 32) | ((u64)msr_low));
+}
+
+u64 backend_read_inserts(int tier) {
+    int cha, ctr;
+    u32 msr_num, msr_high, msr_low;
+    cha = tier; // Default tier on CHA slice 0, Alternate tier on CHA slice 1
+    ctr = 1; // TOR Inserts
+    msr_num = CHA_MSR_PMON_CTR_BASE + (0x10 * cha) + ctr;
+    rdmsr_on_cpu(TOR_CORE_MON, msr_num, &msr_low, &msr_high);
+    return ((((u64)msr_high) << 32) | ((u64)msr_low));
+}
+
+u64 backend_read_rxc_insert(int tier) {
+    int cha, ctr;
+    u32 msr_num, msr_high, msr_low;
+    cha = tier; // Default tier on CHA slice 0, Alternate tier on CHA slice 1
+    ctr = 2; // RxC insert
+    msr_num = CHA_MSR_PMON_CTR_BASE + (0x10 * cha) + ctr;
+    rdmsr_on_cpu(RxC_CORE_MON, msr_num, &msr_low, &msr_high);
+    return ((((u64)msr_high) << 32) | ((u64)msr_low));
+}
+
+u64 backend_read_rxc_reject(int tier) {
+    int cha, ctr;
+    u32 msr_num, msr_high, msr_low;
+    cha = tier; // Default tier on CHA slice 0, Alternate tier on CHA slice 1
+    ctr = 3; // RxC reject
+    msr_num = CHA_MSR_PMON_CTR_BASE + (0x10 * cha) + ctr;
+    rdmsr_on_cpu(RxC_CORE_MON, msr_num, &msr_low, &msr_high);
+    return ((((u64)msr_high) << 32) | ((u64)msr_low));
+}
+
+
+static inline void sample_cha_ctr(int cha, int ctr, u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
+				u64 (*cur_rxc_ctr_val)[2], u64 (*prev_rxc_ctr_val)[2])
+{
+    // cha: tier; ctr = 0 -> tor occupancy, rxc_insert; ctr = 1 - > tor insert, rxc reject
+    u64 tor_val, rxc_val;
+    if(ctr == 0) {
+        tor_val = backend_read_occupancy(cha);
+	rxc_val = backend_read_rxc_insert(cha);
+    } else {
+        tor_val = backend_read_inserts(cha);
+	rxc_val = backend_read_rxc_reject(cha);
+    }
+    prev_tor_ctr_val[cha][ctr] = cur_tor_ctr_val[cha][ctr];
+    prev_rxc_ctr_val[cha][ctr] = cur_rxc_ctr_val[cha][ctr];
+    cur_tor_ctr_val[cha][ctr] = tor_val;
+    cur_rxc_ctr_val[cha][ctr] = rxc_val;
+}
+
+void measure_latency(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
+			u64 (*cur_rxc_ctr_val)[2], u64 (*prev_rxc_ctr_val)[2], int *cnt)
+{
+	u64 cum_occ, cur_occ, cur_inserts;
+	u64 cur_lat_local, cur_lat_remote;
+
+	u64 cum_rxc_insert, cur_rxc_insert, cur_rxc_reject;
+	u64 cur_rej_ratio_local, cur_rej_ratio_remote;
+
+	int socket, channel, bus, device, function;
+	int offset_rd, offset_wr, offset_dclk;
+	uint32_t low, high;
+	uint64_t count;
+	struct pci_bus *pci_bus;
+
+	uint64_t local_read_BW, local_write_BW;
+	uint64_t remote_read_BW, remote_write_BW;
+
+	sample_cha_ctr(0, 0, cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
+	sample_cha_ctr(0, 1, cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
+	sample_cha_ctr(1, 0, cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
+	sample_cha_ctr(1, 1, cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
+
+	// Latency
+	cum_occ = cur_tor_ctr_val[0][0] - prev_tor_ctr_val[0][0];
+	cur_occ = (cum_occ << PRECISION);
+	cur_inserts = ((cur_tor_ctr_val[0][1] - prev_tor_ctr_val[0][1])<<PRECISION);
+	WRITE_ONCE(smoothed_occ_local, (cur_occ + ((1<<EWMA_EXP) - 1)*smoothed_occ_local)>>EWMA_EXP);
+	WRITE_ONCE(smoothed_inserts_local, (cur_inserts + ((1<<EWMA_EXP) - 1)*smoothed_inserts_local)>>EWMA_EXP);
+	cur_lat_local = (smoothed_inserts_local > 0)?(smoothed_occ_local/smoothed_inserts_local):(MIN_LOCAL_LAT);
+	cur_lat_local = (cur_lat_local > MIN_LOCAL_LAT)?(cur_lat_local):(MIN_LOCAL_LAT);
+	WRITE_ONCE(smoothed_lat_local, cur_lat_local);
+
+	cum_occ = cur_tor_ctr_val[1][0] - prev_tor_ctr_val[1][0];
+	cur_occ = (cum_occ << PRECISION);
+	cur_inserts = ((cur_tor_ctr_val[1][1] - prev_tor_ctr_val[1][1])<<PRECISION);
+	WRITE_ONCE(smoothed_occ_remote, (cur_occ + ((1<<EWMA_EXP) - 1)*smoothed_occ_remote)>>EWMA_EXP);
+	WRITE_ONCE(smoothed_inserts_remote, (cur_inserts + ((1<<EWMA_EXP) - 1)*smoothed_inserts_remote)>>EWMA_EXP);
+	cur_lat_remote = (smoothed_inserts_remote > 0)?(smoothed_occ_remote/smoothed_inserts_remote):(MIN_REMOTE_LAT);
+	WRITE_ONCE(smoothed_lat_remote, (cur_lat_remote > MIN_REMOTE_LAT)?(cur_lat_remote):(MIN_REMOTE_LAT));
+
+	latency_inversion = (smoothed_lat_local > smoothed_lat_remote) ? 1 : 0;
+
+
+	// RxC reject ratio
+	cum_rxc_insert = cur_rxc_ctr_val[0][0] - prev_rxc_ctr_val[0][0];
+	cur_rxc_insert = (cum_rxc_insert << PRECISION);
+	cur_rxc_reject = ((cur_rxc_ctr_val[0][1] - prev_rxc_ctr_val[0][1])<<PRECISION);
+	WRITE_ONCE(smoothed_rxc_insert_local, (cur_rxc_insert + ((1<<EWMA_EXP) - 1)*smoothed_rxc_insert_local)>>EWMA_EXP);
+	WRITE_ONCE(smoothed_rxc_reject_local, (cur_rxc_reject + ((1<<EWMA_EXP) - 1)*smoothed_rxc_reject_local)>>EWMA_EXP);
+	cur_rej_ratio_local = (smoothed_rxc_insert_local > 0)?(smoothed_rxc_reject_local * 10000 / smoothed_rxc_insert_local): 0;
+	WRITE_ONCE(smoothed_rxc_reject_ratio_local, cur_rej_ratio_local);
+
+	cum_rxc_insert = cur_rxc_ctr_val[1][0] - prev_rxc_ctr_val[1][0];
+	cur_rxc_insert = (cum_rxc_insert << PRECISION);
+	cur_rxc_reject = ((cur_rxc_ctr_val[1][1] - prev_rxc_ctr_val[1][1])<<PRECISION);
+	WRITE_ONCE(smoothed_rxc_insert_remote, (cur_rxc_insert + ((1<<EWMA_EXP) - 1)*smoothed_rxc_insert_remote)>>EWMA_EXP);
+	WRITE_ONCE(smoothed_rxc_reject_remote, (cur_rxc_reject + ((1<<EWMA_EXP) - 1)*smoothed_rxc_reject_remote)>>EWMA_EXP);
+	cur_rej_ratio_remote = (smoothed_rxc_insert_remote > 0)?(smoothed_rxc_reject_remote * 10000 / smoothed_rxc_insert_remote):0;
+	WRITE_ONCE(smoothed_rxc_reject_ratio_remote, cur_rej_ratio_remote);
+
+
+	// Measure BW
+	for(socket = 0; socket < NUM_SOCKETS; socket++) {
+		bus = IMC_BUS_SOCKET[socket];
+		for(channel = 0; channel < NUM_IMC_CHANNELS; channel++) {
+			device = IMC_DEVICE_CHANNEL[channel];
+			function = IMC_FUNCTION_CHANNEL[channel];
+			offset_rd = IMC_PMONCTR_OFFSET[0];
+			offset_wr = IMC_PMONCTR_OFFSET[1];
+			offset_dclk = IMC_PMONCTR_OFFSET[4];
+
+			pci_bus = NULL;
+			pci_bus = pci_find_bus(0, bus);
+			if(pci_bus) {
+				// read
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_rd, &low);
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_rd + sizeof(uint32_t), &high);
+				count = ((uint64_t) high) << 32 | (uint64_t) low;
+				cur_imc_counts[socket][channel][0] = count;
+
+				// write
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_wr, &low);
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_wr + sizeof(uint32_t), &high);
+				count = ((uint64_t) high) << 32 | (uint64_t) low;
+				cur_imc_counts[socket][channel][1] = count;
+
+				// DCLK
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_dclk, &low);
+				pci_bus_read_config_dword(pci_bus, PCI_DEVFN(device, function),
+									offset_dclk + sizeof(uint32_t), &high);
+				count = ((uint64_t) high) << 32 | (uint64_t) low;
+				cur_imc_counts[socket][channel][4] = count;
+			}
+		}
+	}
+
+	local_read_BW = local_write_BW = remote_read_BW = remote_write_BW = 0;
+	prev_bw_jiffies = cur_bw_jiffies;
+	cur_bw_jiffies = jiffies;
+        for(channel = 0; channel < NUM_IMC_CHANNELS; channel++) {
+            local_read_BW += cur_imc_counts[0][channel][0] - prev_imc_counts[0][channel][0];
+            local_write_BW += cur_imc_counts[0][channel][1] - prev_imc_counts[0][channel][1];
+            remote_read_BW += cur_imc_counts[1][channel][0] - prev_imc_counts[1][channel][0];
+            remote_write_BW += cur_imc_counts[1][channel][1] - prev_imc_counts[1][channel][1];
+        }
+        for(socket = 0; socket < NUM_SOCKETS; socket++) {
+            for(channel = 0; channel < NUM_IMC_CHANNELS; channel++) {
+                prev_imc_counts[socket][channel][0] = cur_imc_counts[socket][channel][0];
+                prev_imc_counts[socket][channel][1] = cur_imc_counts[socket][channel][1];
+            }
+        }
+
+	local_read_BW = to_BW(local_read_BW, cur_bw_jiffies- prev_bw_jiffies);
+	local_write_BW = to_BW(local_write_BW, cur_bw_jiffies- prev_bw_jiffies);
+	remote_read_BW = to_BW(remote_read_BW, cur_bw_jiffies- prev_bw_jiffies);
+	remote_write_BW = to_BW(remote_write_BW, cur_bw_jiffies- prev_bw_jiffies);
+
+	smoothed_bw_local = (local_read_BW + local_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_local)>>EWMA_EXP;
+	smoothed_bw_remote = (remote_read_BW + remote_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_remote)>>EWMA_EXP;
+
+
+
+	*cnt += 1;
+	if(*cnt > 100) {
+		if(print_more_info) {
+			pr_info("[%s] latency [local: %llu, remote: %llu]. occ [local: %llu, remote: %llu]. insert [local: %llu, remote: %llu]\n",
+				__func__, smoothed_lat_local, smoothed_lat_remote,
+				smoothed_occ_local, smoothed_occ_remote,
+				smoothed_inserts_local, smoothed_inserts_remote);
+			pr_info("[%s] BW. local:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s], remote:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s]\n",
+				__func__, local_read_BW, local_write_BW, local_read_BW + local_write_BW,
+				remote_read_BW, remote_write_BW, remote_read_BW + remote_write_BW);
+			pr_info("[%s] smoothed_bw. local: %lu MB/s, remote: %lu MB/s\n",
+				__func__, smoothed_bw_local, smoothed_bw_remote);
+			pr_info("[%s] reject ratio [local: %llu, remote: %llu]. insert [local: %llu, remote: %llu]. reject [local: %llu, remote: %llu]\n",
+				__func__, smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
+				smoothed_rxc_insert_local, smoothed_rxc_insert_remote,
+				smoothed_rxc_reject_local, smoothed_rxc_reject_remote);
+
+
+		}
+		*cnt = 0;
+	}
+}
+
+
+
+static void init_mon_state(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2], u64 (*cur_rxc_ctr_val)[2], u64 (*prev_rxc_ctr_val)[2])
+{
+    int cha, ctr;
+    for(cha = 0; cha < NUM_TIERS; cha++) {
+        for(ctr = 0; ctr < NUM_COUNTERS; ctr++) {
+            cur_tor_ctr_val[cha][ctr] = 0;
+            cur_rxc_ctr_val[cha][ctr] = 0;
+            sample_cha_ctr(cha, ctr, cur_tor_ctr_val, prev_tor_ctr_val, 
+			cur_rxc_ctr_val, prev_rxc_ctr_val);
+        }
+    }
+}
+
+
+void check_pebs_period(void)
+{
+	int i;
+	struct mem_cgroup *memcg;
+
+	if(!use_dram_determination) {
+		if(READ_ONCE(pebs_sample_period) != PEBS_STABLE_PERIOD) {
+			pebs_update_period(PEBS_STABLE_PERIOD);
+			WRITE_ONCE(pebs_sample_period, PEBS_STABLE_PERIOD);
+			pr_info("[%s] pebs sample period changed to %lu\n",
+				__func__, pebs_sample_period);
+			return;
+		}
+	}
+
+	else {
+		for(i = 0; i < LIMIT_TENANTS; i++) {
+			memcg = READ_ONCE(memcg_list[i]);
+			if(memcg) {
+				if(!READ_ONCE(memcg->dram_fixed)) {
+					if(READ_ONCE(pebs_sample_period) != PEBS_INIT_PERIOD) {
+						pebs_update_period(PEBS_INIT_PERIOD);
+						WRITE_ONCE(pebs_sample_period, PEBS_INIT_PERIOD);
+						pr_info("[%s] pebs sample period changed to %lu\n",
+							__func__, pebs_sample_period);
+					}
+					return;
+				}
+			}
+		}
+		if(READ_ONCE(pebs_sample_period) != PEBS_STABLE_PERIOD) {
+			pebs_update_period(PEBS_STABLE_PERIOD);
+			WRITE_ONCE(pebs_sample_period, PEBS_STABLE_PERIOD);
+			pr_info("[%s] pebs sample period changed to %lu\n",
+				__func__, pebs_sample_period);
+			return;
+		}
+	}
+}
 
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(50);
+	unsigned long sleep_timeout_us = 500;
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
 	unsigned long trace_period = msecs_to_jiffies(ksampled_trace_period_in_ms);
 	unsigned long trace_period_long = msecs_to_jiffies(10000);
+	unsigned long lat_logging_period = msecs_to_jiffies(10);
+	unsigned long interval_start_lat, cur_lat;
+	u64 cur_tor_ctr_val[NUM_TIERS][NUM_COUNTERS], prev_tor_ctr_val[NUM_TIERS][NUM_COUNTERS];
+	u64 cur_rxc_ctr_val[NUM_TIERS][NUM_COUNTERS], prev_rxc_ctr_val[NUM_TIERS][NUM_COUNTERS];
+
 	struct mem_cgroup *memcg;
 	int i;
+	int cnt = 0, rxc_reject_cnt = 0;
 
-	pr_info("[%s] sleep_timeout %lu jiffies\n",__func__, sleep_timeout);
+	init_mon_state(cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
+	pr_info("[%s] sleep_timeout %lu jiffies. 1 jiffies: %u us. lat_logging %lu jiffies\n",
+		__func__, sleep_timeout, jiffies_to_usecs(1), lat_logging_period);
 
 	total_time = jiffies;
 	interval_start = jiffies;
 	interval_start_long = jiffies;
+	interval_start_lat = jiffies;
 	while(!kthread_should_stop()) {
 		one_cputime = jiffies;
 		ksampled_do_work();
 
 		cur = jiffies;
 		cur_long = jiffies;
+		cur_lat = jiffies;
 		if(use_memstrata_policy) {
 			if(cur_long - interval_start_long >= trace_period_long) {
 				calculate_sample_rate_stat_mpki();
@@ -2471,6 +3182,8 @@ static int ksampled(void *dummy)
 		}
 		else {
 			if(cur - interval_start >= trace_period) {
+				if(use_dram_determination)
+					check_rxc_reject_ratio(&rxc_reject_cnt);
 				calculate_sample_rate_stat();
 				
 				if(use_dram_determination) {
@@ -2484,34 +3197,21 @@ static int ksampled(void *dummy)
 							distribute_local_dram_mar_first();
 					}
 				}
+				check_pebs_period();
 				
 				interval_start = cur;
-				/*if(scanless_cooling) {
-					for(i = 0; i < LIMIT_TENANTS; i++) {
-						int j, k, tot_weight = 0;
-						memcg = READ_ONCE(memcg_list[i]);
-						if(memcg) {
-							pr_info("[%s] [ %s ] giga bitmap util : %u / %u\n",
-								__func__, memcg->tenant_name,
-								bitmap_weight(memcg->giga_bitmap, memcg->giga_bitmap_size),
-								 memcg->giga_bitmap_size);
-							for(j = 0; j < memcg->giga_bitmap_size; j++) {
-								for(k = 0; k < memcg->huge_bitmap_size; k++) {
-									tot_weight += bitmap_weight(memcg->base_bitmap[j][k], memcg->base_bitmap_size);
-								}
-							}
-							pr_info("[%s] [ %s ] tot ac bitmap util : %u / %u\n",
-								__func__, memcg->tenant_name, tot_weight,
-								memcg->giga_bitmap_size * memcg->huge_bitmap_size * memcg->base_bitmap_size);
-						}
-					}
-				}*/
 			}
 		}
 
+		if(cur_lat - interval_start_lat >= lat_logging_period) {
+			measure_latency(cur_tor_ctr_val, prev_tor_ctr_val,
+					cur_rxc_ctr_val, prev_rxc_ctr_val, &cnt);
+			interval_start_lat = cur_lat;
+		}
 
 		total_cputime += (jiffies - one_cputime);
-		schedule_timeout_interruptible(sleep_timeout);
+		usleep_range_state(sleep_timeout_us, sleep_timeout_us + 1, TASK_INTERRUPTIBLE);
+		//schedule_timeout_interruptible(sleep_timeout);
 	}
 	total_time = jiffies - total_time;
 
@@ -2552,6 +3252,9 @@ static int ksampled_run(void)
 					return -1;
 			}
 		}
+		if(backend_init())
+			pr_info("[%s] backend_init fail\n",__func__);
+		
 
 		ksampled_thread = kthread_run_on_cpu(ksampled, NULL, KSAMPLED_CPU, "ksampled");
 		//ksampled_thread = kthread_run(ksampled, NULL, "ksampled");

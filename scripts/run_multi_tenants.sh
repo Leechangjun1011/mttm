@@ -62,7 +62,39 @@ if [[ "$1" == "config1" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="gapbs-bc"
 	workload[3]="xsbench"
+elif [[ "$1" == "config1-bw1" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="xsbench"
+elif [[ "$1" == "config1-bw2" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="xsbench"
+elif [[ "$1" == "config1-static1" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="xsbench"
+elif [[ "$1" == "config1-static4" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="gapbs-bc"
+	workload[3]="xsbench"
 elif [[ "$1" == "config2" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
+elif [[ "$1" == "config2-static1" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
+elif [[ "$1" == "config2-static4" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
+elif [[ "$1" == "config2-bw1" ]]; then
+	workload[1]="fotonik"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_high"
+elif [[ "$1" == "config2-bw2" ]]; then
 	workload[1]="fotonik"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_high"
@@ -70,46 +102,46 @@ elif [[ "$1" == "config3" ]]; then
 	workload[1]="silo"
 	workload[2]="cpu_dlrm_small_low_1"
 	workload[3]="cpu_dlrm_large_low_2"
-elif [[ "$1" == "config9" ]]; then
-	workload[1]="xsbench"
-	workload[2]="xindex"
-	workload[3]="cpu_dlrm_small_low"
-elif [[ "$1" == "config11" ]]; then
-	workload[1]="btree"
-	workload[2]="xindex"
-	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config12" ]]; then
 	workload[1]="btree"
-	workload[2]="xindex_large"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "config12-static1" ]]; then
+	workload[1]="btree"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "config12-static4" ]]; then
+	workload[1]="btree"
+	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "config13" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-elif [[ "$1" == "config4" ]]; then
-	workload[1]="xsbench"
-	workload[2]="roms"
-	workload[3]="cpu_dlrm_large_low"
-elif [[ "$1" == "config5" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="roms"
-	workload[3]="cpu_dlrm_large_low"
-elif [[ "$1" == "config6" ]]; then
+elif [[ "$1" == "config13-static1" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-elif [[ "$1" == "config7" ]]; then
-	workload[1]="xsbench"
+elif [[ "$1" == "config13-bw1" ]]; then
+	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-elif [[ "$1" == "config8" ]]; then
-	workload[1]="cpu_dlrm_small_high"
-	workload[2]="gapbs-bc"
-	workload[3]="xindex"
-elif [[ "$1" == "config10" ]]; then
-	workload[1]="cpu_dlrm_small_low"
-	workload[2]="silo"
-	workload[3]="fotonik"
+elif [[ "$1" == "config13-bw2" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
+elif [[ "$1" == "config13-bw3" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
+elif [[ "$1" == "config13-bw4" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
+elif [[ "$1" == "config13-static4" ]]; then
+	workload[1]="gapbs-pr"
+	workload[2]="fotonik"
+	workload[3]="silo"
 elif [[ "$1" == "6tenants" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="xsbench"
@@ -134,6 +166,14 @@ elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="xsbench"
 	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "3gups" ]]; then
+	workload[1]="gups-2g"
+	workload[2]="gups-4g"
+	workload[3]="gups-16g"
+elif [[ "$1" == "cooling" ]]; then
+	workload[1]="gups-2g-8t"
+	workload[2]="gups-4g-8t"
+	workload[3]="gups-16g"
 elif [[ "$1" == "motiv-pr" ]]; then
 	workload[1]="gapbs-pr"
 elif [[ "$1" == "motiv-xsbench" ]]; then
