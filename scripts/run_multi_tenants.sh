@@ -114,7 +114,7 @@ elif [[ "$1" == "config12-static4" ]]; then
 	workload[1]="btree"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
-elif [[ "$1" == "config13" ]]; then
+elif [[ "$1" == "config13" || "$1" == "config13-basepage" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
@@ -166,10 +166,10 @@ elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="xsbench"
 	workload[3]="cpu_dlrm_small_low"
-elif [[ "$1" == "3gups" ]]; then
-	workload[1]="gups-2g"
-	workload[2]="gups-4g"
-	workload[3]="gups-16g"
+elif [[ "$1" == "microbench" || "$1" == "microbench-dynamic" || "$1" == "microbench-sensitivity1" || "$1" == "microbench-sensitivity2" ]]; then
+	workload[1]="gups-1"
+	workload[2]="gups-2"
+	workload[3]="gups-3"
 elif [[ "$1" == "cooling" ]]; then
 	workload[1]="gups-2g-8t"
 	workload[2]="gups-4g-8t"

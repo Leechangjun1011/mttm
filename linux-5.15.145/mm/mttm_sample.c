@@ -36,6 +36,7 @@ unsigned long pebs_sample_period = PEBS_INIT_PERIOD;
 unsigned long store_sample_period = 100003;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
+unsigned int use_rxc_monitoring = 1;
 unsigned int use_memstrata_policy = 0;
 unsigned long acceptor_threshold = 20;//fmmr higher than this threshold is outlier
 unsigned int use_region_separation = 1;
@@ -71,7 +72,6 @@ extern int enabled_kptscand;
 extern struct task_struct *kptscand_thread;
 unsigned int scanless_cooling = 1;
 unsigned int reduce_scan = 1;
-unsigned int qos_wss_factor = 100;
 
 u64 smoothed_occ_local = 0, smoothed_inserts_local = 0;
 u64 smoothed_occ_remote = 0, smoothed_inserts_remote = 0;
@@ -91,7 +91,6 @@ uint64_t cur_imc_counts[NUM_SOCKETS][NUM_IMC_CHANNELS][NUM_IMC_COUNTERS] = {0,};
 uint64_t prev_imc_counts[NUM_SOCKETS][NUM_IMC_CHANNELS][NUM_IMC_COUNTERS] = {0,};
 unsigned long cur_bw_jiffies, prev_bw_jiffies;
 unsigned long smoothed_bw_local = 0, smoothed_bw_remote = 0;
-unsigned int latency_inversion = 0;
 
 
 uint64_t to_BW(uint64_t nr_event, unsigned long elapsed)
@@ -845,13 +844,12 @@ static void reset_memcg_stat(struct mem_cgroup *memcg)
 		memcg->hotness_hg[i] = 0;
 		memcg->hotness_hg_local[i] = 0;
 	}
-	WRITE_ONCE(memcg->hg_mismatch, false);
 }
 
 static bool set_cooling(struct mem_cgroup *memcg)
 {
 	int nid;
-	
+
 	for_each_node_state(nid, N_MEMORY) {
 		struct mem_cgroup_per_node *pn = memcg->nodeinfo[nid];
 		if(pn && READ_ONCE(pn->need_cooling)) { // previous cooling is not done yet.
@@ -862,6 +860,7 @@ static bool set_cooling(struct mem_cgroup *memcg)
 		}
 	}
 
+	memcg->nr_remote_cooling = 0;
 	spin_lock(&memcg->access_lock);
 	reset_memcg_stat(memcg);
 	memcg->cooling_clock++;
@@ -903,11 +902,7 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
 					MTTM_INIT_THRESHOLD : 9;
 
-	if(READ_ONCE(memcg->hg_mismatch)) {
-		// Not need to adjust since threshold not changed.
-		//set_lru_adjusting(memcg, true);
-		return;
-	}
+
 	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) &&
 		use_dram_determination &&
 		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined)))
@@ -1416,6 +1411,7 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 			memcg->nr_load++;
 		}
 		if(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS) {
+			memcg->nr_remote_cooling++;
 			memcg->nr_remote++;
 			memcg->nr_load++;
 		}
@@ -1528,6 +1524,8 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 				unsigned long stdev, unsigned long mean,
 				unsigned long mean_rate)
 {
+	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 100 * sampling_factor;//100 when pebs_sample_period is 10007
 
@@ -1552,6 +1550,8 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 void check_rate_change(struct mem_cgroup *memcg)
 {
 	int j;
+	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
 	unsigned long hard_max = 10;
@@ -1643,9 +1643,10 @@ struct mem_cgroup *find_rxc_reject_donor(struct mem_cgroup *acceptor)
 {
 	// find tenant that has most pages with zero access count
 	int i;
-	struct mem_cgroup *memcg, *ret;
+	struct mem_cgroup *memcg, *ret = NULL;
 	unsigned long cur_zal_pages = 0;
-
+	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 200 * sampling_factor;
 
@@ -1701,9 +1702,10 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 	int i, j;
 	struct mem_cgroup *memcg, *acceptor, *donor;
 	unsigned long remote_rss, local_rss, accessed_local_pages, accessed_remote_pages, zero_access_local_pages;
+	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 200 * sampling_factor;
-
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
@@ -1711,8 +1713,7 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 			if(!READ_ONCE(memcg->dram_fixed))
 				return;
 		}
-	}
-
+	}	
 
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		memcg = READ_ONCE(memcg_list[i]);
@@ -1728,7 +1729,8 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 			accessed_remote_pages = 0;
 			for(j = 1; j < 16; j++) {
 				accessed_local_pages += memcg->hotness_hg_local[j];
-				accessed_remote_pages += ((memcg->hotness_hg[j] > memcg->hotness_hg_local[j]) ? memcg->hotness_hg[j] - memcg->hotness_hg_local[j] : 0);
+				accessed_remote_pages += ((memcg->hotness_hg[j] > memcg->hotness_hg_local[j]) ?
+							memcg->hotness_hg[j] - memcg->hotness_hg_local[j] : 0);
 			}
 			spin_unlock(&memcg->access_lock);
 
@@ -1736,9 +1738,9 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 			memcg->zero_access_local_pages = (memcg->zero_access_local_pages + zero_access_local_pages) / 2;
 
 			if(memcg->nr_remote && remote_rss && memcg->mean_rate > std_rate) {
-				memcg->rxc_reject_inv_ratio = (memcg->rxc_reject_inv_ratio + (remote_rss / memcg->nr_remote)) / 2;
+				memcg->rxc_reject_inv_ratio = remote_rss / memcg->nr_remote;
 				pr_info("[%s] [ %s ] remote access: %lu, remote rss: %lu (accessed: %lu), inv_ratio: %lu, reject ratio[local: %llu, remote: %llu], zal_pages: %lu\n",
-					__func__, memcg->tenant_name, memcg->nr_remote, remote_rss, accessed_remote_pages,
+					__func__, memcg->tenant_name, memcg->nr_remote_cooling, remote_rss, accessed_remote_pages,
 					memcg->rxc_reject_inv_ratio,
 					smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
 					memcg->zero_access_local_pages);
@@ -1746,7 +1748,6 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 		}
 	}
 
-	
 	if(smoothed_rxc_reject_ratio_local > 100 && smoothed_rxc_reject_ratio_remote > 100) {
 		(*rxc_reject_cnt)++;
 		pr_info("[%s] rxc_reject_cnt: %d\n",__func__, *rxc_reject_cnt);
@@ -1763,7 +1764,6 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 
 			*rxc_reject_cnt = 0;
 		}
-		
 	}
 
 
@@ -1803,7 +1803,7 @@ void calculate_sample_rate_stat(void)
 			ema_rate = (memcg->mean_rate * 8 + (memcg->interval_nr_sampled * 2) / (ksampled_trace_period_in_ms / 1000)) / 10;
 			memcg->mean_rate = ema_rate;
 
-			if(print_more_info) {
+			/*if(print_more_info) {
 				if(memcg->nr_remote)
 					pr_info("[%s] [ %s ] ema_rate : %lu, local : %lu, remote : %lu, ratio : %lu\n",
 						__func__, memcg->tenant_name, ema_rate,
@@ -1812,7 +1812,7 @@ void calculate_sample_rate_stat(void)
 					pr_info("[%s] [ %s ] ema_rate : %lu, local : %lu, remote : %lu\n",
 						__func__, memcg->tenant_name, ema_rate,
 						memcg->nr_local, memcg->nr_remote);	
-			}
+			}*/
 
 			if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT)
 				check_sample_rate_is_stable(memcg, std_deviation, mean, ema_rate);
@@ -1886,6 +1886,8 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 
 static unsigned long calculate_valid_rate(unsigned long sample_rate)
 {
+	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
+					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 8000 when pebs_sample_period is 10007
 	unsigned long extra_rate;
@@ -2178,16 +2180,9 @@ void distribute_local_dram_region(void)
 		if(memcg) {
 			if(READ_ONCE(memcg->region_determined)) {
 				tenant_dram = 0;
-				if(memcg->qos_wss) {
-					for(j = 1; j < NR_REGION; j++)
-						tenant_dram += dram_size[i][j];
-					tenant_dram = (tenant_dram * qos_wss_factor) / 100;
-				}
-				else {
-					for(j = 0; j < NR_REGION; j++)
-						tenant_dram += dram_size[i][j];
-					tenant_dram += extra_dram[i];
-				}
+				for(j = 0; j < NR_REGION; j++)
+					tenant_dram += dram_size[i][j];
+				tenant_dram += extra_dram[i];
 			
 				set_dram_size(memcg, tenant_dram, all_region_determined);
 				if(all_region_determined) {
@@ -2730,6 +2725,13 @@ static int backend_init(void) {
     struct pci_bus *pci_bus;   
     int err;
 
+    smoothed_occ_local = 0, smoothed_inserts_local = 0;
+    smoothed_occ_remote = 0, smoothed_inserts_remote = 0;
+    smoothed_lat_local = 80, smoothed_lat_remote = 135;
+    smoothed_rxc_insert_local = 0, smoothed_rxc_insert_remote = 0;
+    smoothed_rxc_reject_local = 0, smoothed_rxc_reject_remote = 0;
+    smoothed_rxc_reject_ratio_local = 0, smoothed_rxc_reject_ratio_remote = 0;
+
     // TOR, RxC
     for(cha = 0; cha < NUM_CHA_BOXES; cha++) {
         msr_num = CHA_MSR_PMON_FILTER0_BASE + (0x10 * cha); // Filter0
@@ -2764,14 +2766,7 @@ static int backend_init(void) {
             return -1;
         }
 
-        /*msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
-        msr_val = 0x400000; // CLOCKTICKS
-        ret = wrmsr_on_cpu(TOR_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr COUNTER 2 failed\n");
-            return -1;
-        }*/
-	msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
+      	msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
         msr_val = 0x400113; // RxC Insert
         ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
         if(ret != 0) {
@@ -2789,53 +2784,6 @@ static int backend_init(void) {
 
 
     }
-
-    // RxC
-    /*
-    for(cha = 0; cha < NUM_CHA_BOXES; cha++) {
-        msr_num = CHA_MSR_PMON_FILTER0_BASE + (0x10 * cha); // Filter0
-        msr_val = 0x00000000; // default; no filtering
-        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr FILTER0 failed\n");
-            return -1;
-        }
-
-        msr_num = CHA_MSR_PMON_FILTER1_BASE + (0x10 * cha); // Filter1
-        msr_val = (cha%2 == 0)?(0x10040432):(0x10040431); // Filter DRd+RFO of local/remote on even/odd CHA boxes
-        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr FILTER1 failed\n");
-            return -1;
-        }
-
-        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 0; // counter 0
-        msr_val = 0x400113; // RxC Insert
-        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr COUNTER 0 failed\n");
-            return -1;
-        }
-
-        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 1; // counter 1
-        msr_val = 0x400213; // RxC Insert reject
-        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr COUNTER 1 failed\n");
-            return -1;
-        }
-
-        msr_num = CHA_MSR_PMON_CTL_BASE + (0x10 * cha) + 2; // counter 2
-        msr_val = 0x400000; // CLOCKTICKS
-        ret = wrmsr_on_cpu(RxC_CORE_MON, msr_num, msr_val & 0xFFFFFFFF, msr_val >> 32);
-        if(ret != 0) {
-            printk(KERN_ERR "wrmsr COUNTER 2 failed\n");
-            return -1;
-        }
-    }
-    */
-
-
 
     // IMC
     pci_bus = pci_find_bus(0, 0);
@@ -2972,9 +2920,6 @@ void measure_latency(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
 	cur_lat_remote = (smoothed_inserts_remote > 0)?(smoothed_occ_remote/smoothed_inserts_remote):(MIN_REMOTE_LAT);
 	WRITE_ONCE(smoothed_lat_remote, (cur_lat_remote > MIN_REMOTE_LAT)?(cur_lat_remote):(MIN_REMOTE_LAT));
 
-	latency_inversion = (smoothed_lat_local > smoothed_lat_remote) ? 1 : 0;
-
-
 	// RxC reject ratio
 	cum_rxc_insert = cur_rxc_ctr_val[0][0] - prev_rxc_ctr_val[0][0];
 	cur_rxc_insert = (cum_rxc_insert << PRECISION);
@@ -3049,34 +2994,31 @@ void measure_latency(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
             }
         }
 
-	local_read_BW = to_BW(local_read_BW, cur_bw_jiffies- prev_bw_jiffies);
-	local_write_BW = to_BW(local_write_BW, cur_bw_jiffies- prev_bw_jiffies);
-	remote_read_BW = to_BW(remote_read_BW, cur_bw_jiffies- prev_bw_jiffies);
-	remote_write_BW = to_BW(remote_write_BW, cur_bw_jiffies- prev_bw_jiffies);
-
-	smoothed_bw_local = (local_read_BW + local_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_local)>>EWMA_EXP;
-	smoothed_bw_remote = (remote_read_BW + remote_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_remote)>>EWMA_EXP;
+	if(cur_bw_jiffies > prev_bw_jiffies) {
+		local_read_BW = to_BW(local_read_BW, cur_bw_jiffies- prev_bw_jiffies);
+		local_write_BW = to_BW(local_write_BW, cur_bw_jiffies- prev_bw_jiffies);
+		remote_read_BW = to_BW(remote_read_BW, cur_bw_jiffies- prev_bw_jiffies);
+		remote_write_BW = to_BW(remote_write_BW, cur_bw_jiffies- prev_bw_jiffies);
+		smoothed_bw_local = (local_read_BW + local_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_local)>>EWMA_EXP;
+		smoothed_bw_remote = (remote_read_BW + remote_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_remote)>>EWMA_EXP;
+	}
 
 
 
 	*cnt += 1;
 	if(*cnt > 100) {
 		if(print_more_info) {
-			pr_info("[%s] latency [local: %llu, remote: %llu]. occ [local: %llu, remote: %llu]. insert [local: %llu, remote: %llu]\n",
-				__func__, smoothed_lat_local, smoothed_lat_remote,
-				smoothed_occ_local, smoothed_occ_remote,
-				smoothed_inserts_local, smoothed_inserts_remote);
-			pr_info("[%s] BW. local:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s], remote:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s]\n",
+			pr_info("[%s] latency [local: %llu, remote: %llu]\n",
+				__func__, smoothed_lat_local, smoothed_lat_remote);
+			/*pr_info("[%s] BW. local:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s], remote:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s]\n",
 				__func__, local_read_BW, local_write_BW, local_read_BW + local_write_BW,
-				remote_read_BW, remote_write_BW, remote_read_BW + remote_write_BW);
+				remote_read_BW, remote_write_BW, remote_read_BW + remote_write_BW);*/
 			pr_info("[%s] smoothed_bw. local: %lu MB/s, remote: %lu MB/s\n",
 				__func__, smoothed_bw_local, smoothed_bw_remote);
-			pr_info("[%s] reject ratio [local: %llu, remote: %llu]. insert [local: %llu, remote: %llu]. reject [local: %llu, remote: %llu]\n",
+			pr_info("[%s] reject ratio [local: %llu, remote: %llu]. insert: %llu. reject: %llu\n",
 				__func__, smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
-				smoothed_rxc_insert_local, smoothed_rxc_insert_remote,
-				smoothed_rxc_reject_local, smoothed_rxc_reject_remote);
-
-
+				smoothed_rxc_insert_local + smoothed_rxc_insert_remote,
+				smoothed_rxc_reject_local + smoothed_rxc_reject_remote);
 		}
 		*cnt = 0;
 	}
@@ -3102,11 +3044,20 @@ void check_pebs_period(void)
 {
 	int i;
 	struct mem_cgroup *memcg;
-
+	unsigned long stable_period, init_period;
+	
+	if(test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
+		stable_period = PEBS_STABLE_PERIOD;
+		init_period = PEBS_INIT_PERIOD;
+	}
+	else {
+		stable_period = PEBS_STABLE_PERIOD_BASEPAGE;
+		init_period = PEBS_INIT_PERIOD_BASEPAGE;
+	}
 	if(!use_dram_determination) {
-		if(READ_ONCE(pebs_sample_period) != PEBS_STABLE_PERIOD) {
-			pebs_update_period(PEBS_STABLE_PERIOD);
-			WRITE_ONCE(pebs_sample_period, PEBS_STABLE_PERIOD);
+		if(READ_ONCE(pebs_sample_period) != stable_period) {
+			pebs_update_period(stable_period);
+			WRITE_ONCE(pebs_sample_period, stable_period);
 			pr_info("[%s] pebs sample period changed to %lu\n",
 				__func__, pebs_sample_period);
 			return;
@@ -3118,9 +3069,9 @@ void check_pebs_period(void)
 			memcg = READ_ONCE(memcg_list[i]);
 			if(memcg) {
 				if(!READ_ONCE(memcg->dram_fixed)) {
-					if(READ_ONCE(pebs_sample_period) != PEBS_INIT_PERIOD) {
-						pebs_update_period(PEBS_INIT_PERIOD);
-						WRITE_ONCE(pebs_sample_period, PEBS_INIT_PERIOD);
+					if(READ_ONCE(pebs_sample_period) != init_period) {
+						pebs_update_period(init_period);
+						WRITE_ONCE(pebs_sample_period, init_period);
 						pr_info("[%s] pebs sample period changed to %lu\n",
 							__func__, pebs_sample_period);
 					}
@@ -3128,9 +3079,9 @@ void check_pebs_period(void)
 				}
 			}
 		}
-		if(READ_ONCE(pebs_sample_period) != PEBS_STABLE_PERIOD) {
-			pebs_update_period(PEBS_STABLE_PERIOD);
-			WRITE_ONCE(pebs_sample_period, PEBS_STABLE_PERIOD);
+		if(READ_ONCE(pebs_sample_period) != stable_period) {
+			pebs_update_period(stable_period);
+			WRITE_ONCE(pebs_sample_period, stable_period);
 			pr_info("[%s] pebs sample period changed to %lu\n",
 				__func__, pebs_sample_period);
 			return;
@@ -3141,7 +3092,7 @@ void check_pebs_period(void)
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(50);
-	unsigned long sleep_timeout_us = 500;
+	unsigned long sleep_timeout_us = 4000;//500
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
@@ -3182,7 +3133,7 @@ static int ksampled(void *dummy)
 		}
 		else {
 			if(cur - interval_start >= trace_period) {
-				if(use_dram_determination)
+				if(use_dram_determination && use_rxc_monitoring)
 					check_rxc_reject_ratio(&rxc_reject_cnt);
 				calculate_sample_rate_stat();
 				

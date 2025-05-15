@@ -52,7 +52,7 @@ elif [[ "$1" == "config12" ]]; then
 	workload[1]="btree"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
-elif [[ "$1" == "config13" ]]; then
+elif [[ "$1" == "config13" || "$1" == "config13-basepage" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
@@ -100,6 +100,10 @@ elif [[ "$1" == "12tenants" ]]; then
 	workload[10]="silo"
 	workload[11]="cpu_dlrm_small_low_1"
 	workload[12]="cpu_dlrm_small_low_2"
+elif [[ "$1" == "microbench" ]]; then
+	workload[1]="gups-1"
+	workload[2]="gups-2"
+	workload[3]="gups-3"
 elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="xsbench"

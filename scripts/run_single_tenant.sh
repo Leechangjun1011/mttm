@@ -58,7 +58,7 @@ elif [[ "$3" == "12tenants" ]]; then
                 CPUSETS="0-23"
 	fi
 else
-        CPUSETS="0-7"
+        CPUSETS="1-8"
         if [[ "$2" == "cpu_dlrm_small_low_1" ]]; then
                 CPUSETS="0-23"
         elif [[ "$2" == "cpu_dlrm_large_low_2" ]]; then
@@ -111,6 +111,8 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 		echo 4G > ${CGMEM_DIR}/memory.max_at_node0
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "config13-static1" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
 		echo 17G > ${CGMEM_DIR}/memory.max_at_node0
@@ -235,6 +237,8 @@ elif [[ "$2" == "silo" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=480000000"
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=1000000000"
 	elif [[ "$3" == "config13-static1" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 		echo 17G > ${CGMEM_DIR}/memory.max_at_node0
@@ -364,6 +368,8 @@ elif [[ "$2" == "fotonik" ]]; then
 		echo 7G > ${CGMEM_DIR}/memory.max_at_node0
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=6 649.fotonik3d_s"
 	elif [[ "$3" == "config13-static1" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 		echo 17G > ${CGMEM_DIR}/memory.max_at_node0
@@ -417,6 +423,36 @@ elif [[ "$2" == "nas_lu.d" ]]; then
 elif [[ "$2" == "nas_ua.d" ]]; then
         BENCH_PATH="${BENCH_DIR}/NPB3.4.2/NPB3.4-OMP"
         BENCH="${BENCH_PATH}/bin/ua.D.x"
+elif [[ "$2" == "gups-1" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" || "$3" == "microbench-dynamic" ]]; then
+	        BENCH="${BENCH_PATH}/gups-1 8 4000000000 34 8 31 90"
+	elif [[ "$3" == "microbench-sensitivity1" ]]; then
+	        BENCH="${BENCH_PATH}/gups-1 8 4000000000 34 8 31 90"
+	elif [[ "$3" == "microbench-sensitivity2" ]]; then
+	        BENCH="${BENCH_PATH}/gups-1 2 4000000000 34 8 33 90"
+	fi
+elif [[ "$2" == "gups-2" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" || "$3" == "microbench-dynamic" ]]; then
+	        BENCH="${BENCH_PATH}/gups-2 8 4000000000 34 8 32 90"
+	elif [[ "$3" == "microbench-sensitivity1" ]]; then
+	        BENCH="${BENCH_PATH}/gups-2 8 4000000000 34 8 32 90"
+	elif [[ "$3" == "microbench-sensitivity2" ]]; then
+	        BENCH="${BENCH_PATH}/gups-2 4 4000000000 34 8 33 90"
+	fi
+elif [[ "$2" == "gups-3" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" ]]; then
+	        BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+	elif [[ "$3" == "microbench-dynamic" ]]; then
+		sleep 50s
+	        BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+	elif [[ "$3" == "microbench-sensitivity1" ]]; then
+	        BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+	elif [[ "$3" == "microbench-sensitivity2" ]]; then
+	        BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 33 90"
+	fi
 elif [[ "$2" == "gups-2g" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups1 2 3000000000 34 8 31 90"

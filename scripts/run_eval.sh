@@ -12,14 +12,15 @@ function run_mttm_hugepage
 	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
+	echo 1 > /proc/sys/vm/use_rxc_monitoring
+	echo 1 > /proc/sys/vm/print_more_info
 
 	echo 1 > /proc/sys/vm/mar_weight
 	echo 1 > /proc/sys/vm/hi_weight
 	echo 3 > /proc/sys/vm/hugepage_shift_factor
 	echo 1 > /proc/sys/vm/hugepage_period_factor
 
-#	echo 4999 > /proc/sys/vm/pebs_sample_period
+	echo 4999 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 	echo 1 > /proc/sys/vm/scanless_cooling
@@ -28,6 +29,64 @@ function run_mttm_hugepage
 
 	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/main/mttm/$1/$2_$3_test.txt
 	dmesg > ./evaluation/main/mttm/$1/$2_$3_dmesg_test.txt
+}
+
+function run_mttm_hugepage_norxc
+{
+	#config, dram size, remote latency
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/use_rxc_monitoring
+	echo 1 > /proc/sys/vm/print_more_info
+
+	echo 1 > /proc/sys/vm/mar_weight
+	echo 1 > /proc/sys/vm/hi_weight
+	echo 3 > /proc/sys/vm/hugepage_shift_factor
+	echo 1 > /proc/sys/vm/hugepage_period_factor
+
+	echo 4999 > /proc/sys/vm/pebs_sample_period
+	echo 1 > /proc/sys/vm/use_pingpong_reduce
+	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 1 > /proc/sys/vm/scanless_cooling
+	echo 1 > /proc/sys/vm/reduce_scan
+	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/rxc/mttm/$1/$2_$3.txt
+	dmesg > ./evaluation/rxc/mttm/$1/$2_$3_dmesg.txt
+}
+
+
+
+function run_mttm_basepage
+{
+	dmesg --clear
+	echo 1 > /proc/sys/vm/use_dram_determination
+	echo 1 > /proc/sys/vm/use_region_separation
+	echo 0 > /proc/sys/vm/use_hotness_intensity
+	echo 0 > /proc/sys/vm/use_memstrata_policy
+	echo $2 > /proc/sys/vm/mttm_local_dram_string
+	echo 0 > /proc/sys/vm/print_more_info
+
+	echo 1 > /proc/sys/vm/mar_weight
+	echo 1 > /proc/sys/vm/hi_weight
+	echo 3 > /proc/sys/vm/hugepage_shift_factor
+	echo 1 > /proc/sys/vm/hugepage_period_factor
+
+	echo 101 > /proc/sys/vm/pebs_sample_period
+	echo 1 > /proc/sys/vm/use_pingpong_reduce
+	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
+	echo 1 > /proc/sys/vm/scanless_cooling
+	echo 1 > /proc/sys/vm/reduce_scan
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
+	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
+
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/mttm/$1/$2_$3.txt
+	dmesg > ./evaluation/basepage/mttm/$1/$2_$3_dmesg.txt
 }
 
 function run_static_hugepage
@@ -73,7 +132,7 @@ function run_mttm_sensitivity_mar_hi
 	echo 3 > /proc/sys/vm/hugepage_shift_factor
 	echo 1 > /proc/sys/vm/hugepage_period_factor
 
-	echo 10007 > /proc/sys/vm/pebs_sample_period
+#	echo 4999 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
 	echo 1 > /proc/sys/vm/scanless_cooling
@@ -136,28 +195,7 @@ function run_mttm_region_hugepage_pingpong
 
 
 
-function run_mttm_region_basepage_opt
-{
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
 
-	echo 199 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
-	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_$1_$2_$3_9_test.txt
-	dmesg > ./evaluation/basepage/region_$1_$2_$3_9_dmesg_test.txt
-}
 
 function run_mttm_region_basepage_scan
 {
@@ -328,7 +366,7 @@ function run_local_hugepage
 function run_local_basepage
 {
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local_$1.txt
+	./run_multi_tenants_native.sh $1 2>&1 | cat > ./evaluation/basepage/local/$1.txt
 }
 
 
@@ -544,6 +582,12 @@ function run_memtis_hugepage
 	${memtis_script} -C $1 2>&1 | cat > ./evaluation/main/memtis/$1/$2.txt
 }
 
+function run_memtis_basepage
+{
+	memtis_script=/home/cjlee/memtis/memtis-userspace/scripts/run_bench.sh
+	${memtis_script} -C $1 2>&1 | cat > ./evaluation/basepage/memtis/$1/$2.txt
+}
+
 function set_130
 {
 	cd $emul_path
@@ -600,12 +644,14 @@ end
 
 function run_sensitivity_mar_hi
 {
-	set_160
-	run_mttm_sensitivity_mar_hi 3gups 24G 3 1
-	run_mttm_sensitivity_mar_hi 3gups 24G 2 1
-	run_mttm_sensitivity_mar_hi 3gups 24G 1 1
-	run_mttm_sensitivity_mar_hi 3gups 24G 1 2
-	run_mttm_sensitivity_mar_hi 3gups 24G 1 3
+	set_190
+	run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 2 1
+	run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 1 1
+	run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 1 2
+
+	run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 2 1
+	run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 1 1
+	run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 1 2
 }
 
 function run_sensitivity_cooling
@@ -957,7 +1003,24 @@ end
 }
 
 
+#set_130
+set_220
+run_mttm_hugepage config13 20G 220
+run_mttm_hugepage_norxc config13 20G 220
 
+
+#run_local_basepage config2
+#run_local_basepage config12
+#run_local_basepage config13-basepage
+
+#set_190
+#run_mttm_basepage config2 34G 190
+#run_mttm_basepage config12 45G 190
+#run_mttm_basepage config13-basepage 51G 190
+#run_memtis_basepage config12-1 190
+#run_memtis_basepage config13-1-basepage 190
+
+#run_sensitivity_mar_hi
 
 #set_220
 #run_static_bw config13-bw2 220
@@ -969,7 +1032,7 @@ end
 #run_main_vtmm
 #run_main_tpp
 #run_main_colloid
-run_main_mttm
+#run_main_mttm
 
 
 #run_static_bw config1-bw1 130

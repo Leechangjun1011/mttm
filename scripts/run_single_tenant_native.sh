@@ -92,6 +92,8 @@ elif [[ "$2" == "gapbs-pr" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 8"
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="${BENCH_PATH}/pr -f ${BENCH_PATH}/pregen_g26.sg -i 1000 -t 1e-4 -n 20"
 	elif [[ "$3" == "12tenants" ]]; then
@@ -202,6 +204,8 @@ elif [[ "$2" == "silo" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=1000000000"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="${BENCH_PATH}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 4 --scale-factor 80000 --ops-per-worker=450000000"
 	elif [[ "$3" == "12tenants" ]]; then
@@ -311,6 +315,8 @@ elif [[ "$2" == "fotonik" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
 	elif [[ "$3" == "config13" ]]; then
 	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
+	elif [[ "$3" == "config13-basepage" ]]; then
+	        BENCH="runcpu --config=mttm_1 --noreportable --iteration=6 649.fotonik3d_s"
 	elif [[ "$3" == "6tenants" ]]; then
 	        BENCH="runcpu --config=mttm_2 --noreportable --iteration=1 649.fotonik3d_s"
 	elif [[ "$3" == "12tenants" ]]; then
@@ -359,6 +365,24 @@ elif [[ "$2" == "btree" ]]; then
 elif [[ "$2" == "redis" ]]; then
         BENCH_PATH="${BENCH_DIR}/YCSB"
         BENCH="${BENCH_PATH}/bin/ycsb load "
+elif [[ "$2" == "gups-1" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" ]]; then
+	        BENCH="${BENCH_PATH}/gups-1 8 4000000000 34 8 31 90"
+	fi
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gups-2" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" ]]; then
+	        BENCH="${BENCH_PATH}/gups-2 8 4000000000 34 8 32 90"
+	fi
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
+elif [[ "$2" == "gups-3" ]]; then
+        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
+	if [[ "$3" == "microbench" ]]; then
+	        BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+	fi
+	echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 elif [[ "$2" == "gups_small" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         BENCH="${BENCH_PATH}/gups 8 2000000000 34 8 32"

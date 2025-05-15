@@ -1502,7 +1502,13 @@ static void analyze_access_pattern(struct mem_cgroup *memcg, unsigned int *hotne
 						memcg->nr_region_access[i] += nr_region_access[i];
 					}
 
-					// TODO scan_hotness_node does not scan inactive for basepage, make region_size[0] to 0.
+					if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags)) {
+						memcg->region_size[0] += (lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+										LRU_INACTIVE_ANON, MAX_NR_ZONES) +
+									lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+										LRU_INACTIVE_ANON, MAX_NR_ZONES));
+					}
+
 					pr_info("[%s] [ %s ] scan: %u, region size [0: %lu MB, 1: %lu MB, 2: %lu MB, 3: %lu MB, 4: %lu MB]",
 						__func__, memcg->tenant_name, *hotness_scanned,
 						region_size[0] >> 8, region_size[1] >> 8, region_size[2] >> 8, region_size[3] >> 8,
@@ -1614,9 +1620,6 @@ static void adjust_active_threshold(struct mem_cgroup *memcg)
 	struct mem_cgroup_per_node *pn;
 	int nid;
 
-	if(READ_ONCE(memcg->hg_mismatch)) {
-		return;
-	}
 
 	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) &&
 		use_dram_determination &&

@@ -379,6 +379,7 @@ struct mem_cgroup {
 	unsigned long		nr_store;
 	unsigned long		nr_local;
 	unsigned long		nr_remote;
+	unsigned long		nr_remote_cooling;
 	unsigned long		fmmr;
 	unsigned long		promoted_pages;
 	unsigned long		demoted_pages;
@@ -409,15 +410,14 @@ struct mem_cgroup {
 	bool			use_mig;
 	bool			region_determined;
 	bool			hi_determined;//hotness intensity determined
-	bool			hg_mismatch;
 	bool			mttm_enabled;
 	bool			vtmm_enabled;
 	unsigned long		nr_vtmm_tlb_miss;
 	struct mm_struct	*vtmm_mm;
 	pid_t			vtmm_pid;
 	unsigned int		dma_chan_start;
-	unsigned int		qos_wss;
 	unsigned long		rxc_reject_inv_ratio;
+	bool			rxc_reject_monitored;
 
 	unsigned long		region_size[NR_REGION];//dram sensitivity
 	uint32_t		nr_region_access[NR_REGION];

@@ -195,6 +195,7 @@ extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned long store_sample_period;
 extern unsigned int use_dram_determination;
+extern unsigned int use_rxc_monitoring;
 extern unsigned int use_memstrata_policy;
 extern unsigned long donor_threshold;
 extern unsigned long acceptor_threshold;
@@ -220,7 +221,6 @@ extern unsigned int kptscand_period_in_us;
 extern unsigned int remote_latency;
 extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
-extern unsigned int qos_wss_factor;
 extern unsigned int basepage_shift_factor;
 extern unsigned int basepage_period_factor;
 extern unsigned int hugepage_shift_factor;
@@ -2954,6 +2954,13 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
+		.procname	= "use_rxc_monitoring",
+		.data		= &use_rxc_monitoring,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
 		.procname	= "use_memstrata_policy",
 		.data		= &use_memstrata_policy,
 		.maxlen		= sizeof(unsigned int),
@@ -3068,13 +3075,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "reduce_scan",
 		.data		= &reduce_scan,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "qos_wss_factor",
-		.data		= &qos_wss_factor,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
