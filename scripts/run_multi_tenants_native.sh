@@ -52,6 +52,10 @@ elif [[ "$1" == "config12" ]]; then
 	workload[1]="btree"
 	workload[2]="xindex"
 	workload[3]="cpu_dlrm_small_low"
+elif [[ "$1" == "rebuttal" ]]; then
+	workload[1]="btree"
+	workload[2]="xindex"
+	workload[3]="cpu_dlrm_large_low"
 elif [[ "$1" == "config13" || "$1" == "config13-basepage" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"

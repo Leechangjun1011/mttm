@@ -95,7 +95,7 @@ elif [[ "$1" == "large" ]]; then
 		elif [[ "$3" == "config5" ]]; then
 			NUM_BATCH=35
 		else
-			NUM_BATCH=40
+			NUM_BATCH=30
 		fi
 	elif [[ "$2" == "mid" ]]; then
 		NUM_BATCH=60 #120

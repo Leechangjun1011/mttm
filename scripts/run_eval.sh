@@ -1003,11 +1003,14 @@ end
 }
 
 
-#set_130
+set_130
 set_220
-run_mttm_hugepage config13 20G 220
-run_mttm_hugepage_norxc config13 20G 220
+#run_mttm_hugepage config13 20G 220
+#run_mttm_hugepage_norxc config13 20G 220
+run_static_hugepage rebuttal 71G 220
 
+#run_mttm_hugepage rebuttal 71G 220
+#run_local_hugepage rebuttal
 
 #run_local_basepage config2
 #run_local_basepage config12
