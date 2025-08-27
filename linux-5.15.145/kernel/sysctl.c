@@ -193,16 +193,12 @@ extern int enable_ksampled;
 extern int enable_kptscand;
 extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
-extern unsigned long store_sample_period;
 extern unsigned int use_dram_determination;
 extern unsigned int use_rxc_monitoring;
 extern unsigned int use_memstrata_policy;
 extern unsigned long donor_threshold;
 extern unsigned long acceptor_threshold;
 extern unsigned int use_region_separation;
-extern unsigned int use_hotness_intensity;
-extern unsigned int use_hi_first;
-extern unsigned int use_mar_first;
 extern unsigned int hi_weight;
 extern unsigned int mar_weight;
 extern unsigned int use_pingpong_reduce;
@@ -216,10 +212,8 @@ extern unsigned long kmigrated_period_in_ms;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_dma_migration;
 extern unsigned int use_dma_completion_interrupt;
-extern unsigned int use_all_stores;
 extern unsigned int kptscand_period_in_us;
 extern unsigned int remote_latency;
-extern unsigned int scanless_cooling;
 extern unsigned int reduce_scan;
 extern unsigned int basepage_shift_factor;
 extern unsigned int basepage_period_factor;
@@ -2933,13 +2927,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_doulongvec_minmax,
 	},
 	{
-		.procname	= "store_sample_period",
-		.data		= &store_sample_period,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
-	{
 		.procname	= "print_more_info",
 		.data		= &print_more_info,
 		.maxlen		= sizeof(unsigned int),
@@ -2977,27 +2964,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_region_separation",
 		.data		= &use_region_separation,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "use_hotness_intensity",
-		.data		= &use_hotness_intensity,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "use_hi_first",
-		.data		= &use_hi_first,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "use_mar_first",
-		.data		= &use_mar_first,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
@@ -3066,13 +3032,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= proc_douintvec_minmax,
 	},
 	{
-		.procname	= "scanless_cooling",
-		.data		= &scanless_cooling,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
 		.procname	= "reduce_scan",
 		.data		= &reduce_scan,
 		.maxlen		= sizeof(unsigned int),
@@ -3124,13 +3083,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "use_dma_migration",
 		.data		= &use_dma_migration,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "use_all_stores",
-		.data		= &use_all_stores,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,

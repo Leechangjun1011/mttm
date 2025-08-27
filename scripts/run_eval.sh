@@ -9,11 +9,10 @@ function run_mttm_hugepage
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 1 > /proc/sys/vm/use_rxc_monitoring
-	echo 1 > /proc/sys/vm/print_more_info
+	echo 0 > /proc/sys/vm/print_more_info
 
 	echo 1 > /proc/sys/vm/mar_weight
 	echo 1 > /proc/sys/vm/hi_weight
@@ -23,12 +22,11 @@ function run_mttm_hugepage
 	echo 4999 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/main/mttm/$1/$2_$3_test.txt
-	dmesg > ./evaluation/main/mttm/$1/$2_$3_dmesg_test.txt
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/main/mttm/$1/$2_$3.txt
+	dmesg > ./evaluation/main/mttm/$1/$2_$3_dmesg.txt
 }
 
 function run_mttm_hugepage_norxc
@@ -37,7 +35,6 @@ function run_mttm_hugepage_norxc
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/use_rxc_monitoring
@@ -51,7 +48,6 @@ function run_mttm_hugepage_norxc
 	echo 4999 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
@@ -66,7 +62,6 @@ function run_mttm_basepage
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/print_more_info
@@ -79,7 +74,6 @@ function run_mttm_basepage
 	echo 101 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
@@ -95,7 +89,6 @@ function run_static_hugepage
 	dmesg --clear
 	echo 0 > /proc/sys/vm/use_dram_determination
 	echo 0 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/print_more_info
@@ -108,7 +101,6 @@ function run_static_hugepage
 	echo 10007 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
@@ -122,7 +114,6 @@ function run_mttm_sensitivity_mar_hi
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/print_more_info
@@ -135,7 +126,6 @@ function run_mttm_sensitivity_mar_hi
 #	echo 4999 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
@@ -149,7 +139,6 @@ function run_mttm_sensitivity_cooling
 	dmesg --clear
 	echo 1 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 	echo 0 > /proc/sys/vm/print_more_info
@@ -162,143 +151,11 @@ function run_mttm_sensitivity_cooling
 	echo 10007 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
 	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/sensitivity/cooling/$1_$2_$3.txt
 	dmesg > ./evaluation/sensitivity/cooling/$1_$2_$3_dmesg.txt
-}
-
-
-function run_mttm_region_hugepage_pingpong
-{
-	#config, dram size, remote latency
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-
-	echo 10007 > /proc/sys/vm/pebs_sample_period
-	echo 0 > /proc/sys/vm/use_pingpong_reduce
-	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/region_pingpong_$1_$2_$3.txt
-	dmesg > ./evaluation/region_pingpong_$1_$2_$3_dmesg.txt
-}
-
-
-
-
-
-function run_mttm_region_basepage_scan
-{
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-
-	echo 199 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 0 > /proc/sys/vm/scanless_cooling
-	echo 0 > /proc/sys/vm/reduce_scan
-	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
-	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/region_scan_$1_$2_$3.txt
-	dmesg > ./evaluation/basepage/region_scan_$1_$2_$3_dmesg.txt
-}
-
-function run_hi_first_hugepage 
-{
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 0 > /proc/sys/vm/use_region_separation
-	echo 1 > /proc/sys/vm/use_hotness_intensity
-	echo 1 > /proc/sys/vm/use_hi_first
-	echo 0 > /proc/sys/vm/use_mar_first
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-
-	echo 1 > /proc/sys/vm/mar_weight
-	echo 1 > /proc/sys/vm/hi_weight
-	echo 3 > /proc/sys/vm/hugepage_shift_factor
-	echo 1 > /proc/sys/vm/hugepage_period_factor
-
-	echo 10007 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/main/hi_first/$1_$2_$3_3.txt
-	dmesg > ./evaluation/main/hi_first/$1_$2_$3_3_dmesg.txt
-}
-
-function run_mar_first_hugepage 
-{
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 0 > /proc/sys/vm/use_region_separation
-	echo 1 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_hi_first
-	echo 1 > /proc/sys/vm/use_mar_first
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-
-	echo 1 > /proc/sys/vm/mar_weight
-	echo 1 > /proc/sys/vm/hi_weight
-	echo 3 > /proc/sys/vm/hugepage_shift_factor
-	echo 1 > /proc/sys/vm/hugepage_period_factor
-
-	echo 10007 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/main/mar_first/$1_$2_$3.txt
-	dmesg > ./evaluation/main/mar_first/$1_$2_$3_dmesg.txt
-}
-
-
-function run_naive_hi_basepage_opt
-{
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 0 > /proc/sys/vm/use_region_separation
-	echo 1 > /proc/sys/vm/use_hotness_intensity
-	echo 1 > /proc/sys/vm/use_naive_hi
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-
-	echo 199 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 200 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
-	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
-
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/basepage/hi_$1_$2_$3_9.txt
-	dmesg > ./evaluation/basepage/hi_$1_$2_$3_9_dmesg.txt
 }
 
 
@@ -370,45 +227,6 @@ function run_local_basepage
 }
 
 
-function run_mttm_qos
-{
-	# workload, qos_wss_factor, remote latency
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo 32G > /proc/sys/vm/mttm_local_dram_string
-	echo 0 > /proc/sys/vm/print_more_info
-	echo $2 > /proc/sys/vm/qos_wss_factor
-
-	echo 1 > /proc/sys/vm/mar_weight
-	echo 1 > /proc/sys/vm/hi_weight
-	echo 3 > /proc/sys/vm/hugepage_shift_factor
-	echo 1 > /proc/sys/vm/hugepage_period_factor
-
-#	echo 4999 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-
-	./run_multi_tenants.sh 1 $1 2>&1 | cat > ./evaluation/qos/wss/$1_$2_$3.txt
-	dmesg > ./evaluation/qos/wss/$1_$2_$3_dmesg.txt
-}
-
-
-
-function run_qos
-{
-	#echo always > /sys/kernel/mm/transparent_hugepage/enabled
-	#./run_multi_tenants_native.sh 1 $1 2>&1 | cat > ./evaluation/qos/local/$1.txt
-
-	run_mttm_qos $1 80 190
-	run_mttm_qos $1 100 190
-	run_mttm_qos $1 120 190
-}
 
 function run_static_bw
 {
@@ -416,7 +234,6 @@ function run_static_bw
 	dmesg --clear
 	echo 0 > /proc/sys/vm/use_dram_determination
 	echo 0 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_memstrata_policy
 	echo 1 > /proc/sys/vm/print_more_info
 
@@ -428,7 +245,6 @@ function run_static_bw
 	echo 10007 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
@@ -520,7 +336,6 @@ function run_memstrata_hugepage
 {
 	dmesg --clear
 	echo 0 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
 	echo 0 > /proc/sys/vm/use_dram_determination
 	echo 1 > /proc/sys/vm/use_memstrata_policy
 	echo 20 > /proc/sys/vm/acceptor_threshold
@@ -531,7 +346,6 @@ function run_memstrata_hugepage
 	echo 10007 > /proc/sys/vm/pebs_sample_period
 	echo 1 > /proc/sys/vm/use_pingpong_reduce
 	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
@@ -547,8 +361,6 @@ function run_memstrata_basepage_opt
 	dmesg --clear
 	echo 0 > /proc/sys/vm/use_dram_determination
 	echo 0 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_hotness_intensity
-	echo 0 > /proc/sys/vm/use_naive_hi
 	echo 1 > /proc/sys/vm/use_memstrata_policy
 	echo 40 > /proc/sys/vm/acceptor_threshold
 
@@ -557,7 +369,6 @@ function run_memstrata_basepage_opt
 
 	echo 199 > /proc/sys/vm/pebs_sample_period
 	echo 0 > /proc/sys/vm/use_pingpong_reduce
-	echo 1 > /proc/sys/vm/scanless_cooling
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
@@ -622,25 +433,7 @@ function set_220
 	cd $cur_path
 	echo 220 > /proc/sys/vm/remote_latency
 }
-: << end
-function set_192
-{
-	cd $emul_path
-	./reset.sh
-	./emulate.sh 24 0
-	cd $cur_path
-	echo 192 > /proc/sys/vm/remote_latency
-}
 
-function set_250
-{
-	cd $emul_path
-	./reset.sh
-	./emulate.sh 24 0 0x80be
-	cd $cur_path
-	echo 250 > /proc/sys/vm/remote_latency
-}
-end
 
 function run_sensitivity_mar_hi
 {
@@ -742,80 +535,8 @@ end
 
 }
 
-function run_main_mar_first
-{
-: << end
-	set_160
-	run_mar_first_hugepage config1 54G 160
-	run_mar_first_hugepage config1 21G 160
-	run_mar_first_hugepage config2 34G 160
-	run_mar_first_hugepage config2 13G 160
-	run_mar_first_hugepage config12 60G 160
-	run_mar_first_hugepage config12 24G 160
-	run_mar_first_hugepage config13 51G 160
-	run_mar_first_hugepage config13 20G 160
-	set_190
-	run_mar_first_hugepage config1 54G 190
-	run_mar_first_hugepage config1 21G 190
-	run_mar_first_hugepage config2 34G 190
-	run_mar_first_hugepage config2 13G 190
-	run_mar_first_hugepage config12 60G 190
-	run_mar_first_hugepage config12 24G 190
-	run_mar_first_hugepage config13 51G 190
-	run_mar_first_hugepage config13 20G 190
-
-end
-
-	set_220
-#	run_mar_first_hugepage config1 54G 220
-#	run_mar_first_hugepage config1 21G 220
-#	run_mar_first_hugepage config2 34G 220
-#	run_mar_first_hugepage config2 13G 220
-	run_mar_first_hugepage config12 45G 220
-	run_mar_first_hugepage config12 18G 220
-#	run_mar_first_hugepage config13 51G 220
-#	run_mar_first_hugepage config13 20G 220
 
 
-	set_130
-}
-
-function run_main_hi_first
-{
-: << end
-
-	set_160
-#	run_hi_first_hugepage config1 54G 160
-#	run_hi_first_hugepage config1 21G 160
-#	run_hi_first_hugepage config2 34G 160
-#	run_hi_first_hugepage config2 13G 160
-	run_hi_first_hugepage config12 45G 160
-#	run_hi_first_hugepage config12 24G 160
-#	run_hi_first_hugepage config13 51G 160
-#	run_hi_first_hugepage config13 20G 160
-	set_190
-	run_hi_first_hugepage config1 54G 190
-	run_hi_first_hugepage config1 21G 190
-	run_hi_first_hugepage config2 34G 190
-	run_hi_first_hugepage config2 13G 190
-	run_hi_first_hugepage config12 60G 190
-	run_hi_first_hugepage config12 24G 190
-	run_hi_first_hugepage config13 51G 190
-	run_hi_first_hugepage config13 20G 190
-end
-
-	set_220
-#	run_hi_first_hugepage config1 54G 220
-#	run_hi_first_hugepage config1 21G 220
-#	run_hi_first_hugepage config2 34G 220
-#	run_hi_first_hugepage config2 13G 220
-	run_hi_first_hugepage config12 45G 220
-	run_hi_first_hugepage config12 18G 220
-#	run_hi_first_hugepage config13 51G 220
-#	run_hi_first_hugepage config13 20G 220
-
-	set_130
-}
 
 function run_main_local
 {
@@ -1003,51 +724,9 @@ end
 }
 
 
-set_130
-set_220
-#run_mttm_hugepage config13 20G 220
-#run_mttm_hugepage_norxc config13 20G 220
-run_static_hugepage rebuttal 71G 220
+set_160
 
-#run_mttm_hugepage rebuttal 71G 220
-#run_local_hugepage rebuttal
-
-#run_local_basepage config2
-#run_local_basepage config12
-#run_local_basepage config13-basepage
-
-#set_190
-#run_mttm_basepage config2 34G 190
-#run_mttm_basepage config12 45G 190
-#run_mttm_basepage config13-basepage 51G 190
-#run_memtis_basepage config12-1 190
-#run_memtis_basepage config13-1-basepage 190
-
-#run_sensitivity_mar_hi
-
-#set_220
-#run_static_bw config13-bw2 220
-#run_static_bw config13-bw4 220
-
-
-#run_main_memtis
-#run_main_memstrata
-#run_main_vtmm
-#run_main_tpp
-#run_main_colloid
-#run_main_mttm
-
-
-#run_static_bw config1-bw1 130
-
-
-#run_main_mttm
-#run_main_mar_first
-#run_main_hi_first
-#run_main_static
-
-#config1, 2, 12, 13
-
+run_mttm_hugepage config13 51G 160
 
 set_130
 

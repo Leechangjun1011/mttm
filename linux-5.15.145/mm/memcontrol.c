@@ -5263,16 +5263,10 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->nr_sampled = 0;
 	memcg->nr_tot_local = 0;
 	memcg->interval_nr_sampled = 0;
-	memcg->nr_load = 0;
-	memcg->nr_store = 0;
 	memcg->nr_local = 0;
 	memcg->nr_remote = 0;
 	memcg->nr_remote_cooling = 0;
 	memcg->fmmr = 0;
-	memcg->nr_alloc = 0;
-	memcg->promoted_pages = 0;
-	memcg->demoted_pages = 0;
-	memcg->cooling_clock = 0;
 	memcg->cooling_period = MTTM_INIT_COOLING_PERIOD;
 	memcg->adjust_period = MTTM_INIT_ADJUST_PERIOD;
 	memcg->active_threshold = MTTM_INIT_THRESHOLD;
@@ -5289,12 +5283,10 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->hotness_scan_cnt = 1;
 	if(use_dram_determination) {
 		memcg->region_determined = false;
-		memcg->hi_determined = false;
 		memcg->dram_fixed = false;
 	}
 	else {
 		memcg->region_determined = true;
-		memcg->hi_determined = true;
 		memcg->dram_fixed = true;
 	}
 	memcg->dram_expanded = false;
@@ -5321,7 +5313,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 	memcg->highest_rate = 0;
 	memcg->mean_rate = 0;
 	memcg->stable_cnt = 0;
-	memcg->lowered_cnt = 0;
 	memcg->stable_status = false;
 	memcg->cooled = false;
 
@@ -5330,12 +5321,6 @@ static struct mem_cgroup *mem_cgroup_alloc(void)
 		memcg->nr_region_access[i] = 0;
 	}
 	
-	memcg->hotness_intensity = 0;
-	memcg->lev1_size = 0;
-	memcg->lev2_size = 0;
-	memcg->lev3_size = 0;
-	memcg->lev4_size = 0;
-
 	memcg->nr_pingpong = 0;
 
 	memcg->ac_page_list = NULL;
@@ -7713,7 +7698,6 @@ static int memcg_hotness_stat_show(struct seq_file *m, void *v)
 	seq_buf_printf(&s, "hot %lu warm %lu cold %lu\n", hot, warm, cold);
 	seq_buf_printf(&s, "active_threshold %u warm_threshold %u\n",
 			memcg->active_threshold, memcg->warm_threshold);
-	seq_buf_printf(&s, "cooling_clock %u\n", memcg->cooling_clock);
 	seq_buf_printf(&s, "max_nr_dram_pages %lu\n", memcg->max_nr_dram_pages);
 
 	seq_puts(m, s.buffer);

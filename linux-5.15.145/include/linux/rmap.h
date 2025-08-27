@@ -195,7 +195,6 @@ int page_referenced(struct page *, int is_locked,
 			struct mem_cgroup *memcg, unsigned long *vm_flags);
 
 #ifdef CONFIG_MTTM
-int cooling_page(struct page *page, struct mem_cgroup *memcg);
 int page_check_hotness(struct page *page, struct mem_cgroup *memcg);
 int get_pginfo_idx(struct page *page);
 pginfo_t *get_pginfo_from_page(struct page *page);
@@ -308,10 +307,6 @@ static inline void try_to_unmap(struct page *page, enum ttu_flags flags)
 }
 
 #ifdef CONFIG_MTTM
-static inline int cooling_page(struct page *page, struct mem_cgroup *memcg)
-{
-	return false;
-}
 static inline int page_check_hotness(struct page *page, struct mem_cgroup *memcg)
 {
 	return false;

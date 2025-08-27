@@ -174,7 +174,6 @@ struct page {
 					uint32_t base_bitmap_idx;
 				};
 			};
-			uint32_t cooling_clock;
 			unsigned char promoted;
 			unsigned char demoted;
 		};

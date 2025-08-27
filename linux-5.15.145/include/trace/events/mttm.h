@@ -38,48 +38,41 @@ TRACE_EVENT(lru_distribution,
 TRACE_EVENT(migration_stats,
 
 	TP_PROTO(unsigned long promoted, unsigned long demoted,
-		unsigned int cooling_clock, unsigned long cooling_period,
+		unsigned long cooling_period,
 		unsigned int active_threshold, unsigned int warm_threshold,
 		bool promotion_denied,
-		unsigned long nr_exceeded, unsigned long nr_sampled,
-		unsigned long nr_load, unsigned long nr_store),  
+		unsigned long nr_exceeded, unsigned long nr_sampled),  
 
-	TP_ARGS(promoted, demoted, cooling_clock, cooling_period, active_threshold, warm_threshold, promotion_denied, nr_exceeded, nr_sampled, nr_load, nr_store),
+	TP_ARGS(promoted, demoted, cooling_period, active_threshold, warm_threshold, promotion_denied, nr_exceeded, nr_sampled),
 
 	TP_STRUCT__entry(
 		__field(unsigned long,	promoted)
 		__field(unsigned long,	demoted)
-		__field(unsigned int,	cooling_clock)
 		__field(unsigned long,	cooling_period)
 		__field(unsigned int,	active_threshold)
 		__field(unsigned int,	warm_threshold)
 		__field(bool,		promotion_denied)
 		__field(unsigned long,	nr_exceeded)
 		__field(unsigned long,	nr_sampled)
-		__field(unsigned long,	nr_load)
-		__field(unsigned long,	nr_store)
 	),
 
 	TP_fast_assign(
 		__entry->promoted = promoted;
 		__entry->demoted = demoted;
-		__entry->cooling_clock = cooling_clock;
 		__entry->cooling_period = cooling_period;
 		__entry->active_threshold = active_threshold;
 		__entry->warm_threshold = warm_threshold;
 		__entry->promotion_denied = promotion_denied;
 		__entry->nr_exceeded = nr_exceeded;
 		__entry->nr_sampled = nr_sampled;
-		__entry->nr_load = nr_load;
-		__entry->nr_store = nr_store;
 	),
 
-	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu, clock: %u] active: %u warm: %u nr_exceeded: %lu promotion [%s] nr_sampled: %lu (load : %lu, store : %lu)",
+	TP_printk("Promoted: %lu MB Demoted: %lu MB Cooling [period : %lu] active: %u warm: %u nr_exceeded: %lu promotion [%s] nr_sampled: %lu",
 		__entry->promoted >> 8, __entry->demoted >> 8,
-		__entry->cooling_period, __entry->cooling_clock,
+		__entry->cooling_period,
 		__entry->active_threshold, __entry->warm_threshold,
 		__entry->nr_exceeded, __entry->promotion_denied ? "denied" : "available",
-		__entry->nr_sampled, __entry->nr_load, __entry->nr_store)
+		__entry->nr_sampled)
 );
 
 TRACE_EVENT(lru_stats,

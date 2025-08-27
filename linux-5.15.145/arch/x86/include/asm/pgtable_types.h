@@ -296,7 +296,6 @@ typedef struct {
 			uint32_t base_bitmap_idx;
 		};
 	};
-	uint16_t cooling_clock;
 	unsigned char promoted;
 	unsigned char demoted;
 } pginfo_t;

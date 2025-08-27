@@ -30,7 +30,7 @@ There are nothing special libraries for MTTM itself.
 
 (You just need to install libraries for Linux compilation.)
 
-## For experiments
+## For experiments and artifact evaluation
 See scripts directory.
 
 

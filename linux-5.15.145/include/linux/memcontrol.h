@@ -371,19 +371,13 @@ struct mem_cgroup {
 	unsigned long		adjust_period;
 	unsigned long		max_nr_dram_pages;
 	unsigned long		max_anon_rss;
-	unsigned long		nr_alloc;
 	unsigned long		nr_sampled;
 	unsigned long		nr_tot_local;
 	unsigned long		interval_nr_sampled;
-	unsigned long		nr_load;
-	unsigned long		nr_store;
 	unsigned long		nr_local;
 	unsigned long		nr_remote;
 	unsigned long		nr_remote_cooling;
 	unsigned long		fmmr;
-	unsigned long		promoted_pages;
-	unsigned long		demoted_pages;
-	unsigned int		cooling_clock;
 	unsigned int		active_threshold;
 	unsigned int		threshold_offset;
 	unsigned int		warm_threshold;
@@ -396,12 +390,6 @@ struct mem_cgroup {
 	unsigned long		mean_rate;
 	unsigned long		hotness_scan_cnt;
 	unsigned long		stable_cnt;
-	unsigned long		lowered_cnt;
-	unsigned long		hotness_intensity;
-	unsigned long		lev1_size;
-	unsigned long		lev2_size;
-	unsigned long		lev3_size;
-	unsigned long		lev4_size;
 	bool			dram_fixed;
 	bool			dram_expanded;
 	bool			stable_status;
@@ -409,7 +397,6 @@ struct mem_cgroup {
 	bool			use_warm;
 	bool			use_mig;
 	bool			region_determined;
-	bool			hi_determined;//hotness intensity determined
 	bool			mttm_enabled;
 	bool			vtmm_enabled;
 	unsigned long		nr_vtmm_tlb_miss;

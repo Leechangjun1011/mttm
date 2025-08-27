@@ -33,16 +33,12 @@
 
 int enable_ksampled = 0;
 unsigned long pebs_sample_period = PEBS_INIT_PERIOD;
-unsigned long store_sample_period = 100003;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
 unsigned int use_rxc_monitoring = 1;
 unsigned int use_memstrata_policy = 0;
 unsigned long acceptor_threshold = 20;//fmmr higher than this threshold is outlier
 unsigned int use_region_separation = 1;
-unsigned int use_hotness_intensity = 0;
-unsigned int use_hi_first = 0;
-unsigned int use_mar_first = 0;
 unsigned int hi_weight = 1;
 unsigned int mar_weight = 1;
 unsigned int use_pingpong_reduce = 1;
@@ -61,7 +57,6 @@ struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 struct dma_chan *memset_chan[NUM_AVAIL_DMA_CHAN];
 struct dma_device *memset_dev[NUM_AVAIL_DMA_CHAN];
-unsigned int use_all_stores = 0;
 int current_tenants = 0;
 struct mem_cgroup **memcg_list = NULL;
 struct task_struct *ksampled_thread = NULL;
@@ -79,7 +74,6 @@ u64 smoothed_lat_local = 80, smoothed_lat_remote = 135;
 u64 smoothed_rxc_insert_local = 0, smoothed_rxc_insert_remote = 0;
 u64 smoothed_rxc_reject_local = 0, smoothed_rxc_reject_remote = 0;
 u64 smoothed_rxc_reject_ratio_local = 0, smoothed_rxc_reject_ratio_remote = 0;
-
 
 
 int IMC_BUS_SOCKET[2] = {0x3a, 0xae};
@@ -212,8 +206,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 	if(!pginfo)
 		return 0;
 
-	initial_hotness = 0; //get_accesses_from_idx(memcg->active_threshold + 1);
-
+	initial_hotness = 0; 
 	if(scanless_cooling) {
 		spin_lock(&memcg->bitmap_lock);
 		find_bitmap_idx(memcg, &giga_idx, &huge_idx, &base_idx);
@@ -228,10 +221,7 @@ int set_page_coolstatus(struct page *page, pte_t *pte, struct mm_struct *mm)
 
 		spin_unlock(&memcg->bitmap_lock);
 	}
-	else
-		pginfo->nr_accesses = initial_hotness;
 
-	pginfo->cooling_clock = READ_ONCE(memcg->cooling_clock);//do not skip cooling
 	pginfo->promoted = 0;
 	pginfo->demoted = 0;
 
@@ -252,7 +242,7 @@ void mttm_mm_init(struct mm_struct *mm)
 void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 {
 	struct mem_cgroup *memcg = mm ? get_mem_cgroup_from_mm(mm) : NULL;
-	int initial_hotness = 0; //memcg ? get_accesses_from_idx(memcg->active_threshold + 1) : 0;
+	int initial_hotness = 0;
 	unsigned int giga_idx = 0, huge_idx = 0, base_idx = 0;
 	uint32_t *ac;
 
@@ -273,10 +263,7 @@ void __prep_transhuge_page_for_mttm(struct mm_struct *mm, struct page *page)
 			*ac = initial_hotness;
 		spin_unlock(&memcg->bitmap_lock);
 	}
-	else
-		page[3].nr_accesses = initial_hotness;
 	
-	page[3].cooling_clock = memcg->cooling_clock;//do not skip cooling
 	page[3].promoted = 0;
 	page[3].demoted = 0;
 	ClearPageActive(page);
@@ -307,9 +294,6 @@ void copy_transhuge_pginfo(struct page *page, struct page *newpage)
 		newpage[3].huge_bitmap_idx = page[3].huge_bitmap_idx;
 		newpage[3].base_bitmap_idx = page[3].base_bitmap_idx;
 	}
-	else
-		newpage[3].nr_accesses = page[3].nr_accesses;
-	newpage[3].cooling_clock = page[3].cooling_clock;
 	newpage[3].promoted = page[3].promoted;
 	newpage[3].demoted = page[3].demoted;
 	SetPageMttm(&newpage[3]);
@@ -383,8 +367,6 @@ void uncharge_mttm_pte(pte_t *pte, struct mem_cgroup *memcg, struct page *page)
 		}
 		spin_unlock(&memcg->bitmap_lock);
 	}
-	else
-		idx = get_idx(pginfo->nr_accesses);
 
 	if(idx > 15 || idx < 0)
 		return;
@@ -454,8 +436,6 @@ void uncharge_mttm_page(struct page *page, struct mem_cgroup *memcg)
 			}
 			spin_unlock(&memcg->bitmap_lock);
 		}
-		else
-			idx = get_idx(meta_page->nr_accesses);
 
 		if(idx > 15 || idx < 0)
 			return;
@@ -528,8 +508,6 @@ static __u64 get_pebs_event(enum eventtype e)
 			return DRAM_LLC_LOAD_MISS;
 		case CXLREAD:
 			return REMOTE_DRAM_LLC_LOAD_MISS;
-		case MEMSTORE:
-			return ALL_STORES;
 		default:
 			return NR_EVENTTYPE;
 	}
@@ -549,10 +527,7 @@ static int __perf_event_open(__u64 config, __u64 config1, __u64 cpu,
 	attr.config = config;
 	attr.config1 = config1;
 
-	if(config == ALL_STORES)
-		attr.sample_period = store_sample_period;
-	else
-		attr.sample_period = pebs_sample_period;
+	attr.sample_period = pebs_sample_period;
 
 	attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_ADDR;
 
@@ -617,7 +592,7 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	struct mem_cgroup *memcg = mem_cgroup_from_task(current);
 	char name[PATH_MAX];
 	
-	size_t max_rss_in_GB = 200;//100GB when use only basepage
+	size_t max_rss_in_GB = 200;//200GB when use only basepage
 	size_t giga_bitmap_size = 0, huge_bitmap_size = 0, base_bitmap_size = 0;
 	size_t giga_bitmap_in_use = 0;
 	bool alloc_fail = false;
@@ -853,9 +828,6 @@ static bool set_cooling(struct mem_cgroup *memcg)
 	for_each_node_state(nid, N_MEMORY) {
 		struct mem_cgroup_per_node *pn = memcg->nodeinfo[nid];
 		if(pn && READ_ONCE(pn->need_cooling)) { // previous cooling is not done yet.
-			spin_lock(&memcg->access_lock);
-			memcg->cooling_clock++;
-			spin_unlock(&memcg->access_lock);
 			return false;
 		}
 	}
@@ -863,7 +835,6 @@ static bool set_cooling(struct mem_cgroup *memcg)
 	memcg->nr_remote_cooling = 0;
 	spin_lock(&memcg->access_lock);
 	reset_memcg_stat(memcg);
-	memcg->cooling_clock++;
 	memcg->cooled = true;
 	smp_mb();
 	spin_unlock(&memcg->access_lock);
@@ -890,66 +861,6 @@ void set_lru_adjusting(struct mem_cgroup *memcg, bool inc_thres)
 
 }
 
-// deprecated
-static void adjust_active_threshold(struct mem_cgroup *memcg)
-{
-	unsigned long nr_active = 0;
-	unsigned long max_nr_pages = memcg->max_nr_dram_pages -
-		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
-	//bool need_warm = false;
-	int idx_hot;
-	unsigned int prev_threshold = READ_ONCE(memcg->active_threshold);
-	unsigned int init_threshold = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					MTTM_INIT_THRESHOLD : 9;
-
-
-	if(!test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) &&
-		use_dram_determination &&
-		((use_region_separation && !memcg->region_determined) || (use_hotness_intensity && !memcg->hi_determined)))
-		return;
-
-
-	spin_lock(&memcg->access_lock);
-
-	for(idx_hot = 15; idx_hot >= 0; idx_hot--) {
-		unsigned long nr_pages = memcg->hotness_hg[idx_hot];
-		if(nr_active + nr_pages > max_nr_pages)
-			break;
-		nr_active += nr_pages;
-	}
-	if(idx_hot != 15)
-		idx_hot++;
-
-	/*if(nr_active < (max_nr_pages * 75 / 100))
-		need_warm = true;*/
-
-	spin_unlock(&memcg->access_lock);
-
-	if(idx_hot < init_threshold) {
-		idx_hot = init_threshold;
-	}
-
-	// histogram is reset before cooling
-	// some pages may not be reflected in the histogram when cooling happens
-	if(memcg->cooled) {
-		WRITE_ONCE(memcg->active_threshold, init_threshold + memcg->threshold_offset);
-		/*if(memcg->active_threshold > MTTM_INIT_THRESHOLD)
-			WRITE_ONCE(memcg->active_threshold, memcg->active_threshold - 1);*/
-		memcg->cooled = false;
-	}
-	else {
-		WRITE_ONCE(memcg->active_threshold, idx_hot + memcg->threshold_offset);
-	}
-
-	if(memcg->active_threshold != prev_threshold)
-		set_lru_adjusting(memcg, true);
-
-	if(memcg->use_warm && (memcg->active_threshold > init_threshold))
-		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold - 1);
-	else
-		WRITE_ONCE(memcg->warm_threshold, memcg->active_threshold);
-
-}
 
 void move_page_to_active_lru(struct page *page)
 {
@@ -1020,138 +931,7 @@ lru_unlock:
 	BUG_ON(!list_empty(&l_inactive));
 }
 
-// Invoked at kmigrated
-// deprecated
-void check_transhuge_cooling_reset(void *arg, struct page *page)
-{
-	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
-	struct page *meta_page;
-	unsigned int memcg_cclock;
-	unsigned long cur_idx;
 
-	if(!memcg)
-		return;
-
-	spin_lock(&memcg->access_lock);
-	meta_page = get_meta_page(page);
-	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	
-	meta_page->nr_accesses = 0;
-
-	meta_page->cooling_clock = memcg_cclock;
-	cur_idx = get_idx(meta_page->nr_accesses);
-	memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
-
-	spin_unlock(&memcg->access_lock);
-}
-
-// Invoked at kmigrated
-// deprecated
-void check_base_cooling_reset(pginfo_t *pginfo, struct page *page)
-{
-	struct mem_cgroup *memcg = page_memcg(page);
-	unsigned int memcg_cclock;
-	unsigned long cur_idx;
-
-	if(!memcg)
-		return;
-
-	spin_lock(&memcg->access_lock);
-	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-
-	pginfo->nr_accesses = 0;
-
-	pginfo->cooling_clock = memcg_cclock;
-	cur_idx = get_idx(pginfo->nr_accesses);
-	memcg->hotness_hg[cur_idx]++;
-
-	spin_unlock(&memcg->access_lock);
-}
-
-// Only invoked when update huge pginfo.
-// Not supposed to be invoked when scanless cooling.
-void check_transhuge_cooling(void *arg, struct page *page)
-{
-	struct mem_cgroup *memcg = arg ? (struct mem_cgroup *)arg : page_memcg(page);
-	struct page *meta_page;
-	unsigned int memcg_cclock;
-	unsigned long prev_idx, cur_idx;
-
-	if(!memcg)
-		return;
-	if(!memcg->mttm_enabled)
-		return;
-
-	spin_lock(&memcg->access_lock);
-	meta_page = get_meta_page(page);
-	prev_idx = get_idx(meta_page->nr_accesses);
-
-	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	if(memcg_cclock > meta_page->cooling_clock) {
-		meta_page->nr_accesses = 0;
-	}
-	meta_page->cooling_clock = memcg_cclock;
-
-	cur_idx = 0;
-
-	if(prev_idx != cur_idx) {
-		if(memcg->hotness_hg[prev_idx] >= HPAGE_PMD_NR)
-			memcg->hotness_hg[prev_idx] -= HPAGE_PMD_NR;
-		else
-			memcg->hotness_hg[prev_idx] = 0;
-		memcg->hotness_hg[cur_idx] += HPAGE_PMD_NR;
-
-		if(page_to_nid(page) == 0) {
-			if(memcg->hotness_hg_local[prev_idx] >= HPAGE_PMD_NR)
-				memcg->hotness_hg_local[prev_idx] -= HPAGE_PMD_NR;
-			else
-				memcg->hotness_hg_local[prev_idx] = 0;
-			memcg->hotness_hg_local[cur_idx] += HPAGE_PMD_NR;
-		}
-	}
-
-	spin_unlock(&memcg->access_lock);
-}
-
-// Only invoked when update base pginfo and migrate base page.
-// Not supposed to be invoked when scanless cooling.
-void check_base_cooling(pginfo_t *pginfo, struct page *page)
-{
-	struct mem_cgroup *memcg = page_memcg(page);
-	unsigned int memcg_cclock;
-	unsigned long prev_idx, cur_idx;
-
-	if(!memcg)
-		return;
-	if(!memcg->mttm_enabled)
-		return;
-	if(scanless_cooling)
-		return;
-
-	spin_lock(&memcg->access_lock);
-	prev_idx = get_idx(pginfo->nr_accesses);
-
-	memcg_cclock = READ_ONCE(memcg->cooling_clock);
-	if(memcg_cclock > pginfo->cooling_clock) {
-		pginfo->nr_accesses = 0;
-	}
-	pginfo->cooling_clock = memcg_cclock;
-	cur_idx = 0;
-	
-	if(prev_idx != cur_idx) {
-		if(memcg->hotness_hg[prev_idx] > 0)
-			memcg->hotness_hg[prev_idx]--;
-		memcg->hotness_hg[cur_idx]++;
-
-		if(page_to_nid(page) == 0) {
-			if(memcg->hotness_hg_local[prev_idx] > 0)
-				memcg->hotness_hg_local[prev_idx]--;
-			memcg->hotness_hg_local[cur_idx]++;
-		}
-	}
-
-	spin_unlock(&memcg->access_lock);
-}
 
 void update_base_page(struct vm_area_struct *vma, struct page *page,
 				pginfo_t *pginfo, unsigned long address)
@@ -1169,13 +949,7 @@ void update_base_page(struct vm_area_struct *vma, struct page *page,
 		prev_idx = get_idx(*ac);
 		(*ac) += HPAGE_PMD_NR;
 		cur_idx = get_idx(*ac);
-	}
-	else {
-		check_base_cooling(pginfo, page);
-		prev_idx = get_idx(pginfo->nr_accesses);
-		pginfo->nr_accesses += HPAGE_PMD_NR;
-		cur_idx = get_idx(pginfo->nr_accesses);
-	}
+	}	
 
 	spin_lock(&memcg->access_lock);
 	if(prev_idx != cur_idx) {
@@ -1218,12 +992,7 @@ void update_huge_page(struct vm_area_struct *vma, pmd_t *pmd,
 		(*ac)++;
 		cur_idx = get_idx(*ac);
 	}
-	else {
-		check_transhuge_cooling((void *)memcg, page);
-		prev_idx = get_idx(meta_page->nr_accesses);
-		meta_page->nr_accesses++;
-		cur_idx = get_idx(meta_page->nr_accesses);
-	}
+
 
 	spin_lock(&memcg->access_lock);
 	if(prev_idx != cur_idx) {
@@ -1390,12 +1159,6 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 	memcg = get_mem_cgroup_from_mm(mm);
 	if(!memcg)
 		goto mmap_unlock;
-
-	if(use_dram_determination &&
-		!READ_ONCE(memcg->region_determined) &&
-		(get_pebs_event(e) == ALL_STORES))
-		goto mmap_unlock;
-		
 	
 	ret = __update_pginfo(vma, address);
 
@@ -1408,15 +1171,11 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		if(get_pebs_event(e) == DRAM_LLC_LOAD_MISS) {
 			memcg->nr_tot_local++;
 			memcg->nr_local++;
-			memcg->nr_load++;
 		}
 		if(get_pebs_event(e) == REMOTE_DRAM_LLC_LOAD_MISS) {
 			memcg->nr_remote_cooling++;
 			memcg->nr_remote++;
-			memcg->nr_load++;
 		}
-		else if(get_pebs_event(e) == ALL_STORES)
-			memcg->nr_store++;
 	}
 
 	// cooling
@@ -1426,9 +1185,6 @@ void update_pginfo(pid_t pid, unsigned long address, enum eventtype e)
 		}	
 	}
 
-	// adjust threshold
-	//else if((memcg->nr_sampled % READ_ONCE(memcg->adjust_period)) == 0)
-	//	adjust_active_threshold(memcg);
 
 mmap_unlock:
 	mmap_read_unlock(mm);
@@ -1443,8 +1199,6 @@ void ksampled_do_work(void)
 
 	for(cpu = 0; cpu < CORES_PER_SOCKET; cpu++) {
 		for(event = 0; event < NR_EVENTTYPE; event++) {
-			if(!use_all_stores && (get_pebs_event(event) == ALL_STORES))
-				continue;
 			do {
 				struct perf_buffer *rb;
 				struct perf_event_mmap_page *up;
@@ -1524,8 +1278,6 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 				unsigned long stdev, unsigned long mean,
 				unsigned long mean_rate)
 {
-	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 100 * sampling_factor;//100 when pebs_sample_period is 10007
 
@@ -1549,9 +1301,6 @@ static void check_sample_rate_is_stable(struct mem_cgroup *memcg,
 
 void check_rate_change(struct mem_cgroup *memcg)
 {
-	int j;
-	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 2000 * min_t(unsigned long, sampling_factor, 50);//mar is 2000 when pebs_sample_period is 10007.
 	unsigned long hard_max = 10;
@@ -1560,23 +1309,11 @@ void check_rate_change(struct mem_cgroup *memcg)
 		std_rate /= 2;
 
 	if((memcg->highest_rate * 6 / 5) < memcg->mean_rate) {
-		memcg->lowered_cnt = 0;
-
 		WRITE_ONCE(memcg->highest_rate, memcg->mean_rate);
 		WRITE_ONCE(memcg->hotness_scan_cnt, min_t(unsigned long, hard_max, max_t(unsigned long, memcg->hotness_scan_cnt, memcg->highest_rate / std_rate)));
 
 		pr_info("[%s] [ %s ] highest rate updated to %lu. scan_cnt updated to %lu\n",
 			__func__, memcg->tenant_name, memcg->highest_rate, memcg->hotness_scan_cnt);
-		/*if(use_dram_determination) {
-			// Re-calculate dram size of each tenant
-			for(j = 0; j < LIMIT_TENANTS; j++) {
-				struct mem_cgroup *memcg_iter;
-				memcg_iter = READ_ONCE(memcg_list[j]);
-				if(memcg_iter) {
-					WRITE_ONCE(memcg_iter->dram_fixed, false);
-				}
-			}
-		}*/
 	}
 }
 
@@ -1596,9 +1333,6 @@ void expand_ac_pages(struct mem_cgroup *memcg)
 	huge_bitmap_size = ((1UL << 30) / HPAGE_SIZE);
 	base_bitmap_size = (HPAGE_SIZE / PAGE_SIZE);// one ac page contains 512 access counts
 
-	// Alloc ac_page_list
-	//memcg->ac_page_list = kzalloc(giga_bitmap_size * sizeof(uint32_t **), GFP_KERNEL);
-	//BUG_ON(!memcg->ac_page_list);
 
 	for(i = giga_bitmap_in_use; i < giga_bitmap_in_use + 10; i++) {
 		memcg->ac_page_list[i] = kzalloc(huge_bitmap_size * sizeof(uint32_t *), GFP_KERNEL);
@@ -1645,8 +1379,6 @@ struct mem_cgroup *find_rxc_reject_donor(struct mem_cgroup *acceptor)
 	int i;
 	struct mem_cgroup *memcg, *ret = NULL;
 	unsigned long cur_zal_pages = 0;
-	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 200 * sampling_factor;
 
@@ -1702,8 +1434,6 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 	int i, j;
 	struct mem_cgroup *memcg, *acceptor, *donor;
 	unsigned long remote_rss, local_rss, accessed_local_pages, accessed_remote_pages, zero_access_local_pages;
-	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 200 * sampling_factor;
 
@@ -1739,18 +1469,18 @@ void check_rxc_reject_ratio(int *rxc_reject_cnt)
 
 			if(memcg->nr_remote && remote_rss && memcg->mean_rate > std_rate) {
 				memcg->rxc_reject_inv_ratio = remote_rss / memcg->nr_remote;
-				pr_info("[%s] [ %s ] remote access: %lu, remote rss: %lu (accessed: %lu), inv_ratio: %lu, reject ratio[local: %llu, remote: %llu], zal_pages: %lu\n",
+				/*pr_info("[%s] [ %s ] remote access: %lu, remote rss: %lu (accessed: %lu), inv_ratio: %lu, reject ratio[local: %llu, remote: %llu], zal_pages: %lu\n",
 					__func__, memcg->tenant_name, memcg->nr_remote_cooling, remote_rss, accessed_remote_pages,
 					memcg->rxc_reject_inv_ratio,
 					smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
-					memcg->zero_access_local_pages);
+					memcg->zero_access_local_pages);*/
 			}
 		}
 	}
 
 	if(smoothed_rxc_reject_ratio_local > 100 && smoothed_rxc_reject_ratio_remote > 100) {
 		(*rxc_reject_cnt)++;
-		pr_info("[%s] rxc_reject_cnt: %d\n",__func__, *rxc_reject_cnt);
+		//pr_info("[%s] rxc_reject_cnt: %d\n",__func__, *rxc_reject_cnt);
 		if(*rxc_reject_cnt >= 3) {
 			// find highest inv reject ratio
 			acceptor = find_rxc_reject_acceptor();
@@ -1802,17 +1532,6 @@ void calculate_sample_rate_stat(void)
 			mean_rate = div64_u64(sum_sample, (ksampled_trace_period_in_ms / 1000) * 5);
 			ema_rate = (memcg->mean_rate * 8 + (memcg->interval_nr_sampled * 2) / (ksampled_trace_period_in_ms / 1000)) / 10;
 			memcg->mean_rate = ema_rate;
-
-			/*if(print_more_info) {
-				if(memcg->nr_remote)
-					pr_info("[%s] [ %s ] ema_rate : %lu, local : %lu, remote : %lu, ratio : %lu\n",
-						__func__, memcg->tenant_name, ema_rate,
-						memcg->nr_local, memcg->nr_remote, memcg->nr_local * 100 / memcg->nr_remote);
-				else
-					pr_info("[%s] [ %s ] ema_rate : %lu, local : %lu, remote : %lu\n",
-						__func__, memcg->tenant_name, ema_rate,
-						memcg->nr_local, memcg->nr_remote);	
-			}*/
 
 			if(memcg->stable_cnt < SAMPLE_RATE_STABLE_CNT)
 				check_sample_rate_is_stable(memcg, std_deviation, mean, ema_rate);
@@ -1886,8 +1605,6 @@ unsigned long get_anon_rss(struct mem_cgroup *memcg)
 
 static unsigned long calculate_valid_rate(unsigned long sample_rate)
 {
-	/*unsigned long stable_period = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?
-					PEBS_STABLE_PERIOD : PEBS_STABLE_PERIOD_BASEPAGE;*/
 	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
 	unsigned long std_rate = 8000 * sampling_factor;//threshold sample rate is 8000 when pebs_sample_period is 10007
 	unsigned long extra_rate;
@@ -1952,17 +1669,7 @@ void calculate_dram_sensitivity(unsigned long (*dram_sensitivity)[NR_REGION], in
 							dram_sensitivity[i][j] = 1;
 					}
 					else
-						dram_sensitivity[i][j] = 1;
-
-					/*
-					region_access_rate = valid_rate * memcg->nr_region_access[j] / tot_access;
-					if((memcg->region_size[j] >> 8) > 0) {
-						dram_sensitivity[i][j] = region_access_rate * 1000 / (memcg->region_size[j] >> 8);
-						if(dram_sensitivity[i][j] == 0)
-							dram_determined[i][j] = 1;//this region doesn't deserve dram
-					}
-					else
-						dram_determined[i][j] = 1;*/
+						dram_sensitivity[i][j] = 1;	
 				}
 
 				if(all_region_determined)
@@ -2199,418 +1906,6 @@ void distribute_local_dram_region(void)
 		pr_info("[%s] remained DRAM : %lu MB\n",__func__, tot_free_dram >> 8);
 
 }
-
-
-static void rank_tenants_hi(int *dense_hot, int *sparse_hot, int *ambiguous)
-{
-	unsigned long dense_hot_threshold = 50, sparse_hot_threshold = 90;
-	int i, d_idx = 0, s_idx = 0, a_idx = 0;
-	struct mem_cgroup *memcg;
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined)) {
-				if(memcg->hotness_intensity <= dense_hot_threshold) {
-					dense_hot[d_idx] = i;
-					d_idx++;
-				}
-				else if(memcg->hotness_intensity < sparse_hot_threshold) {
-					ambiguous[a_idx] = i;
-					a_idx++;
-				}
-				else {
-					sparse_hot[s_idx] = i;
-					s_idx++;
-				}
-			}
-		}
-	}
-}
-
-static unsigned long remained_required_dram_hi_first(int *targets, int *dram_determined)
-{
-	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
-	int i;
-	struct mem_cgroup *memcg;
-
-	// Calculate remained required dram
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(targets[i] >= 0) {
-			memcg = READ_ONCE(memcg_list[targets[i]]);
-			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined) && dram_determined[targets[i]] == 0) {
-					remained_required_dram += memcg->lev1_size;
-				}
-			}
-		}
-	}
-
-	return remained_required_dram;
-}
-
-static void distribute_prop_to_mar(int *targets, unsigned long *tot_free_dram,
-					unsigned long *dram_size, int *dram_determined)
-{
-	unsigned long tot_mar = 0, mar[LIMIT_TENANTS];
-	int i;
-	struct mem_cgroup *memcg;
-	unsigned long available_dram, rr_dram;
-	unsigned long expected_extra_dram = 0;
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(targets[i] >= 0) {
-			memcg = READ_ONCE(memcg_list[targets[i]]);
-			if(memcg) {
-				mar[targets[i]] = calculate_valid_rate(memcg->mean_rate);
-				tot_mar += mar[targets[i]];
-			}
-		}
-	}
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(targets[i] >= 0) {
-			memcg = READ_ONCE(memcg_list[targets[i]]);
-			if(memcg) {
-				rr_dram = remained_required_dram_hi_first(targets, dram_determined);
-				rr_dram -= memcg->lev1_size;
-				available_dram = min_t(unsigned long, memcg->lev1_size,
-							mar[targets[i]] * (*tot_free_dram) / tot_mar);
-				if(memcg->lev1_size > available_dram &&
-					rr_dram < (*tot_free_dram) - available_dram) {
-					expected_extra_dram = (*tot_free_dram) - available_dram - rr_dram;
-				}
-	
-				dram_size[targets[i]] = min_t(unsigned long,
-								available_dram + expected_extra_dram,
-								memcg->lev1_size);
-				dram_determined[targets[i]] = 1;
-				*tot_free_dram -= dram_size[targets[i]];
-				tot_mar -= mar[targets[i]];
-			}
-		}
-	}
-
-}
-
-
-static void distribute_local_dram_hi_first(void)
-{
-	int i, idx;
-	unsigned long tot_free_dram = mttm_local_dram;
-	struct mem_cgroup *memcg;
-	bool all_hi_determined = true, all_fixed = true;
-	int dram_determined[LIMIT_TENANTS] = {0,};
-	unsigned long dram_size[LIMIT_TENANTS] = {0,};
-	unsigned long available_dram;
-	int dense_hot[LIMIT_TENANTS], sparse_hot[LIMIT_TENANTS], ambiguous[LIMIT_TENANTS];
-	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
-	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
-	unsigned long tot_extra_priority = 0;
-
-	// Check that not classified workload exist.
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(!READ_ONCE(memcg->hi_determined)) {
-				all_hi_determined = false;
-				tot_free_dram -= memcg->max_nr_dram_pages;
-			}
-			if(!READ_ONCE(memcg->dram_fixed))
-				all_fixed = false;
-		}
-		dense_hot[i] = -1;
-		sparse_hot[i] = -1;
-		ambiguous[i] = -1;
-	}
-
-	if(all_fixed)
-		return;
-
-	rank_tenants_hi(dense_hot, sparse_hot, ambiguous);
-
-	distribute_prop_to_mar(dense_hot, &tot_free_dram, dram_size, dram_determined);
-	distribute_prop_to_mar(ambiguous, &tot_free_dram, dram_size, dram_determined);
-	distribute_prop_to_mar(sparse_hot, &tot_free_dram, dram_size, dram_determined);
-
-	if(all_hi_determined) {
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg)
-				pr_info("[%s] [ %s ] HI: %lu, MAR: %lu, dram: %lu MB\n",
-					__func__, memcg->tenant_name,
-					memcg->hotness_intensity, calculate_valid_rate(memcg->mean_rate),
-					dram_size[i] >> 8); 
-		}
-	}
-
-
-	// When extra local DRAM exist
-	if(tot_free_dram > 0) {
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined)) {	
-					if(dram_determined[i]) {
-						extra_priority[i] = get_anon_rss(memcg) * 100 / dram_size[i];
-						// give extra dram to tenant that receives small dram compared to rss.
-						tot_extra_priority += extra_priority[i];
-					}
-				}
-			}
-		}
-		
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined)) {
-					if(dram_determined[i]) {
-						if(tot_extra_priority) {
-							extra_dram[i] = min_t(unsigned long, 
-										extra_priority[i] * tot_free_dram / tot_extra_priority, 
-										get_anon_rss(memcg) - dram_size[i]);
-							tot_extra_priority -= extra_priority[i];
-							tot_free_dram -= extra_dram[i];
-							if(all_hi_determined)
-								pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
-									__func__, memcg->tenant_name, extra_dram[i] >> 8,
-									extra_priority[i]);
-						}
-					}
-				}
-			}
-		}
-	}
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined) &&
-				dram_determined[i] == 1) {
-				set_dram_size(memcg, dram_size[i] + extra_dram[i], all_hi_determined);
-
-				if(all_hi_determined)
-					pr_info("[%s] [ %s ] dram set to %lu MB\n",
-						__func__, memcg->tenant_name, (dram_size[i] + extra_dram[i]) >> 8);
-			}
-		}
-	}
-
-	if(all_hi_determined)
-		pr_info("[%s] remained DRAM : %lu MB\n",
-			__func__, tot_free_dram >> 8);
-}
-
-
-
-static unsigned long remained_required_dram_mar_first(int (*tenant_list)[LIMIT_TENANTS], int *dram_determined)
-{
-	unsigned long remained_required_dram = 0, expected_extra_dram = 0;
-	int i, j;
-	struct mem_cgroup *memcg;
-
-	// Calculate remained required dram
-	for(i = 0; i < 10; i++) {
-		for(j = 0; j < LIMIT_TENANTS; j++) {
-			if(tenant_list[i][j] >= 0) {
-				memcg = READ_ONCE(memcg_list[tenant_list[i][j]]);
-				if(memcg) {
-					if(READ_ONCE(memcg->hi_determined) && dram_determined[tenant_list[i][j]] == 0) {
-						remained_required_dram += memcg->lev1_size;
-					}
-				}
-			}
-		}
-	}
-	return remained_required_dram;
-}
-
-
-static void distribute_prop_to_hi(int lev, int (*tenant_list)[LIMIT_TENANTS], unsigned long *tot_free_dram,
-				unsigned long *dram_size, int *dram_determined, bool all_hi_determined)
-{
-	unsigned long tot_inv_hi = 0, inv_hi[LIMIT_TENANTS];//hi is WSS/RSS
-	int i;
-	struct mem_cgroup *memcg;
-	unsigned long available_dram, rr_dram;
-	unsigned long expected_extra_dram = 0;
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(tenant_list[lev][i] >= 0) {
-			memcg = READ_ONCE(memcg_list[tenant_list[lev][i]]);
-			if(memcg) {
-				inv_hi[tenant_list[lev][i]] = 10000 / memcg->hotness_intensity;
-				tot_inv_hi += inv_hi[tenant_list[lev][i]];
-			}
-		}
-	}
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		if(tenant_list[lev][i] >= 0) {
-			memcg = READ_ONCE(memcg_list[tenant_list[lev][i]]);
-			if(memcg) {
-				rr_dram = remained_required_dram_mar_first(tenant_list, dram_determined);
-				rr_dram -= memcg->lev1_size;
-				available_dram = min_t(unsigned long, memcg->lev1_size,
-							inv_hi[tenant_list[lev][i]] * (*tot_free_dram) / tot_inv_hi);
-				if(memcg->lev1_size > available_dram &&
-					rr_dram < (*tot_free_dram) - available_dram) {
-					expected_extra_dram = (*tot_free_dram) - available_dram - rr_dram;
-				}
-	
-				dram_size[tenant_list[lev][i]] = min_t(unsigned long,
-								available_dram + expected_extra_dram,
-								memcg->lev1_size);
-				dram_determined[tenant_list[lev][i]] = 1;
-				*tot_free_dram -= dram_size[tenant_list[lev][i]];
-				tot_inv_hi -= inv_hi[tenant_list[lev][i]];
-				if(all_hi_determined)
-					pr_info("[%s] [ %s ] dram size: %lu MB, MAR level: %d, inv_hi: %lu, tot_inv_hi: %lu\n",
-						__func__, memcg->tenant_name, dram_size[tenant_list[lev][i]] >> 8, lev,
-						inv_hi[tenant_list[lev][i]], tot_inv_hi + inv_hi[tenant_list[lev][i]]);
-			}
-		}
-	}
-
-}
-
-
-
-static void rank_tenants_mar(int lev, int (*tenant_list)[LIMIT_TENANTS])
-{
-	int i, idx = 0;
-	struct mem_cgroup *memcg;
-	unsigned long lb, ub;
-	unsigned long sampling_factor = PEBS_STABLE_PERIOD / pebs_sample_period;
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined)) {
-				lb = lev * 10000 * sampling_factor;
-				ub = (lev + 1) * 10000 * sampling_factor;
-
-				if(memcg->mean_rate >= lb && memcg->mean_rate < ub) {
-					tenant_list[lev][idx] = i;
-					idx++;
-				}
-			}
-		}
-	}
-}
-
-static void distribute_local_dram_mar_first(void)
-{
-	int i, j, idx;
-	unsigned long tot_free_dram = mttm_local_dram;
-	struct mem_cgroup *memcg;
-	bool all_hi_determined = true, all_fixed = true;
-	int dram_determined[LIMIT_TENANTS] = {0,};
-	unsigned long dram_size[LIMIT_TENANTS] = {0,};
-	unsigned long available_dram;
-
-	int tenant_list[10][LIMIT_TENANTS];
-	unsigned long extra_priority[LIMIT_TENANTS] = {0,};
-	unsigned long extra_dram[LIMIT_TENANTS] = {0,};
-	unsigned long tot_extra_priority = 0;
-
-	// Check that not classified workload exist.
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(!READ_ONCE(memcg->hi_determined)) {
-				all_hi_determined = false;
-				tot_free_dram -= memcg->max_nr_dram_pages;
-			}
-			if(!READ_ONCE(memcg->dram_fixed))
-				all_fixed = false;
-		}
-		for(j = 0; j < 10; j++)
-			tenant_list[j][i] = -1;
-	}
-
-	if(all_fixed)
-		return;
-
-	for(i = 0; i < 10; i++)
-		rank_tenants_mar(i, tenant_list);
-
-	for(i = 9; i >= 0; i--)
-		distribute_prop_to_hi(i, tenant_list, &tot_free_dram, dram_size, dram_determined, all_hi_determined);
-
-
-	if(all_hi_determined) {
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg)
-				pr_info("[%s] [ %s ] HI: %lu, MAR: %lu, dram: %lu MB\n",
-					__func__, memcg->tenant_name,
-					memcg->hotness_intensity, calculate_valid_rate(memcg->mean_rate),
-					dram_size[i] >> 8); 
-		}
-	}
-
-
-	// When extra local DRAM exist
-	if(tot_free_dram > 0) {
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined)) {	
-					if(dram_determined[i]) {
-						extra_priority[i] = get_anon_rss(memcg) * 100 / dram_size[i];
-						// give extra dram to tenant that receives small dram compared to rss.
-						tot_extra_priority += extra_priority[i];
-					}
-				}
-			}
-		}
-		
-		for(i = 0; i < LIMIT_TENANTS; i++) {
-			memcg = READ_ONCE(memcg_list[i]);
-			if(memcg) {
-				if(READ_ONCE(memcg->hi_determined)) {
-					if(dram_determined[i]) {
-						if(tot_extra_priority) {
-							extra_dram[i] = min_t(unsigned long, 
-										extra_priority[i] * tot_free_dram / tot_extra_priority, 
-										get_anon_rss(memcg) - dram_size[i]);
-							tot_extra_priority -= extra_priority[i];
-							tot_free_dram -= extra_dram[i];
-							if(all_hi_determined)
-								pr_info("[%s] [ %s ] get extra dram %lu MB (priority: %lu)\n",
-									__func__, memcg->tenant_name, extra_dram[i] >> 8,
-									extra_priority[i]);
-						}
-					}
-				}
-			}
-		}
-	}
-
-
-	for(i = 0; i < LIMIT_TENANTS; i++) {
-		memcg = READ_ONCE(memcg_list[i]);
-		if(memcg) {
-			if(READ_ONCE(memcg->hi_determined) &&
-				dram_determined[i] == 1) {
-				set_dram_size(memcg, dram_size[i] + extra_dram[i], all_hi_determined);
-
-				if(all_hi_determined)
-					pr_info("[%s] [ %s ] dram set to %lu MB\n",
-						__func__, memcg->tenant_name, (dram_size[i] + extra_dram[i]) >> 8);
-			}
-		}
-	}
-
-	if(all_hi_determined)
-		pr_info("[%s] remained DRAM : %lu MB\n",
-			__func__, tot_free_dram >> 8);
-}
-
 
 
 static unsigned long find_lowest_access_rate_level(int level, int *idx, int *ranked)
@@ -3092,7 +2387,8 @@ void check_pebs_period(void)
 static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(50);
-	unsigned long sleep_timeout_us = 4000;//500
+	unsigned long sleep_timeout_us = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?				
+						4000 : 500;
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;
@@ -3108,8 +2404,8 @@ static int ksampled(void *dummy)
 	int cnt = 0, rxc_reject_cnt = 0;
 
 	init_mon_state(cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
-	pr_info("[%s] sleep_timeout %lu jiffies. 1 jiffies: %u us. lat_logging %lu jiffies\n",
-		__func__, sleep_timeout, jiffies_to_usecs(1), lat_logging_period);
+	//pr_info("[%s] sleep_timeout %lu jiffies. 1 jiffies: %u us. lat_logging %lu jiffies\n",
+	//	__func__, sleep_timeout, jiffies_to_usecs(1), lat_logging_period);
 
 	total_time = jiffies;
 	interval_start = jiffies;
@@ -3129,7 +2425,6 @@ static int ksampled(void *dummy)
 
 				interval_start_long = cur_long;	
 			}
-
 		}
 		else {
 			if(cur - interval_start >= trace_period) {
@@ -3138,15 +2433,8 @@ static int ksampled(void *dummy)
 				calculate_sample_rate_stat();
 				
 				if(use_dram_determination) {
-					if(use_region_separation) {
-						distribute_local_dram_region();
-					}
-					else if(use_hotness_intensity) {
-						if(use_hi_first)
-							distribute_local_dram_hi_first();
-						else if(use_mar_first)
-							distribute_local_dram_mar_first();
-					}
+					if(use_region_separation)
+						distribute_local_dram_region();	
 				}
 				check_pebs_period();
 				
@@ -3162,7 +2450,6 @@ static int ksampled(void *dummy)
 
 		total_cputime += (jiffies - one_cputime);
 		usleep_range_state(sleep_timeout_us, sleep_timeout_us + 1, TASK_INTERRUPTIBLE);
-		//schedule_timeout_interruptible(sleep_timeout);
 	}
 	total_time = jiffies - total_time;
 
@@ -3191,11 +2478,6 @@ static int ksampled_run(void)
 					pfe[cpu][event] = NULL;
 					continue;
 				}
-				else if((get_pebs_event(event) == ALL_STORES) &&
-					!use_all_stores) {
-					pfe[cpu][event] = NULL;
-					continue;
-				}
 
 				if(__perf_event_open(get_pebs_event(event), 0, cpu, event))
 					return -1;
@@ -3208,7 +2490,6 @@ static int ksampled_run(void)
 		
 
 		ksampled_thread = kthread_run_on_cpu(ksampled, NULL, KSAMPLED_CPU, "ksampled");
-		//ksampled_thread = kthread_run(ksampled, NULL, "ksampled");
 		if(IS_ERR(ksampled_thread)) {
 			pr_err("Failed to start ksampled\n");
 			ret = PTR_ERR(ksampled_thread);
