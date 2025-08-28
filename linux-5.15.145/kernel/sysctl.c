@@ -194,6 +194,7 @@ extern int enable_kptscand;
 extern char mttm_local_dram_string[];
 extern unsigned long pebs_sample_period;
 extern unsigned int use_dram_determination;
+extern unsigned int use_static_dram;
 extern unsigned int use_rxc_monitoring;
 extern unsigned int use_memstrata_policy;
 extern unsigned long donor_threshold;
@@ -205,13 +206,11 @@ extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_limit;
 extern unsigned int print_more_info;
 extern unsigned long pingpong_reduce_threshold;
-extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int ksampled_trace_period_in_ms;
 extern unsigned long kmigrated_period_in_ms;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int use_dma_migration;
-extern unsigned int use_dma_completion_interrupt;
 extern unsigned int kptscand_period_in_us;
 extern unsigned int remote_latency;
 extern unsigned int reduce_scan;
@@ -2913,13 +2912,6 @@ static struct ctl_table vm_table[] = {
 		.proc_handler	= sysctl_mttm_local_dram,
 	},
 	{
-		.procname	= "use_dma_completion_interrupt",
-		.data		= &use_dma_completion_interrupt,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
 		.procname	= "pebs_sample_period",
 		.data		= &pebs_sample_period,
 		.maxlen		= sizeof(unsigned long),
@@ -2939,6 +2931,17 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "use_static_dram",
+		.data		= &use_static_dram,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "use_rxc_monitoring",
@@ -2946,6 +2949,8 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "use_memstrata_policy",
@@ -2953,6 +2958,8 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "acceptor_threshold",
@@ -2967,6 +2974,8 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "hi_weight",
@@ -2988,6 +2997,8 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
 	},
 	{
 		.procname	= "pingpong_reduce_threshold",
@@ -2999,13 +3010,6 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "pingpong_reduce_limit",
 		.data		= &pingpong_reduce_limit,
-		.maxlen		= sizeof(unsigned long),
-		.mode		= 0644,
-		.proc_handler	= proc_doulongvec_minmax,
-	},
-	{
-		.procname	= "manage_cputime_threshold",
-		.data		= &manage_cputime_threshold,
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,

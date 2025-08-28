@@ -46,7 +46,6 @@ extern unsigned int use_region_separation;
 extern unsigned int use_pingpong_reduce;
 extern unsigned long pingpong_reduce_threshold;
 unsigned long pingpong_reduce_limit = 1;
-extern unsigned long manage_cputime_threshold;
 extern unsigned long mig_cputime_threshold;
 extern unsigned int check_stable_sample_rate;
 extern unsigned int scanless_cooling;
@@ -1467,11 +1466,11 @@ static int kmigrated(void *p)
 	unsigned long stamp;
 	unsigned long trace_period = msecs_to_jiffies(10000);
 	unsigned long cur, interval_start;
-	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0, interval_manage_cputime = 0;
-	unsigned long interval_pingpong = 0, interval_manage_cnt = 0;
+	unsigned long interval_mig_cputime = 0, interval_do_mig_cputime = 0;
+	unsigned long interval_pingpong = 0;
 	unsigned long demote_cputime = 0, demote_pingpong = 0;
 	unsigned long promote_cputime = 0, promote_pingpong = 0;
-	unsigned int high_manage_cnt = 0, high_pingpong_cnt = 0;
+	unsigned int high_pingpong_cnt = 0;
 
 	bool cooling;
 
@@ -1482,8 +1481,6 @@ static int kmigrated(void *p)
 		struct mem_cgroup_per_node *pn0, *pn1;
 		unsigned long nr_exceeded = 0;
 		unsigned long hot0, cold0, hot1, cold1;		
-		unsigned long tot_nr_adjusted = 0, nr_adjusted_active = 0, nr_adjusted_inactive = 0;
-		unsigned long nr_to_active = 0, nr_to_inactive = 0, tot_nr_to_active = 0, tot_nr_to_inactive = 0;
 		unsigned int raw_threshold;
 		bool promotion_denied = true;
 
@@ -1503,8 +1500,6 @@ static int kmigrated(void *p)
 		
 		analyze_access_pattern(memcg, &hotness_scanned, cooling);
 	
-		if(need_lru_adjusting(pn0) || need_lru_adjusting(pn1))
-			interval_manage_cnt++;
 		one_manage_cputime = 0;
 		one_cooling_cputime = 0;
 
@@ -1517,43 +1512,18 @@ static int kmigrated(void *p)
 		}
 
 		adjust_active_threshold(memcg);
+
 		// Adjust
 		stamp = jiffies;
-		if(READ_ONCE(pn0->need_adjusting)) {
-			nr_to_active = 0;
-			nr_to_inactive = 0;	
-			adjusting_node(NODE_DATA(0), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
-			tot_nr_to_active += nr_to_active;
-			tot_nr_to_inactive += nr_to_inactive;
-			//pr_info("[%s] [ %s ] node0 active scan\n",__func__, memcg->tenant_name);
-		}
-		else if(READ_ONCE(pn0->need_adjusting_all)) {
-			nr_to_active = 0;
-			nr_to_inactive = 0;
-			adjusting_node(NODE_DATA(0), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
-			tot_nr_to_active += nr_to_active;
-			tot_nr_to_inactive += nr_to_inactive;
-			//pr_info("[%s] [ %s ] node0 inactive scan\n",__func__, memcg->tenant_name);
-		}
-		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
+		if(READ_ONCE(pn0->need_adjusting))
+			adjusting_node(NODE_DATA(0), memcg, true, NULL, NULL, NULL);
+		else if(READ_ONCE(pn0->need_adjusting_all))
+			adjusting_node(NODE_DATA(0), memcg, false, NULL, NULL, NULL);
 
-		if(READ_ONCE(pn1->need_adjusting)) {
-			nr_to_active = 0;
-			nr_to_inactive = 0;
-			adjusting_node(NODE_DATA(1), memcg, true, &nr_adjusted_active, &nr_to_active, &nr_to_inactive);
-			tot_nr_to_active += nr_to_active;
-			tot_nr_to_inactive += nr_to_inactive;
-			//pr_info("[%s] [ %s ] node1 active scan\n",__func__, memcg->tenant_name);
-		}
-		else if(READ_ONCE(pn1->need_adjusting_all)) {
-			nr_to_active = 0;
-			nr_to_inactive = 0;
-			adjusting_node(NODE_DATA(1), memcg, false, &nr_adjusted_inactive, &nr_to_active, &nr_to_inactive);
-			tot_nr_to_active += nr_to_active;
-			tot_nr_to_inactive += nr_to_inactive;
-			//pr_info("[%s] [ %s ] node1 inactive scan\n",__func__, memcg->tenant_name);
-		}
-		tot_nr_adjusted += nr_adjusted_active + nr_adjusted_inactive;
+		if(READ_ONCE(pn1->need_adjusting))
+			adjusting_node(NODE_DATA(1), memcg, true, NULL, NULL, NULL);
+		else if(READ_ONCE(pn1->need_adjusting_all))
+			adjusting_node(NODE_DATA(1), memcg, false, NULL, NULL, NULL);
 		one_manage_cputime += (jiffies - stamp);
 
 
@@ -1612,7 +1582,6 @@ static int kmigrated(void *p)
 		total_adjusting_cputime += one_manage_cputime;
 		total_cooling_cputime += one_cooling_cputime;
 		total_mig_cputime += one_mig_cputime;
-		interval_manage_cputime += (one_manage_cputime + one_cooling_cputime);
 		interval_mig_cputime += one_mig_cputime;
 		interval_do_mig_cputime += one_do_mig_cputime;
 		interval_pingpong += one_pingpong;
@@ -1642,8 +1611,6 @@ static int kmigrated(void *p)
 			}
 
 			interval_start = cur;
-			interval_manage_cputime = 0;
-			interval_manage_cnt = 0;
 			interval_mig_cputime = 0;
 			interval_do_mig_cputime = 0;
 			interval_pingpong = 0;

@@ -399,9 +399,7 @@ struct mem_cgroup {
 	bool			region_determined;
 	bool			mttm_enabled;
 	bool			vtmm_enabled;
-	unsigned long		nr_vtmm_tlb_miss;
 	struct mm_struct	*vtmm_mm;
-	pid_t			vtmm_pid;
 	unsigned int		dma_chan_start;
 	unsigned long		rxc_reject_inv_ratio;
 	bool			rxc_reject_monitored;

@@ -61,21 +61,6 @@ struct vtmm_page *get_vtmm_page(struct mem_cgroup *memcg, struct page *page)
 	return vp;
 }
 
-/*struct vtmm_page *erase_vtmm_page(struct mem_cgroup *memcg, struct page *page, int *lev)
-{
-	int i;
-	struct vtmm_page *vp = NULL;
-	for(i = 0; i < ML_QUEUE_MAX; i++) {
-		vp = (struct vtmm_page *)xa_erase(memcg->ml_queue[i], page_to_pfn(page));
-		if(vp)
-			break;
-	}
-
-	if(lev)
-		*lev = i;
-
-	return vp;
-}*/
 
 unsigned int page_degree_idx(struct vtmm_page *vp)
 {
@@ -174,10 +159,6 @@ void __prep_transhuge_page_for_vtmm(struct mem_cgroup *memcg, struct page *page,
 	if(vp) {
 		void *xa_ret = NULL;
 		
-		/*
-		vp->read_count = 0;
-		vp->write_count = 0;
-		*/
 		bitmap_zero(&vp->read_count, BITMAP_MAX);
 		bitmap_zero(&vp->write_count, BITMAP_MAX);
 
@@ -290,7 +271,6 @@ SYSCALL_DEFINE2(vtmm_register_pid,
 		spin_lock_init(memcg->bucket_lock[i]);
 	}
 
-	memcg->vtmm_pid = pid;
 	memcg->vtmm_mm = current->mm;
 	memcg->vtmm_enabled = true;
 
@@ -322,7 +302,7 @@ SYSCALL_DEFINE2(vtmm_register_pid,
 		pr_info("[%s] failed to start vtmm_kmigrated\n",__func__);
 
         pr_info("[%s] name : [ %s ], current_tenants : %d, dma_chan_start : %u, local_dram : %lu MB\n",
-                __func__, memcg->tenant_name, current_tenants, memcg->dma_chan_start, (mttm_local_dram / current_tenants) >> 8);
+                __func__, memcg->tenant_name, current_tenants, memcg->dma_chan_start, memcg->max_nr_dram_pages >> 8);
 
         spin_unlock(&vtmm_register_lock);
 
@@ -363,8 +343,8 @@ SYSCALL_DEFINE1(vtmm_unregister_pid,
 
         spin_unlock(&vtmm_register_lock);
 
-        pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d, total_tlb_miss : %lu\n",
-                __func__, pid, memcg->tenant_name, current_tenants, memcg->nr_vtmm_tlb_miss);
+        pr_info("[%s] unregistered pid : %d, name : [ %s ], current_tenants : %d\n",
+                __func__, pid, memcg->tenant_name, current_tenants);
         return 0;
 }
 
@@ -461,20 +441,14 @@ void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 						if(vp->remained_dnd_time == 0) {
 							*pmd = pmd_mkold(*pmd);
 						}
-						//*pmd = pmd_mkold(*pmd);
-						//vp->read_count++;
 						set_bit(0, &vp->read_count);
-						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(dirty) {
 						
 						if(vp->remained_dnd_time == 0) {
 							*pmd = pmd_mkclean(*pmd);
 						}
-						//*pmd = pmd_mkclean(*pmd);
-						//vp->write_count++;
 						set_bit(0, &vp->write_count);
-						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(vp->remained_dnd_time == 0) {
 						flush_cache_range(vma, va, va + HPAGE_SIZE);
@@ -512,19 +486,13 @@ void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 						if(vp->remained_dnd_time == 0) {
 							*pte = pte_mkold(*pte);
 						}
-						//vp->read_count++;
-						//*pte = pte_mkold(*pte);
 						set_bit(0, &vp->read_count);
-						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(dirty) {
 						if(vp->remained_dnd_time == 0) {
 							*pte = pte_mkclean(*pte);
 						}
-						//vp->write_count++;
-						//*pte = pte_mkclean(*pte);
 						set_bit(0, &vp->write_count);
-						memcg->nr_vtmm_tlb_miss++;
 					}
 					if(vp->remained_dnd_time == 0) {
 						flush_cache_range(vma, va, va + PAGE_SIZE);
@@ -554,109 +522,6 @@ void scan_ad_bit(unsigned long pfn, struct vtmm_page *vp,
 
 }
 
-static void scan_ad_bit_va(struct vtmm_page *vp, struct mem_cgroup *memcg,
-				struct mm_struct *mm, unsigned long *mm_done,
-				unsigned long *vma_done, unsigned long *pgd_done,
-				unsigned long *p4d_done, unsigned long *pud_done,
-				unsigned long *pmd_done, unsigned long *scan_done)
-{
-	pgd_t *base;
-	pgd_t *pgd = NULL;
-	p4d_t *p4d = NULL;
-	pud_t *pud = NULL;
-	pmd_t *pmd = NULL, pmdval;
-	int accessed = 0, dirty = 0;
-	struct vm_area_struct *vma = NULL;
-	struct page *page;
-	
-	if(!mmap_read_trylock(mm))
-		return;
-
-	/*vma = find_vma(mm, vp->va);
-	if(unlikely(!vma))
-		goto mmap_unlock;*/
-	//*vma_done = (*vma_done) + 1;
-	/*
-	if(!vma->vm_mm || !vma_migratable(vma) ||
-		(vma->vm_file && ((vma->vm_flags & (VM_READ | VM_WRITE)) == (VM_READ)))) {
-		if(vma->vm_file && ((vma->vm_flags & (VM_READ | VM_WRITE)) == (VM_READ)))
-			*mm_done = (*mm_done) + 1;
-		goto mmap_unlock;
-	}*/	
-
-	//base = __va(read_cr3_pa());
-	//pgd = base + pgd_index(vp->va);
-	pgd = pgd_offset(mm, vp->va);
-	if(!pgd_present(*pgd))
-		goto mmap_unlock;
-	*pgd_done = (*pgd_done) + 1;
-	
-	p4d = p4d_offset(pgd, vp->va);
-	if(!p4d_present(*p4d)) {
-		goto mmap_unlock;
-	}
-	*p4d_done = (*p4d_done) + 1;
-	
-	pud = pud_offset(p4d, vp->va);
-	if(!pud_present(*pud)) {
-		goto mmap_unlock;
-	}
-	*pud_done = (*pud_done) + 1;
-
-	pmd = pmd_offset(pud, vp->va);
-	if(!pmd || pmd_none(*pmd) || !pmd_present(*pmd))
-		goto mmap_unlock;
-	*pmd_done = (*pmd_done) + 1;
-
-	if(is_swap_pmd(*pmd))
-		goto mmap_unlock;
-
-	if(!pmd_trans_huge(*pmd) && !pmd_devmap(*pmd) && unlikely(pmd_bad(*pmd))) {
-		pmd_clear_bad(pmd);
-		goto mmap_unlock;
-	}
-
-	pmdval = *pmd;
-	if(pmd_trans_huge(pmdval) || pmd_devmap(pmdval)) {
-		if(is_huge_zero_pmd(pmdval))
-			goto mmap_unlock;
-		
-		page = pmd_page(pmdval);
-		if(!page)
-			goto mmap_unlock;
-		if(!PageCompound(page))
-			goto mmap_unlock;
-
-		accessed = pmd_young(pmdval);
-		dirty = pmd_dirty(pmdval);
-		if(accessed || dirty) {//accessed
-			/*if(accessed) {
-				if(vp->remained_dnd_time == 0) {
-					pmd_mkold(pmdval);
-				}
-			}
-			if(dirty) {
-				if(vp->remained_dnd_time == 0) {
-					pmd_mkclean(pmdval);	
-				}
-			}
-			if(vp->remained_dnd_time == 0) {
-				//flush_cache_range(vma, vp->va, vp->va + PMD_SIZE);
-				//flush_tlb_range(vma, vp->va, vp->va + PMD_SIZE);
-				//promote_ml_queue(memcg, vp);
-			}*/
-			*mm_done = (*mm_done) + 1;
-			
-		}
-		*scan_done = (*scan_done) + 1;
-
-	}
-mmap_unlock:
-	mmap_read_unlock(mm);
-	pr_info("[%s] va : %lu, mm : %p, pgd : %p, p4d : %p, pud : %p, pmd : %p\n",
-		__func__, vp->va, mm, pgd, p4d, pud, pmd);
-
-}
 
 void scan_ml_queue(struct mem_cgroup *memcg)
 {
@@ -667,8 +532,6 @@ void scan_ml_queue(struct mem_cgroup *memcg)
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_for_each(memcg->ml_queue[i], pfn, vp) {
 			scan_ad_bit(pfn, vp, memcg);
-			//scan_ad_bit_va(vp, memcg, mm, &mm_done, &vma_done,
-			//		&pgd_done, &p4d_done, &pud_done, &pmd_done, &scan_done);
 		}
 	}
 
@@ -831,49 +694,30 @@ static int kptscand(void *dummy)
 		kptscand_do_work();
 
 		if(jiffies - cur >= trace_period) {
-			for(i = 0; i < LIMIT_TENANTS; i++) {
-				spin_lock(&vtmm_register_lock);
-				memcg = READ_ONCE(memcg_list[i]);
-				if(memcg) {
-					unsigned long nr_xa_pages = 0, nr_xa_basepages = 0, nr_xa_tot = 0;
-					unsigned long index;
-					struct vtmm_page *vp;
-					unsigned long nr_list_pages = 0, nr_list_basepages = 0;
-					unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
-					int j;
-	
-					nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-								LRU_ACTIVE_ANON, MAX_NR_ZONES) +
-							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-								LRU_ACTIVE_ANON, MAX_NR_ZONES);
-					nr_cold_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-								LRU_INACTIVE_ANON, MAX_NR_ZONES) +
-							lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-								LRU_INACTIVE_ANON, MAX_NR_ZONES);
+			if(print_more_info) {
+				for(i = 0; i < LIMIT_TENANTS; i++) {
+					spin_lock(&vtmm_register_lock);
+					memcg = READ_ONCE(memcg_list[i]);
+					if(memcg) {
+						unsigned long index;
+						unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
+		
+						nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+									LRU_ACTIVE_ANON, MAX_NR_ZONES) +
+								lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+									LRU_ACTIVE_ANON, MAX_NR_ZONES);
+						nr_cold_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
+									LRU_INACTIVE_ANON, MAX_NR_ZONES) +
+								lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
+									LRU_INACTIVE_ANON, MAX_NR_ZONES);
 
-					pr_info("[%s] [ %s ] hot : %lu MB, cold : %lu MB, threshold : %u, dram : %lu MB\n",
-						__func__, memcg->tenant_name,
-						nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
-						memcg->max_nr_dram_pages >> 8);
-
-					if(print_more_info) {
-						for(j = 0; j < BUCKET_MAX; j++) {
-							nr_list_basepages = 0;
-							nr_list_pages = 0;
-							list_for_each_entry(vp, memcg->page_bucket[j], list) {
-								if(vp->is_thp)
-									nr_list_basepages += HPAGE_PMD_NR;
-								else
-									nr_list_basepages++;
-								nr_list_pages++;
-							}
-							if(nr_list_basepages >> 8)
-								pr_info("[%s] [ %s ] bucket %d. pages : %lu MB\n",
-									__func__, memcg->tenant_name, j, nr_list_basepages >> 8);
-						}
+						pr_info("[%s] [ %s ] hot : %lu MB, cold : %lu MB, threshold : %u, dram : %lu MB\n",
+							__func__, memcg->tenant_name,
+							nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
+							memcg->max_nr_dram_pages >> 8);	
 					}
+					spin_unlock(&vtmm_register_lock);
 				}
-				spin_unlock(&vtmm_register_lock);
 			}
 			cur = jiffies;
 		}

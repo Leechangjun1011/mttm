@@ -105,8 +105,9 @@ extern unsigned int get_idx(uint32_t num);
 extern uint32_t *get_ac_pointer(struct mem_cgroup *memcg, unsigned int gi, unsigned int hi, unsigned int bi);
 extern void mttm_mm_init(struct mm_struct *mm);
 extern unsigned long get_nr_lru_pages_node(struct mem_cgroup *memcg, pg_data_t *pgdat);
-extern int kmigrated_init(struct mem_cgroup *memcg);
-extern void kmigrated_stop(struct mem_cgroup *memcg);
-extern void kmigrated_wakeup(struct mem_cgroup *memcg);
+
+int kmigrated_init(struct mem_cgroup *memcg);
+void kmigrated_stop(struct mem_cgroup *memcg);
+void kmigrated_wakeup(struct mem_cgroup *memcg);
 
 #endif

@@ -35,41 +35,14 @@ if [[ "$1" == "small" ]]; then
 	TOP_MLP=128-64-1
 	EMBS='128,1000000,60,120'
 	if [[ "$2" == "low" ]]; then
-		if [[ "$3" == "config1" ]]; then
-			NUM_BATCH=150
-		elif [[ "$3" == "config3" ]]; then
+		if [[ "$3" == "mix3" ]]; then
 			NUM_BATCH=180
-		elif [[ "$3" == "config9" ]]; then
-			NUM_BATCH=240
-		elif [[ "$3" == "config10" ]]; then
-			NUM_BATCH=180
-		elif [[ "$3" == "config11" ]]; then
-			NUM_BATCH=180
-		elif [[ "$3" == "config12" ]]; then
-			NUM_BATCH=180
-		elif [[ "$3" == "6tenants" ]]; then
-			NUM_BATCH=80
-			INSTANCES=4
-		elif [[ "$3" == "12tenants" ]]; then
-			NUM_BATCH=80
-			INSTANCES=2
-		elif [[ "$3" == "motiv" ]]; then
-			NUM_BATCH=150
 		else
 			NUM_BATCH=150
 		fi
-	elif [[ "$2" == "mid" ]]; then
-		if [[ "$3" == "12tenants" ]]; then
-			NUM_BATCH=80
-			INSTANCES=2
-		fi
 	elif [[ "$2" == "high" ]]; then
-		if [[ "$3" == "config2" ]]; then
+		if [[ "$3" == "mix2" ]]; then
 			NUM_BATCH=320 
-		elif [[ "$3" == "config8" ]]; then
-			NUM_BATCH=450 
-		elif [[ "$3" == "motiv-cpu_dlrm_small_high" ]]; then
-			NUM_BATCH=300
 		else
 			NUM_BATCH=300
 		fi
@@ -78,30 +51,12 @@ elif [[ "$1" == "med" ]]; then
 	BOT_MLP=1024-512-128-128
 	TOP_MLP=384-192-1
 	EMBS='128,1000000,120,150'
-	if [[ "$2" == "low" ]]; then
-		NUM_BATCH=80
-	else
-		NUM_BATCH=80
-	fi
+	NUM_BATCH=80
 elif [[ "$1" == "large" ]]; then
 	BOT_MLP=2048-1024-256-128
 	TOP_MLP=512-256-1
 	EMBS='128,1000000,170,180'
-	if [[ "$2" == "low" ]]; then
-		if [[ "$3" == "config3" ]]; then
-			NUM_BATCH=35
-		elif [[ "$3" == "config4" ]]; then
-			NUM_BATCH=80
-		elif [[ "$3" == "config5" ]]; then
-			NUM_BATCH=35
-		else
-			NUM_BATCH=30
-		fi
-	elif [[ "$2" == "mid" ]]; then
-		NUM_BATCH=60 #120
-	elif [[ "$2" == "high" ]]; then
-		NUM_BATCH=60
-	fi
+	NUM_BATCH=60
 fi
 
 if [[ "$2" == "low" ]]; then

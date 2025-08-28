@@ -41,7 +41,6 @@ extern struct dma_chan *copy_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *copy_dev[NUM_AVAIL_DMA_CHAN];
 extern struct dma_chan *memset_chan[NUM_AVAIL_DMA_CHAN];
 extern struct dma_device *memset_dev[NUM_AVAIL_DMA_CHAN];
-int use_dma_completion_interrupt = 1;
 #endif
 
 /**
@@ -956,14 +955,7 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 			pr_err("%s: no tx descriptor at chan %d\n",__func__, i);
 			ret_val = -ENODEV;
 			goto unmap_dma;
-		}
-
-		if(use_dma_completion_interrupt) {
-			if(i == total_available_chans - 1) {
-				interrupt_idx = i;
-				interrupt_copy_chan = chan_start + i;
-			}
-		}
+		}	
 
 		cookie[i] = tx[i]->tx_submit(tx[i]);
 		if(dma_submit_error(cookie[i])) {
@@ -975,47 +967,19 @@ void copy_huge_page_dma(struct page *dst, struct page *src)
 		dma_async_issue_pending(copy_chan[chan_start + i]);
 	}
 
-	if(use_dma_completion_interrupt) {
-		// Wait for last channel through periodic sleep
-		while(dma_async_is_tx_complete(copy_chan[interrupt_copy_chan],
-					cookie[interrupt_idx], NULL, NULL) != DMA_COMPLETE) {
-			nsec_interruptible(100000);	
-		}
-
-		// Check the completion of remaining channels
-		for(i = 0; i < total_available_chans; i++) {
-			if(dma_async_is_tx_complete(copy_chan[chan_start + i],
-					cookie[i], NULL, NULL) != DMA_COMPLETE) {
-				if(dma_sync_wait(copy_chan[chan_start + i], cookie[i])
-									!= DMA_COMPLETE) {
-					ret_val = -6;
-					pr_err("%s: dma does not complete at chan %d\n",__func__, i);
-				}
-			}
+	for(i = 0; i < total_available_chans; i++) {
+		if(dma_sync_wait(copy_chan[chan_start + i], cookie[i]) != DMA_COMPLETE) {
+			ret_val = -6;
+			pr_err("%s: dma does not complete at chan %d\n",__func__, i);
 		}
 	}
-	else {
-		for(i = 0; i < total_available_chans; i++) {
-			if(dma_sync_wait(copy_chan[chan_start + i], cookie[i]) != DMA_COMPLETE) {
-				ret_val = -6;
-				pr_err("%s: dma does not complete at chan %d\n",__func__, i);
-			}
-		}
-	}
+	
 
 unmap_dma:
 	for(i = 0; i < total_available_chans; i++) {
 		if(unmap[i])
 			dmaengine_unmap_put(unmap[i]);
 	}
-/*out:
-	if(tx)
-		kfree(tx);
-	if(cookie)
-		kfree(cookie);
-	if(unmap)
-		kfree(unmap);
-*/
 }
 
 // only called when scanless_cooling
@@ -1029,66 +993,6 @@ void zeroing_ac_pages(struct mem_cgroup *memcg)
 		for(j = 0; j < memcg->huge_bitmap_size; j++)
 			memset(memcg->ac_page_list[i][j], 0, memcg->base_bitmap_size * sizeof(uint32_t));
 	}
-	/*
-	struct dma_async_tx_descriptor *tx;
-	dma_cookie_t cookie;
-	enum dma_ctrl_flags flag = 0;
-	size_t dma_size;
-	dma_addr_t dma_dst;
-
-	int chan_start;
-
-	if(memcg)
-		chan_start = memcg->dma_chan_start;
-	else
-		chan_start = 0;	
-	
-	dma_size = memcg->base_bitmap_size * sizeof(uint32_t);
-
-	for(i = 0; i < memcg->giga_bitmap_size; i++) {
-		for(j = 0; j < memcg->huge_bitmap_size; j++) {
-			dma_dst = dma_map_single(copy_dev[chan_start]->dev, (void *)memcg->ac_page_list[i][j], dma_size, DMA_TO_DEVICE);
-			if(dma_mapping_error(copy_dev[chan_start]->dev, dma_dst)) {
-				pr_info("[%s] failed to dma_map_single\n",
-					__func__);
-				return;
-			}
-
-			tx = copy_dev[chan_start]->device_prep_dma_memset(copy_chan[chan_start],
-										dma_dst,
-										0,
-										dma_size,
-										flag);
-
-			if(!tx)
-				goto unmap_dma;
-
-			cookie = dmaengine_submit(tx);
-
-			if(dma_submit_error(cookie)) {
-				pr_err("%s: submission error\n",__func__);
-				goto unmap_dma;
-			}
-		
-			dma_async_issue_pending(copy_chan[chan_start]);
-
-			if(use_dma_completion_interrupt) {
-				while(dma_async_is_tx_complete(copy_chan[chan_start],
-							cookie, NULL, NULL) != DMA_COMPLETE) {
-					nsec_interruptible(100000);	
-				}
-			}
-			else {
-				if(dma_sync_wait(copy_chan[chan_start], cookie) != DMA_COMPLETE) {
-					pr_err("%s: dma does not complete\n",__func__);
-				}
-			}
-unmap_dma:
-			dma_unmap_single(copy_dev[chan_start]->dev, dma_dst, dma_size, DMA_TO_DEVICE);
-	
-		}
-	}
-*/
 }
 
 #endif

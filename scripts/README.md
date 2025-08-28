@@ -15,7 +15,32 @@ This builds three binaries.
 
 ## Prepare workloads
 
+### GAPBS
 
+* Source: [gapbs](https://github.com/sbeamer/gapbs)
+* Run ``` $ make ``` to build binaries
+* We use pre-generated graph as following.
+
+```
+$ ./converter -g 28 -b pregen_g28.sg
+```
+
+
+### Silo
+
+
+
+
+
+
+### CPU DLRM inference
+
+
+### SPECCPU 2017
+
+
+
+### X-Index and YCSB
 
 
 ## Prepare baselines

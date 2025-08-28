@@ -35,6 +35,7 @@ int enable_ksampled = 0;
 unsigned long pebs_sample_period = PEBS_INIT_PERIOD;
 unsigned int check_stable_sample_rate = 1;
 unsigned int use_dram_determination = 1;
+unsigned int use_static_dram = 0;
 unsigned int use_rxc_monitoring = 1;
 unsigned int use_memstrata_policy = 0;
 unsigned long acceptor_threshold = 20;//fmmr higher than this threshold is outlier
@@ -45,7 +46,6 @@ unsigned int use_pingpong_reduce = 1;
 unsigned int remote_latency = 130;
 unsigned int print_more_info = 0;
 unsigned long pingpong_reduce_threshold = 200;
-unsigned long manage_cputime_threshold = 50;
 unsigned long mig_cputime_threshold = 200;
 char mttm_local_dram_string[16];
 unsigned long mttm_local_dram = ((80UL << 30) >> 12);//80GB in # of pages
@@ -624,11 +624,16 @@ SYSCALL_DEFINE2(mttm_register_pid,
 	
 	for(i = 0; i < LIMIT_TENANTS; i++) {
 		if(memcg_list[i]) {
-			if(memcg_list[i]->mttm_enabled && (use_dram_determination || use_memstrata_policy)) {
-				WRITE_ONCE(memcg_list[i]->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
-				WRITE_ONCE(memcg_list[i]->max_nr_dram_pages, mttm_local_dram / current_tenants);
-				WRITE_ONCE(memcg_list[i]->init_dram_size, memcg_list[i]->max_nr_dram_pages);
-				WRITE_ONCE(memcg_list[i]->dram_fixed, false);
+			if(memcg_list[i]->mttm_enabled) {
+				if((use_dram_determination || use_memstrata_policy || use_static_dram)) {
+					WRITE_ONCE(memcg_list[i]->nodeinfo[0]->max_nr_base_pages, mttm_local_dram / current_tenants);
+					WRITE_ONCE(memcg_list[i]->max_nr_dram_pages, mttm_local_dram / current_tenants);
+					WRITE_ONCE(memcg_list[i]->init_dram_size, memcg_list[i]->max_nr_dram_pages);
+					if(use_static_dram)
+						WRITE_ONCE(memcg_list[i]->dram_fixed, true);		
+					else
+						WRITE_ONCE(memcg_list[i]->dram_fixed, false);
+				}
 				pr_info("[%s] [ %s ] dram size set to %lu MB\n",
 					__func__, memcg_list[i]->tenant_name, memcg_list[i]->max_nr_dram_pages >> 8);
 			}
@@ -708,7 +713,7 @@ SYSCALL_DEFINE2(mttm_register_pid,
 
 
 	pr_info("[%s] registered pid : %d. name : [ %s ], current_tenants : %d, dma_chan_start : %u, local_dram : %lu MB\n",
-		__func__, pid, memcg->tenant_name, current_tenants, memcg->dma_chan_start, (mttm_local_dram / current_tenants) >> 8);
+		__func__, pid, memcg->tenant_name, current_tenants, memcg->dma_chan_start, memcg->max_nr_dram_pages >> 8);
 
 	spin_unlock(&register_lock);
 	
