@@ -53,38 +53,6 @@ elif [[ "$1" == "mix4" || "$1" == "config13-basepage" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="fotonik"
 	workload[3]="silo"
-elif [[ "$1" == "config1-bw1" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="gapbs-bc"
-	workload[3]="xsbench"
-elif [[ "$1" == "config1-bw2" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="gapbs-bc"
-	workload[3]="xsbench"
-elif [[ "$1" == "config2-bw1" ]]; then
-	workload[1]="fotonik"
-	workload[2]="xindex"
-	workload[3]="cpu_dlrm_small_high"
-elif [[ "$1" == "config2-bw2" ]]; then
-	workload[1]="fotonik"
-	workload[2]="xindex"
-	workload[3]="cpu_dlrm_small_high"
-elif [[ "$1" == "config13-bw1" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="fotonik"
-	workload[3]="silo"
-elif [[ "$1" == "config13-bw2" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="fotonik"
-	workload[3]="silo"
-elif [[ "$1" == "config13-bw3" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="fotonik"
-	workload[3]="silo"
-elif [[ "$1" == "config13-bw4" ]]; then
-	workload[1]="gapbs-pr"
-	workload[2]="fotonik"
-	workload[3]="silo"
 elif [[ "$1" == "motiv" ]]; then
 	workload[1]="gapbs-pr"
 	workload[2]="xsbench"

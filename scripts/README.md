@@ -88,6 +88,7 @@ make
 ### SPECCPU 2017
 * You need SPECCPU 2017 iso file.
 * Refer [Install guide](https://www.spec.org/cpu2017/Docs/install-guide-unix.html) to build.
+* Copy mttm\_1.cfg in this directory into config directory in SPECCPU 2017 source.
 
 
 ### CPU DLRM inference
@@ -114,7 +115,8 @@ MODE=perf make -j dbtest
 ```
 
 
-
+### Set workload path
+* Modify the paths of set\_bench\_dir.sh accordingly.
 
 
 
