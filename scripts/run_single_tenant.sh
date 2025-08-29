@@ -85,7 +85,7 @@ elif [[ "$2" == "xsbench" ]]; then
 		BENCH="${BENCH_PATH}/XSBench -t 8 -g 70000 -p 25000000"
 	fi
 elif [[ "$2" == "xindex" ]]; then
-        BENCH_PATH="${BENCH_DIR}/XIndex-H"
+        BENCH_PATH="$PWD/XIndex-H"
 	if [[ "$3" == "mix2" ]]; then
 		BENCH="${BENCH_PATH}/build/ycsb_bench --fg 6 --iteration 25"
 	elif [[ "$3" == "config2-bw1" ]]; then
@@ -127,22 +127,22 @@ elif [[ "$2" == "silo" ]]; then
 elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "mix3" ]]; then
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low mix3"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small low mix3"
 	else
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small low"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small low"
 	fi
 elif [[ "$2" == "cpu_dlrm_small_high" ]]; then
         BENCH_PATH="${PWD}"
 	if [[ "$3" == "mix2" ]]; then
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high mix2"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small high mix2"
 	elif [[ "$3" == "config2-bw1" ]]; then
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config2"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small high config2"
 		echo 80G > ${CGMEM_DIR}/memory.max_at_node0
 	elif [[ "$3" == "config2-bw2" ]]; then
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high config2"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small high config2"
 		echo 11605M > ${CGMEM_DIR}/memory.max_at_node0
 	else
-	        BENCH="bash ${BENCH_PATH}/dp_ht_24c.sh small high"
+	        BENCH="bash ${BENCH_PATH}/dp_ht_8c.sh small high"
 	fi
 #source shrc at SPECCPU_2017 before run SPECCPU
 elif [[ "$2" == "fotonik" ]]; then

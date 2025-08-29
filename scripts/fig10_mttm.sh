@@ -68,6 +68,7 @@ function set_220
 
 
 set_160
+: << end
 run_mttm_hugepage mix1 54G 160
 run_mttm_hugepage mix1 21G 160
 run_mttm_hugepage mix2 34G 160
@@ -97,6 +98,8 @@ run_mttm_hugepage mix3 45G 220
 run_mttm_hugepage mix3 18G 220
 run_mttm_hugepage mix4 51G 220
 run_mttm_hugepage mix4 20G 220
+end
+run_mttm_hugepage mix3 45G 160
 
 reset_latency
 

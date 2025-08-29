@@ -17,9 +17,13 @@ This builds three binaries.
 
 ### GAPBS
 * Source: [GAPBS](https://github.com/sbeamer/gapbs)
-* Run ``` $ make ``` to build binaries
-* We use pre-generated graph as following.
+* Build binaries
+```
+cd gapbs
+make
+```
 
+* We use pre-generated graph as following.
 ```
 ./converter -g 28 -b pregen_g28.sg
 ```
@@ -28,7 +32,7 @@ This builds three binaries.
 * Source: [XSBench](https://github.com/ANL-CESAR/XSBench)
 * Build binary
 ```
-cd ./openmp-threading 
+cd XSBench/openmp-threading 
 make
 ```
 
@@ -37,6 +41,7 @@ make
 * Source: [Btree](https://github.com/mitosis-project/vmitosis-workloads)
 * Build binary
 ```
+cd vmitosis-workloads
 make btree
 ```
 
@@ -81,22 +86,32 @@ make
 
 
 ### SPECCPU 2017
+* You need SPECCPU 2017 iso file.
+* Refer [Install guide](https://www.spec.org/cpu2017/Docs/install-guide-unix.html) to build.
 
 
 ### CPU DLRM inference
-
+* Source: [CPU_DLRM_inference](https://github.com/rishucoding/reproduce_isca23_cpu_DLRM_inference)
+* If you already installed Intel MKL, you can skip that step.
+* Refer source to build.
+* We use dp\_ht\_8c.sh in this directory. Modify line 3 and 5 accordingly.
+* Replace $MODELS\_PATH/models/recommendation/pytorch/dlrm/product/dlrm\_s\_pytorch.py with the one in this directory.
 
 
 ### Silo
-
-
-
-
-
-
-
-
-
+* Source: [Silo](https://github.com/stephentu/silo)
+* In Makefile, remove -Werror flag from CXXFLAGS in line 83.
+* In Makefile, set USE\_MALLOC\_MODE ?= 0
+* Change the .gitmodules as following and sync.
+	* url = https://github.com/kohler/masstree-beta.git
+	```
+	git submodule sync
+	```
+* Build as perf mode.
+```
+cd silo
+MODE=perf make -j dbtest
+```
 
 
 

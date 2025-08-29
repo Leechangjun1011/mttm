@@ -1,9 +1,8 @@
 #!/bin/bash -xe
 
-conda_activate=/root/anaconda3/bin/activate
-
+conda_activate=/root/anaconda3/bin/activate #modify this line
 set -a
-. /home/cjlee/CXL-emulation.code/workloads/isca23_dlrm/paths.export
+. /home/cjlee/CXL-emulation.code/workloads/isca23_dlrm/paths.export #modify this line
 set +a
 
 source $conda_activate dlrm_cpu

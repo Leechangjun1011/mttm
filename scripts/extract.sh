@@ -1,14 +1,14 @@
 #!/bin/bash
-# 1st : config
+# 1st : mix number
 # 2nd : file name
 
 
-if [[ "$1" == "config1" ]]; then
+if [[ "$1" == "mix1" ]]; then
 	cat $2 | grep -e Average -e Runtime
-elif [[ "$1" == "config2" ]]; then
+elif [[ "$1" == "mix2" ]]; then
 	cat $2 | grep -e Throughput -e elapsed
-elif [[ "$1" == "config12" ]]; then
+elif [[ "$1" == "mix3" ]]; then
 	cat $2 | grep -e Throughput -e Took
-elif [[ "$1" == "config13" ]]; then
+elif [[ "$1" == "mix4" ]]; then
 	cat $2 | grep -e agg_throughput -e Average -e elapsed
 fi
