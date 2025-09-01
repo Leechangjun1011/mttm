@@ -1,13 +1,4 @@
 #!/bin/bash
-# Modify following lines (line 3 ~ 9)
-: << end
-GAPBS_DIR=/home/cjlee/CXL-emulation.code/workloads/gapbs
-XSBENCH_DIR=/home/cjlee/CXL-emulation.code/workloads/XSBench/openmp-threading
-XINDEX_DIR=$PWD/XIndex-H
-BTREE_DIR=/home/cjlee/vmitosis-workloads/bin
-CPU_DLRM_DIR=$PWD #it points the location of dp_ht_8c.sh 
-SILO_DIR=/home/cjlee/CXL-emulation.code/workloads/silo
-end
 
 # 1st input: workload
 # 2nd input: mix number

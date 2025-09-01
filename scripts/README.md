@@ -120,8 +120,18 @@ MODE=perf make -j dbtest
 
 
 
-
 ## Prepare baselines
+* For local, MTTM, static, Memstrata policy emulation and vTMM emulation, we use the kernel source in this repository.
 
+### Memtis
+* Source: [Memtis](https://github.com/cosmoss-jigu/memtis)
+* Compile the kernel and reboot.
+* Memtis is designed for single tenant environment. To run multi tenant, we use customized script in memtis\_script directory. In the memtis\_script directory, modify the line Memtis\_DIR and MTTM\_DIR in run\_bench\_memtis.sh file accordingly.
+* Check the cgroup path in run\_bench\_memtis.sh is matched with yours.
+
+
+
+### Colloid and TPP
+* Source: [Colloid](https://github.com/host-architecture/colloid)
 
 
