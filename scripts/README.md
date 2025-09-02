@@ -6,12 +6,10 @@
 make
 ```
 
-This builds three binaries.
+This builds two binaries.
 
 * **run\_bench**: used for MTTM, static, Memstrata policy emulation
 * **run\_bench\_vtmm**: used for vTMM emulation
-* **memeater**: used to limit the fast tier memory capacity
-
 
 ## Prepare workloads
 
@@ -121,11 +119,12 @@ MODE=perf make -j dbtest
 
 
 ## Prepare baselines
+* To emulate NUMA node 1 as CXL memory, we add "isolcpus=24-47" to GRUB\_CMDLINE\_LINUX in /etc/default/grub file. Check the core number for your environment.
 * For local, MTTM, static, Memstrata policy emulation and vTMM emulation, we use the kernel source in this repository.
 
 ### Memtis
 * Source: [Memtis](https://github.com/cosmoss-jigu/memtis)
-* Compile the kernel and reboot.
+* Compile and install the kernel and reboot.
 * Memtis is designed for single tenant environment. To run multi tenant, we use customized script in memtis\_script directory. In the memtis\_script directory, modify the line Memtis\_DIR and MTTM\_DIR in run\_bench\_memtis.sh file accordingly.
 * Check the cgroup path in run\_bench\_memtis.sh is matched with yours.
 
@@ -133,5 +132,7 @@ MODE=perf make -j dbtest
 
 ### Colloid and TPP
 * Source: [Colloid](https://github.com/host-architecture/colloid)
-
+* For Colloid and TPP, we use the Colloid kernel. Follow the instruction in the tpp directory of Colloid source to build kernel and kernel modules.
+* Modify the COLLOID\_MODULE line in the fig10\_tpp.sh and fig10\_colloid.sh files accordingly.
+* Modify the memeater\_size in function run\_tpp\_hugepage and run\_colloid\_hugepage properly.
 
