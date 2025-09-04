@@ -529,6 +529,9 @@ void scan_ml_queue(struct mem_cgroup *memcg)
 	unsigned long pfn;
 	struct vtmm_page *vp;	
 
+	if(!memcg->vtmm_enabled)
+		return;
+
 	for(i = 0; i < ML_QUEUE_MAX; i++) {
 		xa_for_each(memcg->ml_queue[i], pfn, vp) {
 			scan_ad_bit(pfn, vp, memcg);
@@ -584,6 +587,9 @@ void determine_active_threshold(struct mem_cgroup *memcg)
                 		get_memcg_promotion_wmark(memcg->max_nr_dram_pages);
         int idx_hot; 
 
+	if(!memcg->vtmm_enabled)
+		return;
+
         for(idx_hot = BUCKET_MAX - 1; idx_hot >= 0; idx_hot--) {
                 unsigned long nr_pages = get_nr_bucket_pages(memcg->page_bucket[idx_hot]);
                 if(nr_active + nr_pages > max_nr_pages)
@@ -630,6 +636,9 @@ void determine_local_dram(struct mem_cgroup *memcg,
 		return;
 	if(memcg->init_dram_size == 0)
 		return;
+	if(!memcg->vtmm_enabled)
+		return;
+
 
 	if(cur_rss - get_nr_bucket_pages(memcg->page_bucket[0]) >= 8 * cur_rss / 10) {
 		nr_hot = 8 * cur_rss / 10;
@@ -681,7 +690,7 @@ static int kptscand(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(kptscand_period_in_us);
 	unsigned long total_time, total_cputime = 0, one_cputime;
-	unsigned long cur, trace_period = msecs_to_jiffies(30000);
+	unsigned long cur, trace_period = msecs_to_jiffies(10000);
 	struct mem_cgroup *memcg;
 	int i;
 
@@ -696,27 +705,12 @@ static int kptscand(void *dummy)
 		if(jiffies - cur >= trace_period) {
 			if(print_more_info) {
 				for(i = 0; i < LIMIT_TENANTS; i++) {
-					spin_lock(&vtmm_register_lock);
 					memcg = READ_ONCE(memcg_list[i]);
 					if(memcg) {
-						unsigned long index;
-						unsigned long nr_hot_pages = 0, nr_cold_pages = 0;
-		
-						nr_hot_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-									LRU_ACTIVE_ANON, MAX_NR_ZONES) +
-								lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-									LRU_ACTIVE_ANON, MAX_NR_ZONES);
-						nr_cold_pages = lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(0)),
-									LRU_INACTIVE_ANON, MAX_NR_ZONES) +
-								lruvec_lru_size(mem_cgroup_lruvec(memcg, NODE_DATA(1)),
-									LRU_INACTIVE_ANON, MAX_NR_ZONES);
-
-						pr_info("[%s] [ %s ] hot : %lu MB, cold : %lu MB, threshold : %u, dram : %lu MB\n",
+						pr_info("[%s] [ %s ] max dram: %lu MB\n",
 							__func__, memcg->tenant_name,
-							nr_hot_pages >> 8, nr_cold_pages >> 8, memcg->active_threshold,
-							memcg->max_nr_dram_pages >> 8);	
+							READ_ONCE(memcg->max_nr_dram_pages) >> 8);
 					}
-					spin_unlock(&vtmm_register_lock);
 				}
 			}
 			cur = jiffies;

@@ -44,10 +44,6 @@ elif [[ "$1" == "mix4" || "$1" == "config13-basepage" ]]; then
         workload[1]="gapbs-pr"
         workload[2]="fotonik"
         workload[3]="silo"
-elif [[ "$1" == "motiv" ]]; then
-        workload[1]="gapbs-pr"
-        workload[2]="xsbench"
-        workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "microbench" || "$1" == "microbench-dynamic" || "$1" == "microbench-sensitivity1" || "$1" == "microbench-sensitivity2" ]]; then
         workload[1]="gups-1"
         workload[2]="gups-2"

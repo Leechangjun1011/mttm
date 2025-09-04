@@ -3,11 +3,11 @@ cur_path=$PWD
 emul_path=$PWD/cxl-emulation
 
 
-function run_local_hugepage
+function run_local_basepage
 {
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-	mkdir -p ./evaluation/fig10/local
-	./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig10/local/$1.txt
+	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+	mkdir -p ./evaluation/fig12/local
+	./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig12/local/$1.txt
 }
 
 
@@ -47,12 +47,8 @@ function set_220
 }
 
 
-
 reset_latency
-run_local_hugepage mix1
-run_local_hugepage mix2
-run_local_hugepage mix3
-run_local_hugepage mix4
+run_local_basepage mix4
 
 
 

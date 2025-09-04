@@ -67,9 +67,8 @@ function set_220
 }
 
 
-
-set_160
 : << end
+set_160
 run_memstrata_hugepage mix1 54G 160
 run_memstrata_hugepage mix1 21G 160
 run_memstrata_hugepage mix2 34G 160
@@ -87,6 +86,8 @@ run_memstrata_hugepage mix2 13G 190
 run_memstrata_hugepage mix3 45G 190
 run_memstrata_hugepage mix3 18G 190
 run_memstrata_hugepage mix4 51G 190
+end
+set_190
 run_memstrata_hugepage mix4 20G 190
 
 set_220
@@ -98,9 +99,6 @@ run_memstrata_hugepage mix3 45G 220
 run_memstrata_hugepage mix3 18G 220
 run_memstrata_hugepage mix4 51G 220
 run_memstrata_hugepage mix4 20G 220
-end
-
-run_memstrata_hugepage mix4 51G 160
 
 
 reset_latency

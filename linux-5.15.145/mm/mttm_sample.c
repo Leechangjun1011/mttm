@@ -49,7 +49,7 @@ unsigned long pingpong_reduce_threshold = 200;
 unsigned long mig_cputime_threshold = 200;
 char mttm_local_dram_string[16];
 unsigned long mttm_local_dram = ((80UL << 30) >> 12);//80GB in # of pages
-unsigned int ksampled_trace_period_in_ms = 5000;
+unsigned int ksampled_trace_period_in_ms = 2000;
 #define NUM_AVAIL_DMA_CHAN	16
 #define DMA_CHAN_PER_PAGE	1
 unsigned int use_dma_migration = 0;
@@ -2180,7 +2180,7 @@ static inline void sample_cha_ctr(int cha, int ctr, u64 (*cur_tor_ctr_val)[2], u
 }
 
 void measure_latency(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
-			u64 (*cur_rxc_ctr_val)[2], u64 (*prev_rxc_ctr_val)[2], int *cnt)
+			u64 (*cur_rxc_ctr_val)[2], u64 (*prev_rxc_ctr_val)[2])
 {
 	u64 cum_occ, cur_occ, cur_inserts;
 	u64 cur_lat_local, cur_lat_remote;
@@ -2302,26 +2302,7 @@ void measure_latency(u64 (*cur_tor_ctr_val)[2], u64 (*prev_tor_ctr_val)[2],
 		smoothed_bw_local = (local_read_BW + local_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_local)>>EWMA_EXP;
 		smoothed_bw_remote = (remote_read_BW + remote_write_BW + ((1<<EWMA_EXP) - 1)*smoothed_bw_remote)>>EWMA_EXP;
 	}
-
-
-
-	*cnt += 1;
-	if(*cnt > 100) {
-		if(print_more_info) {
-			pr_info("[%s] latency [local: %llu, remote: %llu]\n",
-				__func__, smoothed_lat_local, smoothed_lat_remote);
-			/*pr_info("[%s] BW. local:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s], remote:[read: %llu MB/s, write: %llu MB/s, tot: %llu MB/s]\n",
-				__func__, local_read_BW, local_write_BW, local_read_BW + local_write_BW,
-				remote_read_BW, remote_write_BW, remote_read_BW + remote_write_BW);*/
-			pr_info("[%s] smoothed_bw. local: %lu MB/s, remote: %lu MB/s\n",
-				__func__, smoothed_bw_local, smoothed_bw_remote);
-			pr_info("[%s] reject ratio [local: %llu, remote: %llu]. insert: %llu. reject: %llu\n",
-				__func__, smoothed_rxc_reject_ratio_local, smoothed_rxc_reject_ratio_remote,
-				smoothed_rxc_insert_local + smoothed_rxc_insert_remote,
-				smoothed_rxc_reject_local + smoothed_rxc_reject_remote);
-		}
-		*cnt = 0;
-	}
+	
 }
 
 
@@ -2406,7 +2387,7 @@ static int ksampled(void *dummy)
 
 	struct mem_cgroup *memcg;
 	int i;
-	int cnt = 0, rxc_reject_cnt = 0;
+	int rxc_reject_cnt = 0;
 
 	init_mon_state(cur_tor_ctr_val, prev_tor_ctr_val, cur_rxc_ctr_val, prev_rxc_ctr_val);
 	//pr_info("[%s] sleep_timeout %lu jiffies. 1 jiffies: %u us. lat_logging %lu jiffies\n",
@@ -2433,6 +2414,12 @@ static int ksampled(void *dummy)
 		}
 		else {
 			if(cur - interval_start >= trace_period) {
+				if(print_more_info) {
+					pr_info("[%s] latency [local: %llu, remote: %llu]. smoothed_bw [local: %lu MB/s, remote: %lu MB/s]. rxc [insert: %llu, reject: %llu]\n",
+						__func__, smoothed_lat_local, smoothed_lat_remote, smoothed_bw_local, smoothed_bw_remote,
+						smoothed_rxc_insert_local + smoothed_rxc_insert_remote,
+						smoothed_rxc_reject_local + smoothed_rxc_reject_remote);
+				}
 				if(use_dram_determination && use_rxc_monitoring)
 					check_rxc_reject_ratio(&rxc_reject_cnt);
 				calculate_sample_rate_stat();
@@ -2449,7 +2436,7 @@ static int ksampled(void *dummy)
 
 		if(cur_lat - interval_start_lat >= lat_logging_period) {
 			measure_latency(cur_tor_ctr_val, prev_tor_ctr_val,
-					cur_rxc_ctr_val, prev_rxc_ctr_val, &cnt);
+					cur_rxc_ctr_val, prev_rxc_ctr_val);
 			interval_start_lat = cur_lat;
 		}
 

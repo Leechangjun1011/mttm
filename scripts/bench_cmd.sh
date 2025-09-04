@@ -3,6 +3,7 @@
 # 1st input: workload
 # 2nd input: mix number
 
+GUPS_DIR="$PWD/gups"
 
 if [[ "$1" == "gapbs-bc" ]]; then
         if [[ "$2" == "mix1" ]]; then
@@ -11,7 +12,7 @@ if [[ "$1" == "gapbs-bc" ]]; then
 elif [[ "$1" == "gapbs-pr" ]]; then
         if [[ "$2" == "mix1" || "$2" == "mix4" ]]; then
                 BENCH="${GAPBS_DIR}/pr -f ${GAPBS_DIR}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
-        elif [[ "$2" == "config13-basepage" ]]; then
+        elif [[ "$2" == "mix4-basepage" ]]; then
                 BENCH="${GAPBS_DIR}/pr -f ${GAPBS_DIR}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
         fi
 elif [[ "$1" == "xsbench" ]]; then
@@ -29,7 +30,7 @@ elif [[ "$1" == "btree" ]]; then
 elif [[ "$1" == "silo" ]]; then
         if [[ "$2" == "mix4" ]]; then
                 BENCH="${SILO_DIR}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=450000000"
-        elif [[ "$2" == "config13-basepage" ]]; then
+        elif [[ "$2" == "mix4-basepage" ]]; then
                 BENCH="${SILO_DIR}/out-perf.masstree/benchmarks/dbtest --verbose --bench ycsb --num-threads 8 --scale-factor 400000 --ops-per-worker=1000000000"
         fi
 elif [[ "$1" == "cpu_dlrm_small_low" ]]; then
@@ -43,38 +44,35 @@ elif [[ "$1" == "cpu_dlrm_small_high" ]]; then
 elif [[ "$1" == "fotonik" ]]; then
         if [[ "$2" == "mix2"  || "$2" == "mix4" ]]; then
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=2 649.fotonik3d_s"
-        elif [[ "$2" == "config13-basepage" ]]; then
+        elif [[ "$2" == "mix4-basepage" ]]; then
                 BENCH="runcpu --config=mttm_1 --noreportable --iteration=6 649.fotonik3d_s"
         fi
 elif [[ "$1" == "gups-1" ]]; then
-        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         if [[ "$2" == "microbench" || "$2" == "microbench-dynamic" ]]; then
-                BENCH="${BENCH_PATH}/gups-1 8 4000000000 34 8 31 90"
+                BENCH="${GUPS_DIR}/gups-1 8 4000000000 34 8 31 90"
         elif [[ "$2" == "microbench-sensitivity1" ]]; then
-                BENCH="${BENCH_PATH}/gups-1 8 4000000000 34 8 31 90"
+                BENCH="${GUPS_DIR}/gups-1 8 4000000000 34 8 31 90"
         elif [[ "$2" == "microbench-sensitivity2" ]]; then
-                BENCH="${BENCH_PATH}/gups-1 2 4000000000 34 8 33 90"
+                BENCH="${GUPS_DIR}/gups-1 2 4000000000 34 8 33 90"
         fi
 elif [[ "$1" == "gups-2" ]]; then
-        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         if [[ "$2" == "microbench" || "$2" == "microbench-dynamic" ]]; then
-                BENCH="${BENCH_PATH}/gups-2 8 4000000000 34 8 32 90"
+                BENCH="${GUPS_DIR}/gups-2 8 4000000000 34 8 32 90"
         elif [[ "$2" == "microbench-sensitivity1" ]]; then
-                BENCH="${BENCH_PATH}/gups-2 8 4000000000 34 8 32 90"
+                BENCH="${GUPS_DIR}/gups-2 8 4000000000 34 8 32 90"
         elif [[ "$2" == "microbench-sensitivity2" ]]; then
-                BENCH="${BENCH_PATH}/gups-2 4 4000000000 34 8 33 90"
+                BENCH="${GUPS_DIR}/gups-2 4 4000000000 34 8 33 90"
         fi
 elif [[ "$1" == "gups-3" ]]; then
-        BENCH_PATH="${BENCH_DIR}/../microbenchmarks"
         if [[ "$2" == "microbench" ]]; then
-                BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+                BENCH="${GUPS_DIR}/gups-3 8 4000000000 34 8 32 0"
         elif [[ "$2" == "microbench-dynamic" ]]; then
                 sleep 50s
-                BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+                BENCH="${GUPS_DIR}/gups-3 8 4000000000 34 8 32 0"
         elif [[ "$2" == "microbench-sensitivity1" ]]; then
-                BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 32 0"
+                BENCH="${GUPS_DIR}/gups-3 8 4000000000 34 8 32 0"
         elif [[ "$2" == "microbench-sensitivity2" ]]; then
-                BENCH="${BENCH_PATH}/gups-3 8 4000000000 34 8 33 90"
+                BENCH="${GUPS_DIR}/gups-3 8 4000000000 34 8 33 90"
         fi
 elif [[ "$1" == "gups-2g" ]]; then
         BENCH_PATH="${BENCH_DIR}/../microbenchmarks"

@@ -61,9 +61,10 @@ run_vtmm_hugepage mix3 45G 160
 run_vtmm_hugepage mix3 18G 160
 run_vtmm_hugepage mix4 51G 160
 run_vtmm_hugepage mix4 20G 160
-
+end
 
 set_190
+: << end
 run_vtmm_hugepage mix1 54G 190
 run_vtmm_hugepage mix1 21G 190
 run_vtmm_hugepage mix2 34G 190
@@ -71,6 +72,7 @@ run_vtmm_hugepage mix2 13G 190
 run_vtmm_hugepage mix3 45G 190
 run_vtmm_hugepage mix3 18G 190
 run_vtmm_hugepage mix4 51G 190
+end
 run_vtmm_hugepage mix4 20G 190
 
 set_220
@@ -82,9 +84,6 @@ run_vtmm_hugepage mix3 45G 220
 run_vtmm_hugepage mix3 18G 220
 run_vtmm_hugepage mix4 51G 220
 run_vtmm_hugepage mix4 20G 220
-end
-
-run_vtmm_hugepage mix4 51G 160
 
 reset_latency
 

@@ -121,7 +121,11 @@ function func_main() {
     echo "-----------------------"
 
     # make directory for results
-    LOG_DIR=${MTTM_DIR}/evaluation/fig10/memtis/${CONFIG_NAME}
+    if [[ "${CONFIG_NAME}" == "mix4-1-basepage" ]]; then
+       LOG_DIR=${MTTM_DIR}/evaluation/fig12/memtis/${CONFIG_NAME}    
+    else
+       LOG_DIR=${MTTM_DIR}/evaluation/fig10/memtis/${CONFIG_NAME}
+    fi
 
     # set memcg for htmm
     sudo cgdelete -g memory:htmm
@@ -166,9 +170,9 @@ end
     cat /proc/vmstat | grep -e thp -e htmm -e pgmig > ${LOG_DIR}/after_vmstat.log
     sleep 2
 
-    sudo dmesg -c > ${LOG_DIR}/dmesg.txt
     # disable htmm
     echo "disabled" | sudo tee /sys/fs/cgroup/memory/htmm/memory.htmm_enabled
+    sudo dmesg -c > ${LOG_DIR}/dmesg.txt
 }
 
 function func_usage() {

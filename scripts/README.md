@@ -1,6 +1,44 @@
 # Artifact evaluation
 
 
+**For EuroSys 26 artifact evaluation, we will provide our server to you. You can skip all preparation steps with the server. If you experience any failure during evaluation experiments, please let us know through hotcrp comment so we can reboot the server.**
+
+Use MTTM kernel for Figure 7 - 9.
+
+* Figure 7: ./fig7.sh
+* Figure 8: ./fig8.sh
+* Figure 9: ./fig9.sh
+
+* For Figure 10, use MTTM kernel for local, MTTM, static, Memstrata policy emulation, vTMM emulation.
+	* ./fig10\_local.sh
+	* ./fig10\_mttm.sh
+	* ./fig10\_static.sh
+	* ./fig10\_memstrata.sh
+	* ./fig10\_vtmm.sh
+* To run Memtis, reboot with the Memtis kernel, 5.15.19-htmm.
+	* ./fig10\_memtis.sh
+* To run TPP and Colloid, reboot with the Colloid kernel, 6.3.0-colloid.
+	* ./fig10\_tpp.sh
+	* ./fig10\_colloid.sh
+* To parse the results, run the following script.
+	* ./parse\_fig10.sh
+
+* Figure 11: ./fig11.sh
+* For Figure 12, run fig12\_local.sh and fig12\_mttm.sh with MTTM kernel. Run fig12\_memtis.sh with Memtis kernel. Use parse\_fig12.sh to organize the results.
+
+
+
+
+Results for each experiment.
+* Figure 7: fig7\_gups.dat
+* Figure 8: fig8\_gups.dat
+* Figure 9: fig9\_gups.dat
+* Figure 10: fig10\_{system}\_{memory\_setting}.dat
+
+
+
+Following are preparation steps.
+
 ## Build binaries
 ```
 make

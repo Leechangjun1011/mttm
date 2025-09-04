@@ -28,7 +28,7 @@ echo 0 > /proc/sys/vm/use_memstrata_policy
 echo 0 > /proc/sys/vm/use_static_dram
 
 echo 1 > /proc/sys/vm/use_dma_migration
-echo 0 > /proc/sys/vm/print_more_info
+echo 1 > /proc/sys/vm/print_more_info
 echo 600000 > /proc/sys/vm/kptscand_period_in_us
 echo always > /sys/kernel/mm/transparent_hugepage/enabled
 sudo sysctl kernel.perf_event_max_sample_rate=100000
