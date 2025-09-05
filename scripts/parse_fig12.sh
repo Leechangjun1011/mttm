@@ -1,6 +1,8 @@
 #!/bin/bash
 
 eval_data_path=./evaluation/fig12
+memtis_log=${eval_data_path}/memtis/mix4-1-basepage/dmesg.txt
+mttm_log=${eval_data_path}/mttm/mix4-basepage/51G_190_dmesg.txt
 PR_local=''
 fotonik_local=''
 silo_local=''
@@ -46,7 +48,7 @@ function get_perf
 		btree=$(echo "${perf}" | grep Took | head -n 1 | cut -d':' -f2)
 		dlrm=$(echo "${perf}" | grep fps | cut -d':' -f2 | cut -d'f' -f1)
 		xindex=$(echo "${perf}" | grep ycsb | cut -d':' -f2)
-	elif [[ "$1" == "mix4" ]]; then
+	elif [[ "$1" == "mix4" || "$1" == "mix4-basepage" ]]; then
 		PR=$(echo "${perf}" | grep Average | cut -d':' -f2)
 		fotonik=$(echo "${perf}" | grep runcpu | cut -d';' -f2 | cut -d't' -f1)
 		silo=$(echo "${perf}" | grep agg_throughput | cut -d':' -f2 | cut -d'o' -f1)
@@ -67,8 +69,8 @@ function get_perf
 
 
 
-get_perf mix4 local
-get_perf mix4 mttm 51G_190
+get_perf mix4-basepage local
+get_perf mix4-basepage mttm 51G_190
 
 pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
 fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
@@ -79,29 +81,29 @@ echo -e "PR: $pr"
 echo -e "fotonik: $fotonik"
 echo -e "Silo: $silo"
 
-tot_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep sample | cut -d':' -f2 | cut -d',' -f1)
-sample_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep sample | cut -d':' -f3)
+tot_time=$(cat ${mttm_log} | grep cputime | grep sample | cut -d':' -f2 | cut -d',' -f1)
+sample_time=$(cat ${mttm_log} | grep cputime | grep sample | cut -d':' -f3)
 sample=$(echo "scale=2; $sample_time * 100 / $tot_time" | bc -l)
 echo -e "Sampling: $sample %"
 
-tot_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep runcpu | cut -d':' -f3 | cut -d',' -f1)
-adj_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep runcpu | cut -d':' -f5 | cut -d',' -f1)
-cool_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep runcpu | cut -d':' -f6 | cut -d',' -f1)
-mig_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep runcpu | cut -d':' -f7 | cut -d']' -f1)
+tot_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f3 | cut -d',' -f1)
+adj_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f5 | cut -d',' -f1)
+cool_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f6 | cut -d',' -f1)
+mig_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f7 | cut -d']' -f1)
 fotonik_scan=$(echo "scale=2; ($adj_time + $cool_time)*100/$tot_time" | bc -l)
 fotonik_mig=$(echo "scale=2; ($mig_time)*100/$tot_time" | bc -l)
 
-tot_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep pr | cut -d':' -f3 | cut -d',' -f1)
-adj_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep pr | cut -d':' -f5 | cut -d',' -f1)
-cool_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep pr | cut -d':' -f6 | cut -d',' -f1)
-mig_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep pr | cut -d':' -f7 | cut -d']' -f1)
+tot_time=$(cat ${mttm_log} | grep cputime | grep pr | cut -d':' -f3 | cut -d',' -f1)
+adj_time=$(cat ${mttm_log} | grep cputime | grep pr | cut -d':' -f5 | cut -d',' -f1)
+cool_time=$(cat ${mttm_log} | grep cputime | grep pr | cut -d':' -f6 | cut -d',' -f1)
+mig_time=$(cat ${mttm_log} | grep cputime | grep pr | cut -d':' -f7 | cut -d']' -f1)
 pr_scan=$(echo "scale=2; ($adj_time + $cool_time)*100/$tot_time" | bc -l)
 pr_mig=$(echo "scale=2; ($mig_time)*100/$tot_time" | bc -l)
 
-tot_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep dbtest | cut -d':' -f3 | cut -d',' -f1)
-adj_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep dbtest | cut -d':' -f5 | cut -d',' -f1)
-cool_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep dbtest | cut -d':' -f6 | cut -d',' -f1)
-mig_time=$(cat ${eval_data_path}/mttm/mix4/51G_190_dmesg.txt | grep cputime | grep dbtest | cut -d':' -f7 | cut -d']' -f1)
+tot_time=$(cat ${mttm_log} | grep cputime | grep dbtest | cut -d':' -f3 | cut -d',' -f1)
+adj_time=$(cat ${mttm_log} | grep cputime | grep dbtest | cut -d':' -f5 | cut -d',' -f1)
+cool_time=$(cat ${mttm_log} | grep cputime | grep dbtest | cut -d':' -f6 | cut -d',' -f1)
+mig_time=$(cat ${mttm_log} | grep cputime | grep dbtest | cut -d':' -f7 | cut -d']' -f1)
 silo_scan=$(echo "scale=2; ($adj_time + $cool_time)*100/$tot_time" | bc -l)
 silo_mig=$(echo "scale=2; ($mig_time)*100/$tot_time" | bc -l)
 
@@ -125,4 +127,22 @@ echo -e "PR: $pr"
 echo -e "fotonik: $fotonik"
 echo -e "Silo: $silo"
 
+tot_time=$(cat ${memtis_log} | grep 'cpu usage' | cut -d':' -f3 | cut -d'u' -f1)
+sample_time=$(cat ${memtis_log} | grep 'cpu usage' | cut -d':' -f2 | cut -d'n' -f1)
+sample=$(echo "scale=2; $sample_time * 100 / ($tot_time * 1000)" | bc -l)
+echo -e "Sampling: $sample %"
+
+
+tot_promote_time=$(cat ${memtis_log} | grep promotion | cut -d':' -f2 | cut -d',' -f1)
+tot_demote_time=$(cat ${memtis_log} | grep demotion | cut -d':' -f2 | cut -d',' -f1)
+scan_promote_time=$(cat ${memtis_log} | grep promotion | cut -d':' -f5)
+scan_demote_time=$(cat ${memtis_log} | grep demotion | cut -d':' -f5)
+mig_promote_time=$(cat ${memtis_log} | grep promotion | cut -d':' -f4 | cut -d',' -f1)
+mig_demote_time=$(cat ${memtis_log} | grep demotion | cut -d':' -f4 | cut -d',' -f1)
+
+cpu_util=$(echo "scale=2; ($mig_promote_time * 100 / $tot_promote_time) + ($mig_demote_time * 100 / $tot_demote_time)" | bc -l)
+echo -e "Migration: $cpu_util %"
+
+cpu_util=$(echo "scale=2;($scan_promote_time * 100 / $tot_promote_time) + ($scan_demote_time * 100 / $tot_demote_time)" | bc -l)
+echo -e "Scanning: $cpu_util %"
 

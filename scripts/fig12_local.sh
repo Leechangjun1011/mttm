@@ -48,7 +48,7 @@ function set_220
 
 
 reset_latency
-run_local_basepage mix4
+run_local_basepage mix4-basepage
 
 
 

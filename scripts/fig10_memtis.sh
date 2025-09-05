@@ -50,8 +50,6 @@ function set_220
 
 
 set_160
-run_memtis_hugepage mix4-1 160
-: << end
 run_memtis_hugepage mix1-4 160
 run_memtis_hugepage mix2-1 160
 run_memtis_hugepage mix2-4 160
@@ -79,7 +77,7 @@ run_memtis_hugepage mix3-1 220
 run_memtis_hugepage mix3-4 220
 run_memtis_hugepage mix4-1 220
 run_memtis_hugepage mix4-4 220
-end
+
 reset_latency
 
 

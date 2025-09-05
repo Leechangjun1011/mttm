@@ -2374,7 +2374,7 @@ static int ksampled(void *dummy)
 {
 	unsigned long sleep_timeout = usecs_to_jiffies(50);
 	unsigned long sleep_timeout_us = test_bit(TRANSPARENT_HUGEPAGE_FLAG, &transparent_hugepage_flags) ?				
-						4000 : 500;
+						10000 : 500;
 	unsigned long total_time, total_cputime = 0, one_cputime, cur;
 	unsigned long cur_long, interval_start_long;
 	unsigned long interval_start;

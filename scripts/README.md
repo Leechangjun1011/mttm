@@ -24,9 +24,10 @@ Use MTTM kernel for Figure 7 - 9.
 	* ./parse\_fig10.sh
 
 * Figure 11: ./fig11.sh
+
 * For Figure 12, run fig12\_local.sh and fig12\_mttm.sh with MTTM kernel. Run fig12\_memtis.sh with Memtis kernel. Use parse\_fig12.sh to organize the results.
 
-
+* Figure 13: ./fig13.sh
 
 
 Results for each experiment.

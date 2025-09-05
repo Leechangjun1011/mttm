@@ -197,6 +197,7 @@ print_perf vtmm 1_4
 print_perf memstrata 1_1
 print_perf memstrata 1_4
 
-
+print_perf_memtis 1_1
+print_perf_memtis 1_4
 
 

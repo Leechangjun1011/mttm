@@ -71,5 +71,5 @@ function set_220
 
 
 set_190
-run_mttm_basepage mix4 51G 190
+run_mttm_basepage mix4-basepage 51G 190
 reset_latency

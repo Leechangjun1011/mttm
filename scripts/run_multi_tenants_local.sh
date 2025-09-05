@@ -40,7 +40,7 @@ elif [[ "$1" == "mix3" ]]; then
         workload[1]="btree"
         workload[2]="xindex"
         workload[3]="cpu_dlrm_small_low"
-elif [[ "$1" == "mix4" || "$1" == "config13-basepage" ]]; then
+elif [[ "$1" == "mix4" || "$1" == "mix4-basepage" ]]; then
         workload[1]="gapbs-pr"
         workload[2]="fotonik"
         workload[3]="silo"

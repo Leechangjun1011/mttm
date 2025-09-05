@@ -9,6 +9,6 @@ elif [[ "$1" == "mix2" ]]; then
 	cat $2 | grep -e Throughput -e elapsed
 elif [[ "$1" == "mix3" ]]; then
 	cat $2 | grep -e Throughput -e Took
-elif [[ "$1" == "mix4" ]]; then
+elif [[ "$1" == "mix4" || "$1" == "mix4-basepage" ]]; then
 	cat $2 | grep -e agg_throughput -e Average -e elapsed
 fi

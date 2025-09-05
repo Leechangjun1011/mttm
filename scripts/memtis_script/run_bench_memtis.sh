@@ -162,8 +162,7 @@ end
     ${Memtis_DIR}/bin/launch_bench ${BENCH1_RUN} &
     ${BENCH2_RUN} &
     ${BENCH3_RUN} &
-    release_pinning
-    
+    release_pinning &
     wait
 
     #sudo killall -9 memory_stat.sh
