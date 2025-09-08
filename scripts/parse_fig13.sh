@@ -90,3 +90,46 @@ echo -e "fotonik: $fotonik" >> fig13.dat
 echo -e "Silo: $silo" >> fig13.dat
 
 
+
+rxc=$(cat $rxc_log | grep smoothed_bw)
+rxc_line=$(cat $rxc_log | grep smoothed_bw | wc -l)
+norxc=$(cat $norxc_log | grep smoothed_bw)
+norxc_line=$(cat $norxc_log | grep smoothed_bw | wc -l)
+
+if [ "$rxc_line" -gt "$norxc_line" ]; then
+	line_num=$rxc_line
+else
+	line_num=$norxc_line
+fi
+
+echo 0 > fig13_time.dat
+for i in $(seq 1 $line_num); do
+	echo $((2 * $i)) >> fig13_time.dat
+done
+
+echo "$rxc" | cut -d':' -f4 | cut -d'M' -f1 > fig13_local_bw.dat
+echo "$rxc" | cut -d':' -f5 | cut -d'M' -f1 > fig13_remote_bw.dat
+echo "$(python3 ./cal_net_bw.py ./fig13_local_bw.dat ./fig13_remote_bw.dat)" > fig13_rxc_bw.dat
+
+echo "$norxc" | cut -d':' -f4 | cut -d'M' -f1 > fig13_local_bw.dat
+echo "$norxc" | cut -d':' -f5 | cut -d'M' -f1 > fig13_remote_bw.dat
+echo "$(python3 ./cal_net_bw.py ./fig13_local_bw.dat ./fig13_remote_bw.dat)" > fig13_norxc_bw.dat
+
+echo -e "time	monitoring_O	monitoring_X" > fig13_bw.dat
+paste fig13_time.dat fig13_rxc_bw.dat fig13_norxc_bw.dat >> fig13_bw.dat
+
+
+
+
+echo "$rxc" | cut -d':' -f6 | cut -d',' -f1 > fig13_insert.dat
+echo "$rxc" | cut -d':' -f7 | cut -d']' -f1 > fig13_reject.dat
+echo "$(python3 ./cal_rej_ratio.py ./fig13_insert.dat ./fig13_reject.dat)" > fig13_rxc_rej_ratio.dat
+
+echo "$norxc" | cut -d':' -f6 | cut -d',' -f1 > fig13_insert.dat
+echo "$norxc" | cut -d':' -f7 | cut -d']' -f1 > fig13_reject.dat
+echo "$(python3 ./cal_rej_ratio.py ./fig13_insert.dat ./fig13_reject.dat)" > fig13_norxc_rej_ratio.dat
+
+echo -e "time	monitoring_O	monitoring_X" > fig13_rej_ratio.dat
+paste fig13_time.dat fig13_rxc_rej_ratio.dat fig13_norxc_rej_ratio.dat >> fig13_rej_ratio.dat
+
+
