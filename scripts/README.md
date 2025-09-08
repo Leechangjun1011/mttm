@@ -9,25 +9,31 @@ Use MTTM kernel for Figure 7 - 9.
 * Figure 8: ./fig8.sh
 * Figure 9: ./fig9.sh
 
-* For Figure 10, use MTTM kernel for local, MTTM, static, Memstrata policy emulation, vTMM emulation.
-	* ./fig10\_local.sh
-	* ./fig10\_mttm.sh
-	* ./fig10\_static.sh
-	* ./fig10\_memstrata.sh
-	* ./fig10\_vtmm.sh
-* To run Memtis, reboot with the Memtis kernel, 5.15.19-htmm.
-	* ./fig10\_memtis.sh
-* To run TPP and Colloid, reboot with the Colloid kernel, 6.3.0-colloid.
-	* ./fig10\_tpp.sh
-	* ./fig10\_colloid.sh
-* To parse the results, run the following script.
-	* ./parse\_fig10.sh
+* Figure 10
+	* Use MTTM kernel for local, MTTM, static, Memstrata policy emulation, vTMM emulation.
+		* ./fig10\_local.sh
+		* ./fig10\_mttm.sh
+		* ./fig10\_static.sh
+		* ./fig10\_memstrata.sh
+		* ./fig10\_vtmm.sh
+	* To run Memtis, reboot with the Memtis kernel, 5.15.19-htmm.
+		* ./fig10\_memtis.sh
+	* To run TPP and Colloid, reboot with the Colloid kernel, 6.3.0-colloid.
+		* ./fig10\_tpp.sh
+		* ./fig10\_colloid.sh
+	* To parse the results, run the following script.
+		* ./parse\_fig10.sh
+	* Reproducing all of figure 10 data takes several days. You can selectively run experiments by commenting out unnecessary runs in each script.
+
 
 * Figure 11: ./fig11.sh
 
-* For Figure 12, run fig12\_local.sh and fig12\_mttm.sh with MTTM kernel. Run fig12\_memtis.sh with Memtis kernel. Use parse\_fig12.sh to organize the results.
+* Figure 12
+	* Run fig12\_local.sh and fig12\_mttm.sh with MTTM kernel.
+	* Run fig12\_memtis.sh with Memtis kernel.
+	* Use parse\_fig12.sh to organize the results.
 
-* Figure 13: ./fig13.sh
+* Figure 13: ./fig13.sh; ./parse\_fig13.sh
 
 
 Results for each experiment.
@@ -35,8 +41,9 @@ Results for each experiment.
 * Figure 8: fig8\_gups.dat
 * Figure 9: fig9\_gups.dat
 * Figure 10: fig10\_{system}\_{memory\_setting}.dat
-
-
+* Figure 11: fig11.dat
+* Figure 12: fig12.dat
+* Figure 13: fig13.dat
 
 Following are preparation steps.
 

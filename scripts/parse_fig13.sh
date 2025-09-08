@@ -73,10 +73,10 @@ pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
 fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
 silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
 
-echo -e "### MTTM with rejection monitoring"
-echo -e "PR: $pr"
-echo -e "fotonik: $fotonik"
-echo -e "Silo: $silo"
+echo -e "### MTTM with rejection monitoring" > fig13.dat
+echo -e "PR: $pr" >> fig13.dat
+echo -e "fotonik: $fotonik" >> fig13.dat
+echo -e "Silo: $silo" >> fig13.dat
 
 
 get_perf mix4 mttm_norxc 20G_220
@@ -84,9 +84,9 @@ get_perf mix4 mttm_norxc 20G_220
 pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
 fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
 silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
-echo -e "\n### MTTM without rejection monitoring"
-echo -e "PR: $pr"
-echo -e "fotonik: $fotonik"
-echo -e "Silo: $silo"
+echo -e "\n### MTTM without rejection monitoring" >> fig13.dat
+echo -e "PR: $pr" >> fig13.dat
+echo -e "fotonik: $fotonik" >> fig13.dat
+echo -e "Silo: $silo" >> fig13.dat
 
 

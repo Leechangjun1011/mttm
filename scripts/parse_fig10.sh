@@ -200,4 +200,10 @@ print_perf memstrata 1_4
 print_perf_memtis 1_1
 print_perf_memtis 1_4
 
+print_perf tpp 1_1
+print_perf tpp 1_4
+
+print_perf colloid 1_1
+print_perf colloid 1_4
+
 
