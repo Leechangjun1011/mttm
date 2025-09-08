@@ -43,7 +43,7 @@ Results for each experiment.
 * Figure 10: fig10\_{system}\_{memory\_setting}.dat
 * Figure 11: fig11.dat
 * Figure 12: fig12.dat
-* Figure 13: fig13.dat
+* Figure 13: fig13.dat, fig13\_bw.dat, fig13\_rej\_ratio.dat
 
 Following are preparation steps.
 
