@@ -159,6 +159,13 @@ MODE=perf make -j dbtest
 ```
 
 
+### GUPS
+```
+cd gups
+make
+```
+
+
 ### Set workload path
 * Modify the paths of set\_bench\_dir.sh accordingly.
 
