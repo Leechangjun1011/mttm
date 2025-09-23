@@ -3,34 +3,54 @@ cur_path=$PWD
 emul_path=$PWD/cxl-emulation
 
 
-function run_mttm_sensitivity_mar_hi
+function run_mttm_hugepage
 {
-	#config, dram size, mar weight, hi weight
-	dmesg --clear
-	echo 1 > /proc/sys/vm/use_dram_determination
-	echo 1 > /proc/sys/vm/use_region_separation
-	echo 0 > /proc/sys/vm/use_memstrata_policy
-	echo 0 > /proc/sys/vm/use_static_dram
-	echo $2 > /proc/sys/vm/mttm_local_dram_string
-	echo 1 > /proc/sys/vm/use_rxc_monitoring
-	echo 0 > /proc/sys/vm/print_more_info
+        #config, dram size, remote latency
+        dmesg --clear
+        echo 1 > /proc/sys/vm/use_dram_determination
+        echo 1 > /proc/sys/vm/use_region_separation
+        echo 0 > /proc/sys/vm/use_memstrata_policy
+        echo 0 > /proc/sys/vm/use_static_dram
+        echo $2 > /proc/sys/vm/mttm_local_dram_string
+        echo 1 > /proc/sys/vm/use_rxc_monitoring
+        echo 0 > /proc/sys/vm/print_more_info
 
-	echo $3 > /proc/sys/vm/mar_weight
-	echo $4 > /proc/sys/vm/hi_weight
-	echo 3 > /proc/sys/vm/hugepage_shift_factor
-	echo 1 > /proc/sys/vm/hugepage_period_factor
+        echo 1 > /proc/sys/vm/mar_weight
+        echo 1 > /proc/sys/vm/hi_weight
+        echo 3 > /proc/sys/vm/hugepage_shift_factor
+        echo 1 > /proc/sys/vm/hugepage_period_factor
 
-	echo 4999 > /proc/sys/vm/pebs_sample_period
-	echo 1 > /proc/sys/vm/use_pingpong_reduce
-	echo 500 > /proc/sys/vm/pingpong_reduce_threshold
-	echo 1 > /proc/sys/vm/reduce_scan
-	echo always > /sys/kernel/mm/transparent_hugepage/enabled
+        echo 4999 > /proc/sys/vm/pebs_sample_period
+        echo 1 > /proc/sys/vm/use_pingpong_reduce
+        echo 500 > /proc/sys/vm/pingpong_reduce_threshold
+        echo 1 > /proc/sys/vm/reduce_scan
+        echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
-	mkdir -p ./evaluation/fig9/mttm
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig9/mttm/$1_$2_$3_$4.txt
-	dmesg > ./evaluation/fig9/mttm/$1_$2_$3_$4_dmesg.txt
+        mkdir -p ./evaluation/fig9/mttm
+        ./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig9/mttm/$1_$2_$3.txt
+        dmesg > ./evaluation/fig9/mttm/$1_$2_$3_dmesg.txt
+	
+	mv tot_gups_1.txt tot_gups_1_mttm.txt
+	mv tot_gups_2.txt tot_gups_2_mttm.txt
+	mv tot_gups_3.txt tot_gups_3_mttm.txt
+
 }
 
+function run_local_hugepage
+{
+        #config
+        dmesg --clear
+        echo always > /sys/kernel/mm/transparent_hugepage/enabled
+
+        mkdir -p ./evaluation/fig9/local
+        ./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig9/local/$1.txt
+        dmesg > ./evaluation/fig9/local/$1_dmesg.txt
+
+	mv tot_gups_1.txt tot_gups_1_local.txt
+	mv tot_gups_2.txt tot_gups_2_local.txt
+	mv tot_gups_3.txt tot_gups_3_local.txt
+
+}
 
 function reset_latency
 {
@@ -67,32 +87,36 @@ function set_220
 	echo 220 > /proc/sys/vm/remote_latency
 }
 
+
 set_160
-run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 2 1
-run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 1 1
-run_mttm_sensitivity_mar_hi microbench-sensitivity1 24G 1 2
-
-run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 2 1
-run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 1 1
-run_mttm_sensitivity_mar_hi microbench-sensitivity2 24G 1 2
-
+run_mttm_hugepage microbench-dynamic 24G 160
 reset_latency
+run_local_hugepage microbench
 
-result_path=./evaluation/fig9/mttm
+echo -e "time\tgups1\tgups2\tgups3\tgups_local" > fig9_gups.dat
+line1=$(cat tot_gups_1_mttm.txt | wc -l)
+line2=$(cat tot_gups_2_mttm.txt | wc -l)
 
-echo -e "### Same # of threads" > ./fig9_gups.dat
-echo -e "alpha/beta = 0.5" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity1_24G_2_1.txt | grep GUPS >> ./fig9_gups.dat
-echo -e "\nalpha/beta = 1" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity1_24G_1_1.txt | grep GUPS >> ./fig9_gups.dat
-echo -e "\nalpha/beta = 2" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity1_24G_1_2.txt | grep GUPS >> ./fig9_gups.dat
+echo 0 > fig9_gups_3.txt
+for i in $(seq 2 50); do
+        echo 0 >> fig9_gups_3.txt
+done
 
-echo -e "\n### Same hot set size" >> ./fig9_gups.dat
-echo -e "alpha/beta = 0.5" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity2_24G_2_1.txt | grep GUPS >> ./fig9_gups.dat
-echo -e "\nalpha/beta = 1" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity2_24G_1_1.txt | grep GUPS >> ./fig9_gups.dat
-echo -e "\nalpha/beta = 2" >> ./fig9_gups.dat
-cat ${result_path}/microbench-sensitivity2_24G_1_2.txt | grep GUPS >> ./fig9_gups.dat
+echo "$(cat tot_gups_3_mttm.txt)" >> fig9_gups_3.txt
 
+line3=$(cat fig9_gups_3.txt | wc -l)
+if [ "$line1" -gt "$line2" ]; then
+        max_line=$line1
+else
+        max_line=$line2
+fi
+if [ "$line3" -gt "$max_line" ]; then
+        max_line=$line3
+fi
+
+echo 1 > fig9_time.txt
+for i in $(seq 2 $max_line); do
+        echo $i >> fig9_time.txt
+done
+
+paste fig9_time.txt tot_gups_1_mttm.txt tot_gups_2_mttm.txt fig9_gups_3.txt tot_gups_1_local.txt >> fig9_gups.dat

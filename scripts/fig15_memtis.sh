@@ -3,20 +3,22 @@ cur_path=$PWD
 emul_path=$PWD/cxl-emulation
 
 
-function run_local_basepage
+function run_memtis_basepage
 {
-	echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
-	mkdir -p ./evaluation/fig12/local
-	./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig12/local/$1.txt
-}
+	memtis_script=${cur_path}/memtis_script/run_bench_memtis.sh
 
+        echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+        echo madvise > /sys/kernel/mm/transparent_hugepage/defrag
+
+        mkdir -p ./evaluation/fig15/memtis/$1
+        ${memtis_script} -C $1 2>&1 | cat > ./evaluation/fig15/memtis/$1/$2.txt
+}
 
 function reset_latency
 {
 	cd $emul_path
 	./reset.sh
 	cd $cur_path
-	echo 130 > /proc/sys/vm/remote_latency
 }
 
 function set_160
@@ -25,7 +27,6 @@ function set_160
 	./reset.sh
 	./emulate.sh 6 4000
 	cd $cur_path
-	echo 160 > /proc/sys/vm/remote_latency
 }
 
 function set_190
@@ -34,7 +35,6 @@ function set_190
 	./reset.sh
 	./emulate.sh 11 4000
 	cd $cur_path
-	echo 190 > /proc/sys/vm/remote_latency
 }
 
 function set_220
@@ -43,12 +43,10 @@ function set_220
 	./reset.sh
 	./emulate.sh 24 0 0x8124
 	cd $cur_path
-	echo 220 > /proc/sys/vm/remote_latency
 }
 
-
+set_190
+run_memtis_basepage mix4-1-basepage 190
 reset_latency
-run_local_basepage mix4-basepage
-
 
 

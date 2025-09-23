@@ -1,6 +1,6 @@
 #!/bin/bash
 
-eval_data_path=./evaluation/fig10
+eval_data_path=./evaluation/fig11
 PR_local=''
 BC_local=''
 XSBENCH_local=''
@@ -132,56 +132,56 @@ function print_perf
 		mix3_dram=18G
 		mix4_dram=20G
 	fi
-	echo -e "remote_latency\tmix1\tmix2\tmix3\tmix4\tavg" > ./fig10_$1_$2.dat
+	echo -e "remote_latency\tmix1\tmix2\tmix3\tmix4\tavg" > ./fig11_$1_$2.dat
 
 	mix1_perf=$(parse_avg_perf mix1 $1 $mix1_dram 160)
 	mix2_perf=$(parse_avg_perf mix2 $1 $mix2_dram 160)
 	mix3_perf=$(parse_avg_perf mix3 $1 $mix3_dram 160)
 	mix4_perf=$(parse_avg_perf mix4 $1 $mix4_dram 160)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "160	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_$1_$2.dat
+	echo -e "160	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_$1_$2.dat
 
 	mix1_perf=$(parse_avg_perf mix1 $1 $mix1_dram 190)
 	mix2_perf=$(parse_avg_perf mix2 $1 $mix2_dram 190)
 	mix3_perf=$(parse_avg_perf mix3 $1 $mix3_dram 190)
 	mix4_perf=$(parse_avg_perf mix4 $1 $mix4_dram 190)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "190	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_$1_$2.dat
+	echo -e "190	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_$1_$2.dat
 
 	mix1_perf=$(parse_avg_perf mix1 $1 $mix1_dram 220)
 	mix2_perf=$(parse_avg_perf mix2 $1 $mix2_dram 220)
 	mix3_perf=$(parse_avg_perf mix3 $1 $mix3_dram 220)
 	mix4_perf=$(parse_avg_perf mix4 $1 $mix4_dram 220)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "220	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_$1_$2.dat
+	echo -e "220	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_$1_$2.dat
 
 }
 
 function print_perf_memtis
 {
 	# memory config
-	echo -e "remote_latency\tmix1\tmix2\tmix3\tmix4\tavg" > ./fig10_memtis_$1.dat
+	echo -e "remote_latency\tmix1\tmix2\tmix3\tmix4\tavg" > ./fig11_memtis_$1.dat
 
 	mix1_perf=$(parse_avg_perf mix1 memtis $1 160)
 	mix2_perf=$(parse_avg_perf mix2 memtis $1 160)
 	mix3_perf=$(parse_avg_perf mix3 memtis $1 160)
 	mix4_perf=$(parse_avg_perf mix4 memtis $1 160)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "160	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_memtis_$1.dat
+	echo -e "160	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_memtis_$1.dat
 
 	mix1_perf=$(parse_avg_perf mix1 memtis $1 190)
 	mix2_perf=$(parse_avg_perf mix2 memtis $1 190)
 	mix3_perf=$(parse_avg_perf mix3 memtis $1 190)
 	mix4_perf=$(parse_avg_perf mix4 memtis $1 190)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "190	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_memtis_$1.dat
+	echo -e "190	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_memtis_$1.dat
 
 	mix1_perf=$(parse_avg_perf mix1 memtis $1 220)
 	mix2_perf=$(parse_avg_perf mix2 memtis $1 220)
 	mix3_perf=$(parse_avg_perf mix3 memtis $1 220)
 	mix4_perf=$(parse_avg_perf mix4 memtis $1 220)
 	avg_perf=$(python3 ./cal_perf.py average $mix1_perf $mix2_perf $mix3_perf $mix4_perf)
-	echo -e "220	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig10_memtis_$1.dat
+	echo -e "220	$mix1_perf	$mix2_perf	$mix3_perf	$mix4_perf	$avg_perf" >> ./fig11_memtis_$1.dat
 
 }
 
@@ -205,5 +205,4 @@ print_perf tpp 1_4
 
 print_perf colloid 1_1
 print_perf colloid 1_4
-
 

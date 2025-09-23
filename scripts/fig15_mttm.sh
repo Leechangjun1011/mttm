@@ -28,9 +28,9 @@ function run_mttm_basepage
 	echo 9 > /proc/sys/vm/basepage_shift_factor #target cooling period
 	echo 40 > /proc/sys/vm/basepage_period_factor #increasing granularity
 
-	mkdir -p ./evaluation/fig12/mttm/$1	
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig12/mttm/$1/$2_$3.txt
-	dmesg > ./evaluation/fig12/mttm/$1/$2_$3_dmesg.txt
+	mkdir -p ./evaluation/fig15/mttm/$1	
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig15/mttm/$1/$2_$3.txt
+	dmesg > ./evaluation/fig15/mttm/$1/$2_$3_dmesg.txt
 }
 
 

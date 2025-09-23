@@ -122,9 +122,9 @@ function func_main() {
 
     # make directory for results
     if [[ "${CONFIG_NAME}" == "mix4-1-basepage" ]]; then
-       LOG_DIR=${MTTM_DIR}/evaluation/fig12/memtis/${CONFIG_NAME}    
+       LOG_DIR=${MTTM_DIR}/evaluation/fig15/memtis/${CONFIG_NAME}    
     else
-       LOG_DIR=${MTTM_DIR}/evaluation/fig10/memtis/${CONFIG_NAME}
+       LOG_DIR=${MTTM_DIR}/evaluation/fig11/memtis/${CONFIG_NAME}
     fi
 
     # set memcg for htmm

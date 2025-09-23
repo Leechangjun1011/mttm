@@ -25,9 +25,9 @@ function run_static_hugepage
 	echo 1 > /proc/sys/vm/reduce_scan
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 
-	mkdir -p ./evaluation/fig10/static/$1
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig10/static/$1/$2_$3.txt
-	dmesg > ./evaluation/fig10/static/$1/$2_$3_dmesg.txt
+	mkdir -p ./evaluation/fig11/static/$1
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig11/static/$1/$2_$3.txt
+	dmesg > ./evaluation/fig11/static/$1/$2_$3_dmesg.txt
 }
 
 

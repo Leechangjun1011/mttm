@@ -29,6 +29,19 @@ echo enabled > ${CGMEM_DIR}/memory.use_mig
 echo enabled > ${CGMEM_DIR}/memory.use_warm
 echo $$ > ${CGMEM_DIR}/cgroup.procs
 
+if [[ "$3" == "motiv" ]]; then
+	if [[ "$2" == "gapbs-pr" ]]; then
+		#echo 3G > ${CGMEM_DIR}/memory.max_at_node0
+		echo 13G > ${CGMEM_DIR}/memory.max_at_node0
+	elif [[ "$2" == "xsbench" ]]; then
+		#echo 4G > ${CGMEM_DIR}/memory.max_at_node0
+		echo 20G > ${CGMEM_DIR}/memory.max_at_node0
+	elif [[ "$2" == "cpu_dlrm_small_low" ]]; then
+		#echo 31G > ${CGMEM_DIR}/memory.max_at_node0
+		echo 5G > ${CGMEM_DIR}/memory.max_at_node0
+	fi
+fi
+
 CGCPU_DIR=/sys/fs/cgroup/cpuset/mttm_$1
 cgdelete -g cpuset:mttm_$1
 cgcreate -g cpuset:mttm_$1

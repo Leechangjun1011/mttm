@@ -1,6 +1,6 @@
 #!/bin/bash
 
-eval_data_path=./evaluation/fig12
+eval_data_path=./evaluation/fig15
 memtis_log=${eval_data_path}/memtis/mix4-1-basepage/dmesg.txt
 mttm_log=${eval_data_path}/mttm/mix4-basepage/51G_190_dmesg.txt
 PR_local=''
@@ -72,19 +72,19 @@ function get_perf
 get_perf mix4-basepage local
 get_perf mix4-basepage mttm 51G_190
 
-pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
-fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
-silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
+pr=$(python3 ./cal_one_perf.py PR $PR_local $PR)
+fotonik=$(python3 ./cal_one_perf.py fotonik $fotonik_local $fotonik)
+silo=$(python3 ./cal_one_perf.py silo $silo_local $silo)
 
-echo -e "### MTTM" > fig12.dat
-echo -e "PR: $pr" >> fig12.dat
-echo -e "fotonik: $fotonik" >> fig12.dat
-echo -e "Silo: $silo" >> fig12.dat
+echo -e "### MTTM" > fig15.dat
+echo -e "PR: $pr" >> fig15.dat
+echo -e "fotonik: $fotonik" >> fig15.dat
+echo -e "Silo: $silo" >> fig15.dat
 
 tot_time=$(cat ${mttm_log} | grep cputime | grep sample | cut -d':' -f2 | cut -d',' -f1)
 sample_time=$(cat ${mttm_log} | grep cputime | grep sample | cut -d':' -f3)
 sample=$(echo "scale=2; $sample_time * 100 / $tot_time" | bc -l)
-echo -e "Sampling: $sample %" >> fig12.dat
+echo -e "Sampling: $sample %" >> fig15.dat
 
 tot_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f3 | cut -d',' -f1)
 adj_time=$(cat ${mttm_log} | grep cputime | grep runcpu | cut -d':' -f5 | cut -d',' -f1)
@@ -108,29 +108,29 @@ silo_scan=$(echo "scale=2; ($adj_time + $cool_time)*100/$tot_time" | bc -l)
 silo_mig=$(echo "scale=2; ($mig_time)*100/$tot_time" | bc -l)
 
 cpu_util=$(echo "scale=2; $fotonik_mig + $pr_mig + $silo_mig" | bc -l)
-echo -e "Migration: $cpu_util %" >> fig12.dat
+echo -e "Migration: $cpu_util %" >> fig15.dat
 
 cpu_util=$(echo "scale=2; $fotonik_scan + $pr_scan + $silo_scan" | bc -l)
-echo -e "Scanning: $cpu_util %" >> fig12.dat
+echo -e "Scanning: $cpu_util %" >> fig15.dat
 
 
 
 #get_perf mix4 local
 get_perf mix4 memtis 1_1 190
 
-pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
-fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
-silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
+pr=$(python3 ./cal_one_perf.py PR $PR_local $PR)
+fotonik=$(python3 ./cal_one_perf.py fotonik $fotonik_local $fotonik)
+silo=$(python3 ./cal_one_perf.py silo $silo_local $silo)
 
-echo -e "\n### Memtis" >> fig12.dat
-echo -e "PR: $pr" >> fig12.dat
-echo -e "fotonik: $fotonik" >> fig12.dat
-echo -e "Silo: $silo" >> fig12.dat
+echo -e "\n### Memtis" >> fig15.dat
+echo -e "PR: $pr" >> fig15.dat
+echo -e "fotonik: $fotonik" >> fig15.dat
+echo -e "Silo: $silo" >> fig15.dat
 
 tot_time=$(cat ${memtis_log} | grep 'cpu usage' | cut -d':' -f3 | cut -d'u' -f1)
 sample_time=$(cat ${memtis_log} | grep 'cpu usage' | cut -d':' -f2 | cut -d'n' -f1)
 sample=$(echo "scale=2; $sample_time * 100 / ($tot_time * 1000)" | bc -l)
-echo -e "Sampling: $sample %" >> fig12.dat
+echo -e "Sampling: $sample %" >> fig15.dat
 
 
 tot_promote_time=$(cat ${memtis_log} | grep promotion | cut -d':' -f2 | cut -d',' -f1)
@@ -141,8 +141,8 @@ mig_promote_time=$(cat ${memtis_log} | grep promotion | cut -d':' -f4 | cut -d',
 mig_demote_time=$(cat ${memtis_log} | grep demotion | cut -d':' -f4 | cut -d',' -f1)
 
 cpu_util=$(echo "scale=2; ($mig_promote_time * 100 / $tot_promote_time) + ($mig_demote_time * 100 / $tot_demote_time)" | bc -l)
-echo -e "Migration: $cpu_util %" >> fig12.dat
+echo -e "Migration: $cpu_util %" >> fig15.dat
 
 cpu_util=$(echo "scale=2;($scan_promote_time * 100 / $tot_promote_time) + ($scan_demote_time * 100 / $tot_demote_time)" | bc -l)
-echo -e "Scanning: $cpu_util %" >> fig12.dat
+echo -e "Scanning: $cpu_util %" >> fig15.dat
 

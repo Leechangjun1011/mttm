@@ -25,9 +25,9 @@ function run_memstrata_hugepage
 	echo 0 > /proc/sys/vm/print_more_info
 	echo $2 > /proc/sys/vm/mttm_local_dram_string
 
-	mkdir -p ./evaluation/fig10/memstrata/$1
-	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig10/memstrata/$1/$2_$3.txt
-	dmesg > ./evaluation/fig10/memstrata/$1/$2_$3_dmesg.txt
+	mkdir -p ./evaluation/fig11/memstrata/$1
+	./run_multi_tenants.sh $1 2>&1 | cat > ./evaluation/fig11/memstrata/$1/$2_$3.txt
+	dmesg > ./evaluation/fig11/memstrata/$1/$2_$3_dmesg.txt
 }
 
 
@@ -67,7 +67,6 @@ function set_220
 }
 
 
-: << end
 set_160
 run_memstrata_hugepage mix1 54G 160
 run_memstrata_hugepage mix1 21G 160
@@ -86,8 +85,6 @@ run_memstrata_hugepage mix2 13G 190
 run_memstrata_hugepage mix3 45G 190
 run_memstrata_hugepage mix3 18G 190
 run_memstrata_hugepage mix4 51G 190
-end
-set_190
 run_memstrata_hugepage mix4 20G 190
 
 set_220

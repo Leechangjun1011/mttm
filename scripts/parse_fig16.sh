@@ -1,6 +1,6 @@
 #!/bin/bash
 
-eval_data_path=./evaluation/fig13
+eval_data_path=./evaluation/fig16
 rxc_log=${eval_data_path}/mttm/rxc/mix4/20G_220_dmesg.txt
 norxc_log=${eval_data_path}/mttm/norxc/mix4/20G_220_dmesg.txt
 PR_local=''
@@ -20,7 +20,7 @@ function get_perf
 {
 	# mix, system, args(dram size, latency...)
 	if [[ "$2" == "local" ]]; then
-		perf=$(./extract.sh $1 ${eval_data_path}/../fig10/local/$1.txt)
+		perf=$(./extract.sh $1 ${eval_data_path}/../fig11/local/$1.txt)
 	elif [[ "$2" == "mttm" ]]; then
 		perf=$(./extract.sh $1 ${eval_data_path}/mttm/rxc/$1/$3.txt)
 	elif [[ "$2" == "mttm_norxc" ]]; then
@@ -69,25 +69,25 @@ function get_perf
 get_perf mix4 local
 get_perf mix4 mttm 20G_220
 
-pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
-fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
-silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
+pr=$(python3 ./cal_one_perf.py PR $PR_local $PR)
+fotonik=$(python3 ./cal_one_perf.py fotonik $fotonik_local $fotonik)
+silo=$(python3 ./cal_one_perf.py silo $silo_local $silo)
 
-echo -e "### MTTM with rejection monitoring" > fig13.dat
-echo -e "PR: $pr" >> fig13.dat
-echo -e "fotonik: $fotonik" >> fig13.dat
-echo -e "Silo: $silo" >> fig13.dat
+echo -e "### MTTM with rejection monitoring" > fig16.dat
+echo -e "PR: $pr" >> fig16.dat
+echo -e "fotonik: $fotonik" >> fig16.dat
+echo -e "Silo: $silo" >> fig16.dat
 
 
 get_perf mix4 mttm_norxc 20G_220
 
-pr=$(python3 ./cal_perf_fig12.py PR $PR_local $PR)
-fotonik=$(python3 ./cal_perf_fig12.py fotonik $fotonik_local $fotonik)
-silo=$(python3 ./cal_perf_fig12.py silo $silo_local $silo)
-echo -e "\n### MTTM without rejection monitoring" >> fig13.dat
-echo -e "PR: $pr" >> fig13.dat
-echo -e "fotonik: $fotonik" >> fig13.dat
-echo -e "Silo: $silo" >> fig13.dat
+pr=$(python3 ./cal_one_perf.py PR $PR_local $PR)
+fotonik=$(python3 ./cal_one_perf.py fotonik $fotonik_local $fotonik)
+silo=$(python3 ./cal_one_perf.py silo $silo_local $silo)
+echo -e "\n### MTTM without rejection monitoring" >> fig16.dat
+echo -e "PR: $pr" >> fig16.dat
+echo -e "fotonik: $fotonik" >> fig16.dat
+echo -e "Silo: $silo" >> fig16.dat
 
 
 
@@ -102,34 +102,34 @@ else
 	line_num=$norxc_line
 fi
 
-echo 0 > fig13_time.dat
+echo 0 > fig16_time.dat
 for i in $(seq 1 $line_num); do
-	echo $((2 * $i)) >> fig13_time.dat
+	echo $((2 * $i)) >> fig16_time.dat
 done
 
-echo "$rxc" | cut -d':' -f4 | cut -d'M' -f1 > fig13_local_bw.dat
-echo "$rxc" | cut -d':' -f5 | cut -d'M' -f1 > fig13_remote_bw.dat
-echo "$(python3 ./cal_net_bw.py ./fig13_local_bw.dat ./fig13_remote_bw.dat)" > fig13_rxc_bw.dat
+echo "$rxc" | cut -d':' -f4 | cut -d'M' -f1 > fig16_local_bw.dat
+echo "$rxc" | cut -d':' -f5 | cut -d'M' -f1 > fig16_remote_bw.dat
+echo "$(python3 ./cal_net_bw.py ./fig16_local_bw.dat ./fig16_remote_bw.dat)" > fig16_rxc_bw.dat
 
-echo "$norxc" | cut -d':' -f4 | cut -d'M' -f1 > fig13_local_bw.dat
-echo "$norxc" | cut -d':' -f5 | cut -d'M' -f1 > fig13_remote_bw.dat
-echo "$(python3 ./cal_net_bw.py ./fig13_local_bw.dat ./fig13_remote_bw.dat)" > fig13_norxc_bw.dat
+echo "$norxc" | cut -d':' -f4 | cut -d'M' -f1 > fig16_local_bw.dat
+echo "$norxc" | cut -d':' -f5 | cut -d'M' -f1 > fig16_remote_bw.dat
+echo "$(python3 ./cal_net_bw.py ./fig16_local_bw.dat ./fig16_remote_bw.dat)" > fig16_norxc_bw.dat
 
-echo -e "time	monitoring_O	monitoring_X" > fig13_bw.dat
-paste fig13_time.dat fig13_rxc_bw.dat fig13_norxc_bw.dat >> fig13_bw.dat
-
-
+echo -e "time	monitoring_O	monitoring_X" > fig16_bw.dat
+paste fig16_time.dat fig16_rxc_bw.dat fig16_norxc_bw.dat >> fig16_bw.dat
 
 
-echo "$rxc" | cut -d':' -f6 | cut -d',' -f1 > fig13_insert.dat
-echo "$rxc" | cut -d':' -f7 | cut -d']' -f1 > fig13_reject.dat
-echo "$(python3 ./cal_rej_ratio.py ./fig13_insert.dat ./fig13_reject.dat)" > fig13_rxc_rej_ratio.dat
 
-echo "$norxc" | cut -d':' -f6 | cut -d',' -f1 > fig13_insert.dat
-echo "$norxc" | cut -d':' -f7 | cut -d']' -f1 > fig13_reject.dat
-echo "$(python3 ./cal_rej_ratio.py ./fig13_insert.dat ./fig13_reject.dat)" > fig13_norxc_rej_ratio.dat
 
-echo -e "time	monitoring_O	monitoring_X" > fig13_rej_ratio.dat
-paste fig13_time.dat fig13_rxc_rej_ratio.dat fig13_norxc_rej_ratio.dat >> fig13_rej_ratio.dat
+echo "$rxc" | cut -d':' -f6 | cut -d',' -f1 > fig16_insert.dat
+echo "$rxc" | cut -d':' -f7 | cut -d']' -f1 > fig16_reject.dat
+echo "$(python3 ./cal_rej_ratio.py ./fig16_insert.dat ./fig16_reject.dat)" > fig16_rxc_rej_ratio.dat
+
+echo "$norxc" | cut -d':' -f6 | cut -d',' -f1 > fig16_insert.dat
+echo "$norxc" | cut -d':' -f7 | cut -d']' -f1 > fig16_reject.dat
+echo "$(python3 ./cal_rej_ratio.py ./fig16_insert.dat ./fig16_reject.dat)" > fig16_norxc_rej_ratio.dat
+
+echo -e "time	monitoring_O	monitoring_X" > fig16_rej_ratio.dat
+paste fig16_time.dat fig16_rxc_rej_ratio.dat fig16_norxc_rej_ratio.dat >> fig16_rej_ratio.dat
 
 

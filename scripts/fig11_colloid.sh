@@ -34,11 +34,11 @@ function run_colloid_hugepage
 	echo 6 > /proc/sys/kernel/numa_balancing
 
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-	mkdir -p ./evaluation/fig10/colloid/$1
-	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig10/colloid/$1/$2_$3_before_vmstat.txt
-	./run_multi_tenants_tpp.sh $1 2>&1 | cat > ./evaluation/fig10/colloid/$1/$2_$3.txt
-	dmesg > ./evaluation/fig10/colloid/$1/$2_$3_dmesg.txt
-	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig10/colloid/$1/$2_$3_after_vmstat.txt
+	mkdir -p ./evaluation/fig11/colloid/$1
+	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig11/colloid/$1/$2_$3_before_vmstat.txt
+	./run_multi_tenants_tpp.sh $1 2>&1 | cat > ./evaluation/fig11/colloid/$1/$2_$3.txt
+	dmesg > ./evaluation/fig11/colloid/$1/$2_$3_dmesg.txt
+	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig11/colloid/$1/$2_$3_after_vmstat.txt
 
 	rmmod colloid-mon
 	rmmod memeater

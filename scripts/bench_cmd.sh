@@ -14,9 +14,13 @@ elif [[ "$1" == "gapbs-pr" ]]; then
                 BENCH="${GAPBS_DIR}/pr -f ${GAPBS_DIR}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
         elif [[ "$2" == "mix4-basepage" ]]; then
                 BENCH="${GAPBS_DIR}/pr -f ${GAPBS_DIR}/pregen_g28.sg -i 1000 -t 1e-4 -n 20"
+        elif [[ "$2" == "motiv" ]]; then
+                BENCH="${GAPBS_DIR}/pr -f ${GAPBS_DIR}/pregen_g28.sg -i 1000 -t 1e-4 -n 11"
         fi
 elif [[ "$1" == "xsbench" ]]; then
         if [[ "$2" == "mix1" ]]; then
+                BENCH="${XSBENCH_DIR}/XSBench -t 8 -g 70000 -p 30000000"
+        elif [[ "$2" == "motiv" ]]; then
                 BENCH="${XSBENCH_DIR}/XSBench -t 8 -g 70000 -p 30000000"
         fi
 elif [[ "$1" == "xindex" ]]; then
@@ -36,6 +40,8 @@ elif [[ "$1" == "silo" ]]; then
 elif [[ "$1" == "cpu_dlrm_small_low" ]]; then
         if [[ "$2" == "mix3" ]]; then
                 BENCH="bash ${CPU_DLRM_DIR}/dp_ht_8c.sh small low mix3"
+	elif [[ "$2" == "motiv" ]]; then
+                BENCH="bash ${CPU_DLRM_DIR}/dp_ht_8c.sh small low motiv"
         fi
 elif [[ "$1" == "cpu_dlrm_small_high" ]]; then
         if [[ "$2" == "mix2" ]]; then

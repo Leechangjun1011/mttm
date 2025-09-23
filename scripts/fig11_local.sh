@@ -6,8 +6,8 @@ emul_path=$PWD/cxl-emulation
 function run_local_hugepage
 {
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-	mkdir -p ./evaluation/fig10/local
-	./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig10/local/$1.txt
+	mkdir -p ./evaluation/fig11/local
+	./run_multi_tenants_local.sh $1 2>&1 | cat > ./evaluation/fig11/local/$1.txt
 }
 
 

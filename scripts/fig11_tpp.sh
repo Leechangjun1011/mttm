@@ -33,11 +33,11 @@ function run_tpp_hugepage
 	echo 2 > /proc/sys/kernel/numa_balancing
 
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
-	mkdir -p ./evaluation/fig10/tpp/$1
-	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig10/tpp/$1/$2_$3_before_vmstat.txt
-	./run_multi_tenants_tpp.sh $1 2>&1 | cat > ./evaluation/fig10/tpp/$1/$2_$3.txt
-	dmesg > ./evaluation/fig10/tpp/$1/$2_$3_dmesg.txt
-	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig10/tpp/$1/$2_$3_after_vmstat.txt
+	mkdir -p ./evaluation/fig11/tpp/$1
+	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig11/tpp/$1/$2_$3_before_vmstat.txt
+	./run_multi_tenants_tpp.sh $1 2>&1 | cat > ./evaluation/fig11/tpp/$1/$2_$3.txt
+	dmesg > ./evaluation/fig11/tpp/$1/$2_$3_dmesg.txt
+	cat /proc/vmstat | grep -e promote -e demote -e migrate -e hint > ./evaluation/fig11/tpp/$1/$2_$3_after_vmstat.txt
 
 	rmmod memeater
 }
@@ -78,7 +78,6 @@ function set_220
 
 sudo insmod ${COLLOID_MODULE}/tierinit/tierinit.ko
 sudo insmod ${COLLOID_MODULE}/kswapdrst/kswapdrst.ko
-
 
 set_160
 run_tpp_hugepage mix1 54G 160

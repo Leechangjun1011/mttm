@@ -10,8 +10,8 @@ function run_memtis_hugepage
 	echo always > /sys/kernel/mm/transparent_hugepage/enabled
 	echo always > /sys/kernel/mm/transparent_hugepage/defrag
 
-	mkdir -p ./evaluation/fig10/memtis/$1
-	${memtis_script} -C $1 2>&1 | cat > ./evaluation/fig10/memtis/$1/$2.txt
+	mkdir -p ./evaluation/fig11/memtis/$1
+	${memtis_script} -C $1 2>&1 | cat > ./evaluation/fig11/memtis/$1/$2.txt
 }
 
 function reset_latency

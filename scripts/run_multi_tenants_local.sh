@@ -48,6 +48,10 @@ elif [[ "$1" == "microbench" || "$1" == "microbench-dynamic" || "$1" == "microbe
         workload[1]="gups-1"
         workload[2]="gups-2"
         workload[3]="gups-3"
+elif [[ "$1" == "motiv" ]]; then
+        workload[1]="gapbs-pr"
+        workload[2]="xsbench"
+        workload[3]="cpu_dlrm_small_low"
 elif [[ "$1" == "cooling" ]]; then
         workload[1]="gups-2g-8t"
         workload[2]="gups-4g-8t"

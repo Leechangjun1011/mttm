@@ -36,6 +36,8 @@ if [[ "$1" == "small" ]]; then
 	if [[ "$2" == "low" ]]; then
 		if [[ "$3" == "mix3" ]]; then
 			NUM_BATCH=180
+		elif [[ "$3" == "motiv" ]]; then
+			NUM_BATCH=180
 		else
 			NUM_BATCH=150
 		fi
