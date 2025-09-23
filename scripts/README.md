@@ -3,47 +3,52 @@
 
 **For EuroSys 26 artifact evaluation, we will provide our server to you. You can skip all preparation steps with the server. If you experience any failure during evaluation experiments, please let us know through hotcrp comment so we can reboot the server.**
 
-Use MTTM kernel for Figure 7 - 9.
+Use MTTM kernel for Figure 8 - 10.
 
-* Figure 7: ./fig7.sh
 * Figure 8: ./fig8.sh
 * Figure 9: ./fig9.sh
+* Figure 10: ./fig10.sh
 
-* Figure 10
+* Figure 11
 	* Use MTTM kernel for local, MTTM, static, Memstrata policy emulation, vTMM emulation.
-		* ./fig10\_local.sh
-		* ./fig10\_mttm.sh
-		* ./fig10\_static.sh
-		* ./fig10\_memstrata.sh
-		* ./fig10\_vtmm.sh
+		* ./fig11\_local.sh
+		* ./fig11\_mttm.sh
+		* ./fig11\_static.sh
+		* ./fig11\_memstrata.sh
+		* ./fig11\_vtmm.sh
 	* To run Memtis, reboot with the Memtis kernel, 5.15.19-htmm.
-		* ./fig10\_memtis.sh
+		* ./fig11\_memtis.sh
 	* To run TPP and Colloid, reboot with the Colloid kernel, 6.3.0-colloid.
-		* ./fig10\_tpp.sh
-		* ./fig10\_colloid.sh
+		* ./fig11\_tpp.sh
+		* ./fig11\_colloid.sh
 	* To parse the results, run the following script.
-		* ./parse\_fig10.sh
-	* Reproducing all of figure 10 data takes several days. You can selectively run experiments by commenting out unnecessary runs in each script.
+		* ./parse\_fig11.sh
+	* Reproducing all of figure 11 data takes several days. You can selectively run experiments by commenting out unnecessary runs in each script.
 
 
-* Figure 11: ./fig11.sh
+* Figure 12: ./fig12.sh
+* Figure 13: ./fig13.sh
+* Figure 14: ./fig14.sh
 
-* Figure 12
-	* Run fig12\_local.sh and fig12\_mttm.sh with MTTM kernel.
-	* Run fig12\_memtis.sh with Memtis kernel.
-	* Use parse\_fig12.sh to organize the results.
+* Figure 15
+	* Run fig15\_local.sh and fig15\_mttm.sh with MTTM kernel.
+	* Run fig15\_memtis.sh with Memtis kernel.
+	* Use parse\_fig15.sh to organize the results.
 
-* Figure 13: ./fig13.sh; ./parse\_fig13.sh
+* Figure 16: ./fig16.sh; ./parse\_fig16.sh
 
 
 Results for each experiment.
-* Figure 7: fig7\_gups.dat
+
 * Figure 8: fig8\_gups.dat
 * Figure 9: fig9\_gups.dat
-* Figure 10: fig10\_{system}\_{memory\_setting}.dat
-* Figure 11: fig11.dat
+* Figure 10: fig10\_gups.dat
+* Figure 11: fig11\_{system}\_{memory\_setting}.dat
 * Figure 12: fig12.dat
-* Figure 13: fig13.dat, fig13\_bw.dat, fig13\_rej\_ratio.dat
+* Figure 13: fig13.dat
+* Figure 14: fig14.dat
+* Figure 15: fig15.dat
+* Figure 16: fig16.dat, fig16\_bw.dat, fig16\_rej\_ratio.dat
 
 Following are preparation steps.
 
